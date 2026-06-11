@@ -5002,11 +5002,57 @@ function renderPositionsTab() {
   el.innerHTML = cards.map(g => renderPositionCard(g)).join('');
 }
 
+// ── P&L calculation helpers ──
+
+function getMxReportForDate(date) {
+  return (store.mx || []).find(r => r.date === date) || null;
+}
+
+function calcMxLegPnl(instrument, volume, date) {
+  const report = getMxReportForDate(date);
+  if (!report) return null;
+  const baseInstr = instrument.replace(/[-_].*/,'').toUpperCase();
+  const closing = (report.trades || []).filter(t => {
+    const ti = (t.instrument||'').replace(/[-_].*/,'').toUpperCase();
+    return ti === baseInstr && t.margin_rub && Math.abs(t.margin_rub) > 0.001;
+  });
+  if (!closing.length) {
+    const instr = (report.instruments || []).find(i =>
+      (i.name||'').replace(/[-_].*/,'').toUpperCase() === baseInstr
+    );
+    if (instr && (instr.pnl || instr.commission)) {
+      const totalVol = (report.trades||[]).filter(t=>(t.instrument||'').replace(/[-_].*/,'').toUpperCase()===baseInstr).reduce((s,t)=>s+Math.abs(t.volume||0),0)||1;
+      return { pnl:(instr.pnl||0)/totalVol*volume, commission:(instr.commission||0)/totalVol*volume, matched:true };
+    }
+    return null;
+  }
+  const totalVol = closing.reduce((s,t)=>s+Math.abs(t.volume||0),0)||1;
+  const ppl = closing.reduce((s,t)=>s+(t.margin_rub||0),0)/totalVol;
+  const cpl = closing.reduce((s,t)=>s+(t.commission||0),0)/totalVol;
+  return { pnl:ppl*volume, commission:cpl*volume, matched:true };
+}
+
+function calcFxLegPnl(instrument, date) {
+  const baseInstr = instrument.replace(/[_].*/,'').toUpperCase();
+  const fxTrades = (store.fx||[]).filter(t => {
+    const ti = (t.instrument||'').replace(/[_].*/,'').toUpperCase();
+    if (ti !== baseInstr) return false;
+    const cd = (t.close_time||t.open_time||'').slice(0,10).split('-').reverse().join('.');
+    return cd === date;
+  });
+  if (!fxTrades.length) return null;
+  return {
+    pnl: fxTrades.reduce((s,t)=>s+(t.pnl||t.profit||0),0),
+    swap: fxTrades.reduce((s,t)=>s+(t.swap||0),0),
+    commission: fxTrades.reduce((s,t)=>s+(t.commission||0),0),
+    matched: true
+  };
+}
+
 function renderPositionCard(g) {
   const mxR = g.rows.filter(r => r.platform === 'MX');
   const fxR = g.rows.filter(r => r.platform === 'FX');
 
-  // Status
   const mxNet = {};
   for (const r of mxR) {
     const k = r.instrument.replace(/[-_].*/,'').toUpperCase();
@@ -5016,13 +5062,17 @@ function renderPositionCard(g) {
   const mxClosed = mxR.length===0 || Object.values(mxNet).every(v=>Math.abs(v)<0.001);
   const fxClosed = fxR.length===0 || fxR.every(r=>r.price_close!=null);
   const allClosed = (mxR.length===0||mxClosed) && (fxR.length===0||fxClosed);
-  const partial   = !allClosed && (mxClosed || fxClosed);
+  const partial   = !allClosed && (mxClosed||fxClosed);
 
   const statusColor  = allClosed ? 'var(--green)' : partial ? 'var(--amber)' : 'var(--text2)';
   const statusBorder = allClosed ? 'var(--green)' : partial ? 'var(--amber)' : 'var(--blue)';
-  const statusLabel  = allClosed ? '✓ закрыта'   : partial ? '⚡ частично'  : '◌ открыта';
+  const statusLabel  = allClosed ? '✓ закрыта' : partial ? '⚡ частично' : '◌ открыта';
 
-  // Aggregate per instrument
+  const allTimes = g.rows.map(r=>r.time).filter(Boolean).sort();
+  const durationHtml = allTimes.length > 1
+    ? `<span style="font-size:11px;color:var(--text2)">${allTimes[0]} – ${allTimes[allTimes.length-1]}</span>`
+    : allTimes.length ? `<span style="font-size:11px;color:var(--text2)">${allTimes[0]}</span>` : '';
+
   const instrMap = {};
   for (const r of g.rows) {
     const k = `${r.platform}:${r.instrument}`;
@@ -5030,40 +5080,54 @@ function renderPositionCard(g) {
     instrMap[k].rows.push(r);
   }
 
-  const legsHtml = Object.values(instrMap).map(ig => {
-    const platBg = ig.platform==='MX' ? 'var(--badge-mx-bg)' : 'var(--badge-fx-bg)';
-    const platC  = ig.platform==='MX' ? 'var(--badge-mx-c)'  : 'var(--badge-fx-c)';
-    const sorted = [...ig.rows].sort((a,b) => a.time.localeCompare(b.time));
+  let totalMxPnl=0, totalMxComm=0, totalFxPnl=0, totalFxSwap=0, totalFxComm=0, hasAnyPnl=false;
 
-    const entryDir  = sorted[0]?.direction || '';
+  const legsHtml = Object.values(instrMap).map(ig => {
+    const platBg = ig.platform==='MX'?'var(--badge-mx-bg)':'var(--badge-fx-bg)';
+    const platC  = ig.platform==='MX'?'var(--badge-mx-c)':'var(--badge-fx-c)';
+    const sorted = [...ig.rows].sort((a,b)=>a.time.localeCompare(b.time));
+    const entryDir = sorted[0]?.direction||'';
     const isEntryBuy = entryDir==='Buy'||entryDir==='L';
 
-    // Entry rows
     let entryRows, exitRows;
-    if (ig.platform === 'FX') {
+    if (ig.platform==='FX') {
       entryRows = ig.rows;
-      exitRows  = ig.rows.filter(r => r.price_close != null);
+      exitRows  = ig.rows.filter(r=>r.price_close!=null);
     } else {
-      entryRows = sorted.filter(r => isEntryBuy ? (r.direction==='Buy'||r.direction==='L') : (r.direction==='Sell'||r.direction==='S'));
-      exitRows  = sorted.filter(r => isEntryBuy ? (r.direction==='Sell'||r.direction==='S') : (r.direction==='Buy'||r.direction==='L'));
+      entryRows = sorted.filter(r=>isEntryBuy?(r.direction==='Buy'||r.direction==='L'):(r.direction==='Sell'||r.direction==='S'));
+      exitRows  = sorted.filter(r=>isEntryBuy?(r.direction==='Sell'||r.direction==='S'):(r.direction==='Buy'||r.direction==='L'));
     }
 
-    const eVol  = entryRows.reduce((s,r)=>s+(r.volume||0),0);
-    const eAvg  = entryRows.reduce((s,r)=>s+(r.price||0)*(r.volume||0),0) / (eVol||1);
-    const xVol  = ig.platform==='FX'
-      ? exitRows.reduce((s,r)=>s+(r.volume||0),0)
-      : exitRows.reduce((s,r)=>s+(r.volume||0),0);
-    const xAvg  = ig.platform==='FX'
-      ? (xVol > 0 ? exitRows.reduce((s,r)=>s+r.price_close*(r.volume||0),0)/xVol : null)
-      : (xVol > 0 ? exitRows.reduce((s,r)=>s+(r.price||0)*(r.volume||0),0)/xVol : null);
+    const eVol = entryRows.reduce((s,r)=>s+(r.volume||0),0);
+    const eAvg = entryRows.reduce((s,r)=>s+(r.price||0)*(r.volume||0),0)/(eVol||1);
+    const xVol = exitRows.reduce((s,r)=>s+(r.volume||0),0);
+    const xAvg = xVol>0 ? (ig.platform==='FX'
+      ? exitRows.reduce((s,r)=>s+r.price_close*(r.volume||0),0)/xVol
+      : exitRows.reduce((s,r)=>s+(r.price||0)*(r.volume||0),0)/xVol) : null;
 
-    // Leg status
     let legNet;
-    if (ig.platform==='FX') legNet = ig.rows.every(r=>r.price_close!=null) ? 'closed' : ig.rows.some(r=>r.price_close!=null) ? 'partial' : 'open';
-    else { const net=Math.abs((entryRows.reduce((s,r)=>s+(r.volume||0),0))-(exitRows.reduce((s,r)=>s+(r.volume||0),0))); legNet = net<0.001&&ig.rows.length>1?'closed':exitRows.length?'partial':'open'; }
+    if (ig.platform==='FX') legNet=ig.rows.every(r=>r.price_close!=null)?'closed':ig.rows.some(r=>r.price_close!=null)?'partial':'open';
+    else { const net=Math.abs(eVol-xVol); legNet=net<0.001&&ig.rows.length>1?'closed':xVol>0?'partial':'open'; }
     const si = legNet==='closed'?'<span style="color:var(--green)">✓</span>':legNet==='partial'?'<span style="color:var(--amber)">◑</span>':'<span style="color:var(--text2)">◌</span>';
 
-    const fmtP = (v,p) => { const n = Number.isInteger(v) ? v : parseFloat(v.toFixed(4).replace(/\.?0+$/,'')); return String(n).replace(',','.'); };
+    let pnlHtml='';
+    if (ig.platform==='MX') {
+      const pd = calcMxLegPnl(ig.instrument, eVol, g.date);
+      if (pd) {
+        totalMxPnl+=pd.pnl; totalMxComm+=pd.commission; hasAnyPnl=true;
+        const net=pd.pnl+pd.commission;
+        pnlHtml=`<td style="padding:4px 8px;text-align:right;font-family:monospace;font-size:11px;color:${net>=0?'var(--green)':'var(--red)'}">${net>=0?'+':''}${Math.round(net)} ₽</td>`;
+      } else pnlHtml='<td style="padding:4px 8px;color:var(--text2);text-align:right;font-size:11px">—</td>';
+    } else {
+      const pd = calcFxLegPnl(ig.instrument, g.date);
+      if (pd) {
+        totalFxPnl+=pd.pnl; totalFxSwap+=pd.swap; totalFxComm+=pd.commission; hasAnyPnl=true;
+        const net=pd.pnl+pd.swap+pd.commission;
+        pnlHtml=`<td style="padding:4px 8px;text-align:right;font-family:monospace;font-size:11px;color:${net>=0?'var(--green)':'var(--red)'}">${net>=0?'+':''}${net.toFixed(2)}$</td>`;
+      } else pnlHtml='<td style="padding:4px 8px;color:var(--text2);text-align:right;font-size:11px">—</td>';
+    }
+
+    const fmtP = v => Number.isInteger(v)?String(v):parseFloat(v.toFixed(4).replace(/\.?0+$/,'')).toString();
     const times = ig.rows.map(r=>r.time).sort();
     const timeRange = times[0]+(times.length>1?'–'+times[times.length-1]:'');
 
@@ -5073,41 +5137,54 @@ function renderPositionCard(g) {
       <td style="padding:4px 8px;font-weight:600">${esc(ig.instrument)}</td>
       <td style="padding:4px 8px;font-weight:700;color:${dirCol(entryDir)}">${dirRu(entryDir)}</td>
       <td style="padding:4px 8px;text-align:right">${Math.round(eVol*100)/100}</td>
-      <td style="padding:4px 8px;text-align:right;font-family:monospace">${fmtP(eAvg,ig.platform)}</td>
-      <td style="padding:4px 8px;text-align:right;font-family:monospace;color:var(--text2)">${xAvg!=null?fmtP(xAvg,ig.platform):'—'}</td>
+      <td style="padding:4px 8px;text-align:right;font-family:monospace">${fmtP(eAvg)}</td>
+      <td style="padding:4px 8px;text-align:right;font-family:monospace;color:var(--text2)">${xAvg!=null?fmtP(xAvg):'—'}</td>
       <td style="padding:4px 8px;color:var(--text2);font-size:11px;white-space:nowrap">${timeRange}</td>
+      ${pnlHtml}
     </tr>`;
   }).join('');
 
-  // P&L from store.positions if matched
-  const posMatch = (store.positions||[]).find(p =>
-    p.tag===g.tag && String(p.set||1)===String(g.set||1) && p.date===g.date
-  );
-  const pnl = posMatch ? posMatch.legs.reduce((s,l)=>s+(l.pnl||0),0) : null;
-  const pnlHtml = pnl != null
-    ? `<span style="font-size:12px;font-weight:700;color:${pnl>=0?'var(--green)':'var(--red)'}">
-        ${pnl>=0?'+':''}${pnl.toFixed(2)} ₽</span>`
-    : '';
+  const rate = currentRate?.value||85;
+  const fxPnlRub = (totalFxPnl+totalFxSwap+totalFxComm)*rate;
+  const mxNet2 = totalMxPnl+totalMxComm;
+  const grandTotal = mxNet2+fxPnlRub;
+  const gtColor = grandTotal>=0?'var(--green)':'var(--red)';
 
-  const mxBadge = mxR.length ? `<span style="font-size:10px;padding:1px 5px;border-radius:3px;background:${mxClosed?'rgba(52,211,153,.12)':'rgba(251,191,36,.12)'};color:${mxClosed?'var(--green)':'var(--amber)'}">MX ${mxClosed?'✓':'◌'}</span>` : '';
-  const fxBadge = fxR.length ? `<span style="font-size:10px;padding:1px 5px;border-radius:3px;background:${fxClosed?'rgba(52,211,153,.12)':'rgba(251,191,36,.12)'};color:${fxClosed?'var(--green)':'var(--amber)'}">FX ${fxClosed?'✓':'◌'}</span>` : '';
+  const totalsHtml = hasAnyPnl ? `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:10px 14px;background:var(--bg3);border-top:1px solid var(--border);font-size:12px">
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">MX P&L:</span><span style="font-family:monospace;color:${totalMxPnl>=0?'var(--green)':'var(--red)'}">${totalMxPnl>=0?'+':''}${Math.round(totalMxPnl)} ₽</span></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">Комиссия MX:</span><span style="font-family:monospace;color:var(--red)">${Math.round(totalMxComm)} ₽</span></div>
+        <div style="display:flex;justify-content:space-between;border-top:1px solid var(--border);padding-top:4px"><span style="color:var(--text2);font-weight:600">Итого MX:</span><span style="font-family:monospace;font-weight:700;color:${mxNet2>=0?'var(--green)':'var(--red)'}">${mxNet2>=0?'+':''}${Math.round(mxNet2)} ₽</span></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">FX P&L:</span><span style="font-family:monospace;color:${totalFxPnl>=0?'var(--green)':'var(--red)'}">${totalFxPnl>=0?'+':''}${totalFxPnl.toFixed(2)}$</span></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">Своп FX:</span><span style="font-family:monospace;color:${totalFxSwap>=0?'var(--green)':'var(--red)'}">${totalFxSwap>=0?'+':''}${totalFxSwap.toFixed(4)}$</span></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">Комиссия FX:</span><span style="font-family:monospace;color:var(--red)">${totalFxComm.toFixed(4)}$</span></div>
+        <div style="display:flex;justify-content:space-between;border-top:1px solid var(--border);padding-top:4px"><span style="color:var(--text2);font-weight:600">Итого FX:</span><span style="font-family:monospace;font-weight:700;color:${fxPnlRub>=0?'var(--green)':'var(--red)'}">${fxPnlRub>=0?'+':''}${Math.round(fxPnlRub)} ₽</span></div>
+      </div>
+      <div style="grid-column:1/-1;display:flex;justify-content:space-between;align-items:center;border-top:2px solid var(--border);padding-top:8px">
+        <span style="font-weight:700;font-size:13px">Итого по конструкции:</span>
+        <span style="font-family:monospace;font-weight:800;font-size:15px;color:${gtColor}">${grandTotal>=0?'+':''}${Math.round(grandTotal)} ₽</span>
+      </div>
+    </div>` : '';
 
-  return `<div style="border:1px solid var(--border);border-left:3px solid ${statusBorder};
-                      border-radius:8px;margin-bottom:12px;overflow:hidden">
-    <div style="display:flex;align-items:center;gap:8px;padding:10px 14px;
-                background:var(--bg2);border-bottom:1px solid var(--border);flex-wrap:wrap">
+  const mxBadge = mxR.length?`<span style="font-size:10px;padding:1px 5px;border-radius:3px;background:${mxClosed?'rgba(52,211,153,.12)':'rgba(251,191,36,.12)'};color:${mxClosed?'var(--green)':'var(--amber)'}">MX ${mxClosed?'✓':'◌'}</span>`:'';
+  const fxBadge = fxR.length?`<span style="font-size:10px;padding:1px 5px;border-radius:3px;background:${fxClosed?'rgba(52,211,153,.12)':'rgba(251,191,36,.12)'};color:${fxClosed?'var(--green)':'var(--amber)'}">FX ${fxClosed?'✓':'◌'}</span>`:'';
+
+  return `<div style="border:1px solid var(--border);border-left:3px solid ${statusBorder};border-radius:8px;margin-bottom:12px;overflow:hidden">
+    <div style="display:flex;align-items:center;gap:8px;padding:10px 14px;background:var(--bg2);border-bottom:1px solid var(--border);flex-wrap:wrap">
       <strong style="font-size:14px;color:var(--blue)">${esc(g.tag)}</strong>
       <span style="font-size:11px;color:var(--text2);background:var(--bg3);border-radius:3px;padding:1px 6px">№${g.set||1}</span>
       <span style="font-size:11px;color:var(--text2)">${g.date}</span>
       <div style="display:flex;gap:4px">${mxBadge}${fxBadge}</div>
       <span style="font-size:11px;font-weight:700;color:${statusColor}">${statusLabel}</span>
-      ${pnlHtml}
+      ${durationHtml}
     </div>
     <div style="overflow-x:auto">
-      <table style="width:100%;border-collapse:collapse;min-width:550px">
+      <table style="width:100%;border-collapse:collapse;min-width:600px">
         <thead>
-          <tr style="font-size:10px;color:var(--text2);text-transform:uppercase;
-                     letter-spacing:.05em;border-bottom:1px solid var(--border)">
+          <tr style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border)">
             <th style="padding:3px 8px"></th>
             <th style="padding:3px 8px;text-align:left">Пл.</th>
             <th style="padding:3px 8px;text-align:left">Инструмент</th>
@@ -5116,11 +5193,13 @@ function renderPositionCard(g) {
             <th style="padding:3px 8px;text-align:right">Вход</th>
             <th style="padding:3px 8px;text-align:right">Выход</th>
             <th style="padding:3px 8px">Время</th>
+            <th style="padding:3px 8px;text-align:right">P&L</th>
           </tr>
         </thead>
         <tbody>${legsHtml}</tbody>
       </table>
     </div>
+    ${totalsHtml}
   </div>`;
 }
 
