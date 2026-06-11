@@ -4885,18 +4885,23 @@ async function fetchGO(secid) {
 
   for (const sid of secids) {
     try {
-      const url = `https://iss.moex.com/iss/engines/futures/markets/forts/securities/${sid}.json?iss.meta=off&iss.only=securities&securities.columns=SECID,INITIALMARGIN,STEPPRICE,LOTVOLUME`;
+      const url = `https://iss.moex.com/iss/engines/futures/markets/forts/securities/${sid}.json?iss.meta=off&iss.only=securities&securities.columns=SECID,INITIALMARGIN,MINMARGIN,STEPPRICE,LOTVOLUME`;
       const r = await fetch(url);
       if (!r.ok) continue;
       const d = await r.json();
       const cols = d.securities?.columns;
       const row  = d.securities?.data?.[0];
       if (!row || !cols) continue;
-      const get = k => row[cols.indexOf(k)];
-      const go = get('INITIALMARGIN');
+      const get = k => { const i = cols.indexOf(k); return i>=0 ? row[i] : null; };
+      const initMargin = get('INITIALMARGIN');
+      const minMargin  = get('MINMARGIN');
+      // Use minimum margin (holding margin) — lower value, actual capital freeze
+      const go = (minMargin && minMargin > 0) ? minMargin : initMargin;
       if (!go || go <= 0) continue;
       const result = {
         go,
+        go_init : initMargin || go,
+        go_min  : minMargin  || go,
         step    : get('STEPPRICE') || 1,
         lotsize : get('LOTVOLUME') || 1,
       };
