@@ -8023,7 +8023,8 @@ renderUnifiedTableAsync(); // async: подтягивает историческ
 renderJournalTab();
 renderConstructionsTab();
 renderPositionsTab();
-renderLiveJournal();
+// Small delay to ensure localStorage is fully read before rendering Journal
+setTimeout(() => { renderLiveJournal(); renderCapitalLoad(); }, 50);
 updateDashboard();
 </script>
 </body>
