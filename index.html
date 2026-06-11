@@ -4927,18 +4927,22 @@ function calcFxMargin(leg) {
   // CNH pairs (EURCNH, USDCNH): quoted in CNH → divide by USDCNH to get USD
   // For margin calculation: leverage ≈ 68 based on broker data
   let leverage = 100;
-  if (instr.endsWith('CNH') || instr.endsWith('CNY')) {
-    // Margin in CNH → convert to USD: margin_cnh = lots * lot_size * price / leverage_cnh
-    // Then margin_usd = margin_cnh / price (since price IS EURCNH or USDCNH)
-    // Simplified: margin_usd = lots * lot_size / leverage_cnh
-    // From broker screenshot: 0.01 lot EURCNH @ 7.83 → $11.49 → leverage = 100000*0.01/11.49 * 7.83/... 
-    // Actually: margin_usd = lots * 100000 / (price * leverage_cnh / price) 
-    // Simplest fit: margin_usd = lots * lot_size / 68
-    leverage = 68;
-    return (leg.volume || 0) * lotSize / leverage;
-  }
+  // Leverage per instrument group based on broker data (cTrader xpbee)
+  // Source: broker margin info panel
+  const leverageMap = {
+    // CNH pairs: 0.01 lot EURCNH → $11.49 → leverage = 100000*0.01/11.49 ≈ 87
+    'EURCNH': 87, 'USDCNH': 87,
+    // EUR pairs vs USD typically 1:100
+    'EURUSD': 100, 'GBPUSD': 100, 'AUDUSD': 100, 'NZDUSD': 100,
+    // USD base pairs
+    'USDJPY': 100, 'USDCHF': 100, 'USDCAD': 100,
+    // Metals: typically 1:100 on lot basis
+    'XAUUSD': 100, 'XAGUSD': 100,
+    // Crypto
+    'BTCUSD': 2, 'ETHUSD': 5,
+  };
 
-  // Standard: margin_usd = lots * lot_size / leverage
+  leverage = leverageMap[instr] || 100;
   return (leg.volume || 0) * lotSize / leverage;
 }
 
