@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781178005 -->
+<!-- v:1781178633 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -372,7 +372,7 @@
     <button class="nav-btn" onclick="switchTab('funds', event)">Движение средств</button>
     <button class="nav-btn active" onclick="switchTab('journal', event); renderLiveJournal()">Журнал</button>
     <button class="nav-btn" onclick="switchTab('constructions', event)">Сделки</button>
-    <button class="nav-btn" onclick="switchTab('showcase', event); renderShowcase()">✨ Showcase</button>
+    <button class="nav-btn" onclick="switchTab('showcase', event); renderShowcase()">Дневник</button>
   </div>
 
   <!-- OVERVIEW -->
@@ -8450,20 +8450,23 @@ function renderShowcase() {
   if (!root) return;
   ljInit();
 
-  const dark = _showcaseDark;
-  const bg    = dark ? '#0f1117' : '#f8f9fa';
-  const bg2   = dark ? '#1a1d27' : '#ffffff';
-  const bg3   = dark ? '#252836' : '#f1f3f5';
-  const border= dark ? '#2d3148' : '#e2e6ea';
-  const text1 = dark ? '#e8eaf6' : '#1a1a2e';
-  const text2 = dark ? '#7b82b0' : '#6c757d';
-  const green = '#22c55e';
-  const red   = '#ef4444';
-  const blue  = '#6366f1';
-  const gold  = '#f59e0b';
+  // Use global theme
+  const dark = document.body.classList.contains('dark') ||
+               document.documentElement.getAttribute('data-theme') === 'dark' ||
+               getComputedStyle(document.body).getPropertyValue('--bg').trim().startsWith('#0') ||
+               getComputedStyle(document.body).getPropertyValue('--bg').trim().startsWith('#1');
 
-  // Gather today's tagged constructions
-  const today = todayStr();
+  const bg    = 'var(--bg)';
+  const bg2   = 'var(--bg2)';
+  const bg3   = 'var(--bg3)';
+  const border= 'var(--border)';
+  const text1 = 'var(--text)';
+  const text2 = 'var(--text2)';
+  const green = 'var(--green)';
+  const red   = 'var(--red)';
+  const blue  = 'var(--blue)';
+  const gold  = 'var(--amber)';
+
   const tagged = store.lj.rows.filter(r => r.tag);
   const groups = {};
   for (const r of tagged) {
@@ -8472,180 +8475,253 @@ function renderShowcase() {
     groups[key].rows.push(r);
   }
 
-  // Filter to selected date
   const allDates = [...new Set(Object.values(groups).map(g=>g.date))].sort((a,b)=>parseDate(b)-parseDate(a));
-  const selDate  = root.dataset.date || allDates[0] || today;
-  const cards    = Object.values(groups).filter(g => g.date === selDate)
-                         .sort((a,b) => a.set - b.set);
+  const selDate  = root.dataset.date || allDates[0] || todayStr();
+  const selPeriod = root.dataset.period || 'day';
 
-  // Stats
-  let totalSpreadEntry = 0, totalSpreadExit = 0, nSpread = 0;
-  let closedCount = 0, openCount2 = 0;
-
-  const cardHtmls = cards.map(g => {
-    const mxR = g.rows.filter(r=>r.platform==='MX');
-    const fxR = g.rows.filter(r=>r.platform==='FX');
+  // Helper: card status
+  function gStatus(g) {
+    const mxR=g.rows.filter(r=>r.platform==='MX');
+    const fxR=g.rows.filter(r=>r.platform==='FX');
     const mxNet={};
     for(const r of mxR){const k=r.instrument.replace(/[-_].*/,'').toUpperCase();const s=(r.direction==='Buy'||r.direction==='L')?1:-1;mxNet[k]=(mxNet[k]||0)+s*(r.volume||0);}
-    const mxClosed=mxR.length===0||Object.values(mxNet).every(v=>Math.abs(v)<0.001);
-    const fxClosed=fxR.length===0||fxR.every(r=>r.price_close!=null);
-    const allClosed=(mxR.length===0||mxClosed)&&(fxR.length===0||fxClosed);
-    const partial=!allClosed&&(mxClosed||fxClosed);
-    if (allClosed) closedCount++; else openCount2++;
+    const mxC=mxR.length===0||Object.values(mxNet).every(v=>Math.abs(v)<0.001);
+    const fxC=fxR.length===0||fxR.every(r=>r.price_close!=null);
+    return (mxR.length===0||mxC)&&(fxR.length===0||fxC)?'closed':'open';
+  }
 
-    const statusLabel = allClosed ? '✓ Закрыта' : partial ? '◑ Частично' : '● Открыта';
-    const statusColor = allClosed ? green : partial ? gold : text2;
-    const borderColor = allClosed ? green : partial ? gold : blue;
+  // ── PERIOD VIEW: week/month summary ──
+  function buildPeriodSummary(periodDays) {
+    const cutoff = Date.now() - periodDays*24*60*60*1000;
+    const periodGroups = Object.values(groups).filter(g => parseDate(g.date) >= cutoff);
 
-    // Build instrMap for spread
-    const instrMap={};
-    for(const r of g.rows){const k=`${r.platform}:${r.instrument}`;if(!instrMap[k])instrMap[k]={platform:r.platform,instrument:r.instrument,rows:[]};instrMap[k].rows.push(r);}
+    // Aggregate by tag
+    const byTag = {};
+    for (const g of periodGroups) {
+      if (!byTag[g.tag]) byTag[g.tag] = { tag:g.tag, total:0, closed:0, open:0, deltas:[] };
+      if (gStatus(g)==='closed') byTag[g.tag].closed++;
+      else byTag[g.tag].open++;
+      byTag[g.tag].total++;
 
-    // Anonymized legs
-    const seenInstrs = new Set();
-    const legItems = Object.values(instrMap).map(ig => {
-      const anonName = showcaseInstr(ig.instrument);
-      const sorted=[...ig.rows].sort((a,b)=>a.time.localeCompare(b.time));
-      const entryDir=sorted[0]?.direction||'';
-      const isEntryBuy=entryDir==='Buy'||entryDir==='L';
-      const entryRows=ig.platform==='FX'?ig.rows:sorted.filter(r=>isEntryBuy?(r.direction==='Buy'||r.direction==='L'):(r.direction==='Sell'||r.direction==='S'));
-      const exitRows=ig.platform==='FX'?ig.rows.filter(r=>r.price_close!=null):sorted.filter(r=>isEntryBuy?(r.direction==='Sell'||r.direction==='S'):(r.direction==='Buy'||r.direction==='L'));
-      const eVol=entryRows.reduce((s,r)=>s+(r.volume||0),0);
-      const eAvg=entryRows.reduce((s,r)=>s+(r.price||0)*(r.volume||0),0)/(eVol||1);
-      const xVol=exitRows.reduce((s,r)=>s+(r.volume||0),0);
-      const xAvg=ig.platform==='FX'?xVol>0?exitRows.reduce((s,r)=>s+r.price_close*(r.volume||0),0)/xVol:null:xVol>0?exitRows.reduce((s,r)=>s+(r.price||0)*(r.volume||0),0)/xVol:null;
-      const times=ig.rows.map(r=>r.time).sort();
-      const timeStr=times[0]+(times.length>1?'–'+times[times.length-1]:'');
-      const dirLabel=isEntryBuy?'▲ Лонг':'▼ Шорт';
-      const dirColor=isEntryBuy?green:red;
-      const fmtP=v=>Number.isInteger(v)?String(v):parseFloat(v.toFixed(ig.platform==='FX'?5:3).replace(/\.?0+$/,'')).toString();
-
-      const platColor = ig.platform==='MX' ? '#818cf8' : '#a78bfa';
-
-      return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;
-                          border-bottom:1px solid ${border};font-size:12px;flex-wrap:wrap">
-        <span style="font-size:10px;font-weight:700;border-radius:3px;padding:2px 7px;
-                     background:${ig.platform==='MX'?'rgba(129,140,248,.15)':'rgba(167,139,250,.15)'};
-                     color:${platColor}">${ig.platform}</span>
-        <span style="font-weight:600;color:${text1}">${anonName}</span>
-        <span style="color:${dirColor};font-weight:700;font-size:11px">${dirLabel}</span>
-        <span style="font-family:monospace;color:${text2}">${fmtP(eAvg)}</span>
-        ${xAvg!=null?`<span style="color:${text2}">→</span><span style="font-family:monospace;color:${text1}">${fmtP(xAvg)}</span>`:''}
-        <span style="margin-left:auto;color:${text2};font-size:11px">${timeStr}</span>
-      </div>`;
-    }).join('');
-
-    // Spread
-    const sp = calcSpread(instrMap);
-    let spreadHtml = '';
-    if (sp && sp.entry != null) {
-      const se = sp.entry.toFixed(4);
-      const seC = text1;
-      if (sp.exit != null) {
-        const sx = sp.exit.toFixed(4);
-        const delta = Math.abs(sp.entry) - Math.abs(sp.exit); // |entry|-|exit|: positive = profit
-        const dc = delta>=0?green:red;
-        spreadHtml = `<div style="display:flex;gap:14px;padding:8px 0 0;font-size:11px;flex-wrap:wrap">
-          <span style="color:${text2}">Спред:</span>
-          <span><span style="color:${text2}">вход</span> <span style="font-family:monospace;font-weight:700;color:${seC}">${se}%</span></span>
-          <span><span style="color:${text2}">выход</span> <span style="font-family:monospace;color:${text1}">${sx}%</span></span>
-          <span style="font-family:monospace;font-weight:800;color:${dc};font-size:13px">${delta>=0?'+':''}${delta.toFixed(4)}%</span>
-        </div>`;
-        totalSpreadEntry += sp.entry; totalSpreadExit += sp.exit; nSpread++;
-      } else {
-        spreadHtml = `<div style="display:flex;gap:10px;padding:8px 0 0;font-size:11px">
-          <span style="color:${text2}">Спред входа:</span>
-          <span style="font-family:monospace;font-weight:700;color:${seC}">${se}%</span>
-          <span style="color:${gold};font-size:10px">в позиции</span>
-        </div>`;
-        totalSpreadEntry += sp.entry; nSpread++;
+      // Spread delta
+      const instrMap={};
+      for(const r of g.rows){const k=`${r.platform}:${r.instrument}`;if(!instrMap[k])instrMap[k]={platform:r.platform,instrument:r.instrument,rows:[]};instrMap[k].rows.push(r);}
+      const sp = calcSpread(instrMap);
+      if (sp?.entry!=null && sp?.exit!=null) {
+        byTag[g.tag].deltas.push(Math.abs(sp.entry)-Math.abs(sp.exit));
       }
     }
 
-    return `<div style="background:${bg2};border:1px solid ${border};
-                        border-left:3px solid ${borderColor};border-radius:10px;
-                        padding:14px 16px;break-inside:avoid">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
-        <span style="font-size:16px;font-weight:800;color:${blue};letter-spacing:-.5px">${esc(g.tag)}</span>
-        <span style="font-size:11px;background:${bg3};border-radius:4px;padding:2px 8px;color:${text2}">набор ${g.set||1}</span>
-        <span style="font-size:11px;font-weight:700;color:${statusColor};margin-left:auto">${statusLabel}</span>
-      </div>
-      <div>${legItems}</div>
-      ${spreadHtml}
-    </div>`;
-  }).join('');
+    const tags = Object.values(byTag).sort((a,b)=>b.total-a.total);
+    const totalClosed = tags.reduce((s,t)=>s+t.closed,0);
+    const totalOpen   = tags.reduce((s,t)=>s+t.open,0);
+    const allDeltas   = tags.flatMap(t=>t.deltas);
+    const avgDelta    = allDeltas.length ? allDeltas.reduce((s,v)=>s+v,0)/allDeltas.length : null;
 
-  // Summary stats
-  const avgEntry = nSpread>0 ? (totalSpreadEntry/nSpread).toFixed(4) : null;
-  const avgExit  = nSpread>0 && totalSpreadExit>0 ? (totalSpreadExit/nSpread).toFixed(4) : null;
-  const avgDelta = avgEntry && avgExit ? (parseFloat(avgEntry)-parseFloat(avgExit)).toFixed(4) : null;
+    const tagCards = tags.map(t => {
+      const avgD = t.deltas.length ? t.deltas.reduce((s,v)=>s+v,0)/t.deltas.length : null;
+      const dc = avgD!=null?(avgD>=0?green:red):text2;
+      return `<div style="background:${bg2};border:1px solid ${border};border-radius:10px;padding:14px 16px">
+        <div style="font-size:18px;font-weight:800;color:${blue};margin-bottom:8px">${esc(t.tag)}</div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:12px">
+          <span><span style="color:${text2}">Сделок:</span> <span style="font-weight:700;color:${text1}">${t.total}</span></span>
+          <span><span style="color:${text2}">Закрыто:</span> <span style="font-weight:700;color:${green}">${t.closed}</span></span>
+          ${t.open?`<span><span style="color:${text2}">Открыто:</span> <span style="font-weight:700;color:${gold}">${t.open}</span></span>`:''}
+          ${avgD!=null?`<span><span style="color:${text2}">Ср. Δ спреда:</span> <span style="font-weight:700;color:${dc}">${avgD>=0?'+':''}${avgD.toFixed(4)}%</span></span>`:''}
+        </div>
+      </div>`;
+    }).join('');
 
-  // Date selector
-  const dateBtns = allDates.map(d =>
-    `<button onclick="document.getElementById('showcase-root').dataset.date='${d}';renderShowcase()"
-      style="padding:4px 12px;font-size:12px;border-radius:4px;cursor:pointer;
-             border:1px solid ${d===selDate?blue:border};
-             background:${d===selDate?blue:bg2};
-             color:${d===selDate?'#fff':text2}">${d}</button>`
+    return { tagCards, totalClosed, totalOpen, avgDelta, total: periodGroups.length };
+  }
+
+  // ── DAY VIEW ──
+  function buildDayView() {
+    const cards = Object.values(groups).filter(g=>g.date===selDate).sort((a,b)=>a.set-b.set);
+    let closedCount=0, openCount=0, totalSpreadEntry=0, totalSpreadExit=0, nSpread=0;
+
+    const cardHtmls = cards.map(g => {
+      const st = gStatus(g);
+      if(st==='closed') closedCount++; else openCount++;
+      const statusLabel = st==='closed'?'✓ Закрыта':'● Открыта';
+      const statusColor = st==='closed'?green:gold;
+      const borderColor = st==='closed'?green:blue;
+
+      const instrMap={};
+      for(const r of g.rows){const k=`${r.platform}:${r.instrument}`;if(!instrMap[k])instrMap[k]={platform:r.platform,instrument:r.instrument,rows:[]};instrMap[k].rows.push(r);}
+
+      const legItems = Object.values(instrMap).map(ig => {
+        const anonName = showcaseInstr(ig.instrument);
+        const sorted=[...ig.rows].sort((a,b)=>a.time.localeCompare(b.time));
+        const entryDir=sorted[0]?.direction||'';
+        const isEntryBuy=entryDir==='Buy'||entryDir==='L';
+        const entryRows=ig.platform==='FX'?ig.rows:sorted.filter(r=>isEntryBuy?(r.direction==='Buy'||r.direction==='L'):(r.direction==='Sell'||r.direction==='S'));
+        const exitRows=ig.platform==='FX'?ig.rows.filter(r=>r.price_close!=null):sorted.filter(r=>isEntryBuy?(r.direction==='Sell'||r.direction==='S'):(r.direction==='Buy'||r.direction==='L'));
+        const eVol=entryRows.reduce((s,r)=>s+(r.volume||0),0);
+        const eAvg=entryRows.reduce((s,r)=>s+(r.price||0)*(r.volume||0),0)/(eVol||1);
+        const xVol=exitRows.reduce((s,r)=>s+(r.volume||0),0);
+        const xAvg=ig.platform==='FX'?xVol>0?exitRows.reduce((s,r)=>s+r.price_close*(r.volume||0),0)/xVol:null:xVol>0?exitRows.reduce((s,r)=>s+(r.price||0)*(r.volume||0),0)/xVol:null;
+        const times=ig.rows.map(r=>r.time).sort();
+        const timeStr=times[0]+(times.length>1?'–'+times[times.length-1]:'');
+        const dirLabel=isEntryBuy?'▲ Лонг':'▼ Шорт';
+        const dirColor=isEntryBuy?green:red;
+        const fmtP=v=>Number.isInteger(v)?String(v):parseFloat(v.toFixed(ig.platform==='FX'?5:3).replace(/\.?0+$/,'')).toString();
+        const platColor=ig.platform==='MX'?'#818cf8':'#a78bfa';
+        return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid ${border};font-size:12px;flex-wrap:wrap">
+          <span style="font-size:10px;font-weight:700;border-radius:3px;padding:2px 7px;background:${ig.platform==='MX'?'rgba(129,140,248,.15)':'rgba(167,139,250,.15)'};color:${platColor}">${ig.platform}</span>
+          <span style="font-weight:600;color:${text1}">${anonName}</span>
+          <span style="color:${dirColor};font-weight:700;font-size:11px">${dirLabel}</span>
+          <span style="font-family:monospace;color:${text2}">${fmtP(eAvg)}</span>
+          ${xAvg!=null?`<span style="color:${text2}">→</span><span style="font-family:monospace;color:${text1}">${fmtP(xAvg)}</span>`:''}
+          <span style="margin-left:auto;color:${text2};font-size:11px">${timeStr}</span>
+        </div>`;
+      }).join('');
+
+      const sp=calcSpread(instrMap);
+      let spreadHtml='';
+      if(sp?.entry!=null){
+        const se=sp.entry.toFixed(4);
+        if(sp.exit!=null){
+          const sx=sp.exit.toFixed(4);
+          const delta=Math.abs(sp.entry)-Math.abs(sp.exit);
+          const dc=delta>=0?green:red;
+          spreadHtml=`<div style="display:flex;gap:14px;padding:8px 0 0;font-size:11px;flex-wrap:wrap">
+            <span style="color:${text2}">Спред:</span>
+            <span><span style="color:${text2}">вход</span> <span style="font-family:monospace;font-weight:600;color:${text1}">${se}%</span></span>
+            <span><span style="color:${text2}">выход</span> <span style="font-family:monospace;color:${text1}">${sx}%</span></span>
+            <span style="font-family:monospace;font-weight:800;color:${dc};font-size:14px">${delta>=0?'+':''}${delta.toFixed(4)}%</span>
+          </div>`;
+          totalSpreadEntry+=sp.entry; totalSpreadExit+=sp.exit; nSpread++;
+        } else {
+          spreadHtml=`<div style="display:flex;gap:10px;padding:8px 0 0;font-size:11px">
+            <span style="color:${text2}">Спред входа:</span>
+            <span style="font-family:monospace;font-weight:600;color:${text1}">${se}%</span>
+            <span style="color:${gold};font-size:10px">в позиции</span>
+          </div>`;
+          totalSpreadEntry+=sp.entry; nSpread++;
+        }
+      }
+
+      return `<div style="background:${bg2};border:1px solid ${border};border-left:3px solid ${borderColor};border-radius:10px;padding:14px 16px;break-inside:avoid">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+          <span style="font-size:16px;font-weight:800;color:${blue};letter-spacing:-.5px">${esc(g.tag)}</span>
+          <span style="font-size:11px;background:${bg3};border-radius:4px;padding:2px 8px;color:${text2}">набор ${g.set||1}</span>
+          <span style="font-size:11px;font-weight:700;color:${statusColor};margin-left:auto">${statusLabel}</span>
+        </div>
+        <div>${legItems}</div>
+        ${spreadHtml}
+      </div>`;
+    }).join('');
+
+    const avgDelta = nSpread>0&&totalSpreadExit>0?(Math.abs(totalSpreadEntry/nSpread)-Math.abs(totalSpreadExit/nSpread)):null;
+    return { cardHtmls, closedCount, openCount, avgDelta, total: cards.length };
+  }
+
+  // ── Render ──
+  const week  = buildPeriodSummary(7);
+  const month = buildPeriodSummary(30);
+  const day   = buildDayView();
+
+  const periodBtn = (p, label) =>
+    `<button onclick="document.getElementById('showcase-root').dataset.period='${p}';renderShowcase()"
+      style="padding:5px 14px;font-size:12px;border-radius:6px;cursor:pointer;
+             border:1px solid ${selPeriod===p?'var(--blue)':'var(--border)'};
+             background:${selPeriod===p?'var(--blue)':'var(--bg2)'};
+             color:${selPeriod===p?'#fff':'var(--text2)'}">${label}</button>`;
+
+  const dateBtns = allDates.slice(0,7).map(d =>
+    `<button onclick="document.getElementById('showcase-root').dataset.date='${d}';document.getElementById('showcase-root').dataset.period='day';renderShowcase()"
+      style="padding:4px 10px;font-size:11px;border-radius:4px;cursor:pointer;
+             border:1px solid ${d===selDate&&selPeriod==='day'?'var(--blue)':'var(--border)'};
+             background:${d===selDate&&selPeriod==='day'?'var(--blue)':'var(--bg2)'};
+             color:${d===selDate&&selPeriod==='day'?'#fff':'var(--text2)'}">${d}</button>`
   ).join('');
 
-  root.style.background = bg;
-  root.style.minHeight = '100vh';
-  root.style.padding = '20px';
-  root.style.fontFamily = 'var(--font)';
+  let mainContent = '';
+
+  if (selPeriod === 'day') {
+    mainContent = `
+      <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+        <div style="background:${bg2};border:1px solid ${border};border-radius:8px;padding:10px 16px;flex:1;min-width:90px;text-align:center">
+          <div style="font-size:10px;color:${text2};text-transform:uppercase;letter-spacing:.5px">Закрыто</div>
+          <div style="font-size:24px;font-weight:800;color:${green}">${day.closedCount}</div>
+        </div>
+        <div style="background:${bg2};border:1px solid ${border};border-radius:8px;padding:10px 16px;flex:1;min-width:90px;text-align:center">
+          <div style="font-size:10px;color:${text2};text-transform:uppercase;letter-spacing:.5px">Открыто</div>
+          <div style="font-size:24px;font-weight:800;color:${day.openCount>0?gold:text2}">${day.openCount}</div>
+        </div>
+        ${day.avgDelta!=null?`<div style="background:${bg2};border:1px solid ${border};border-radius:8px;padding:10px 16px;flex:2;min-width:140px;text-align:center">
+          <div style="font-size:10px;color:${text2};text-transform:uppercase;letter-spacing:.5px">Ср. Δ спреда за день</div>
+          <div style="font-size:24px;font-weight:800;color:${day.avgDelta>=0?green:red}">${day.avgDelta>=0?'+':''}${day.avgDelta.toFixed(4)}%</div>
+        </div>`:''}
+      </div>
+      ${day.total>0
+        ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px">${day.cardHtmls}</div>`
+        : `<div style="text-align:center;padding:40px;color:${text2}"><div style="font-size:36px;margin-bottom:8px">📋</div><div>Нет данных за ${selDate}</div></div>`
+      }`;
+  } else if (selPeriod === 'week') {
+    mainContent = `
+      <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+        <div style="background:${bg2};border:1px solid ${border};border-radius:8px;padding:10px 16px;flex:1;min-width:90px;text-align:center">
+          <div style="font-size:10px;color:${text2};text-transform:uppercase;letter-spacing:.5px">Всего сделок</div>
+          <div style="font-size:24px;font-weight:800;color:${text1}">${week.total}</div>
+        </div>
+        <div style="background:${bg2};border:1px solid ${border};border-radius:8px;padding:10px 16px;flex:1;min-width:90px;text-align:center">
+          <div style="font-size:10px;color:${text2};text-transform:uppercase;letter-spacing:.5px">Закрыто</div>
+          <div style="font-size:24px;font-weight:800;color:${green}">${week.totalClosed}</div>
+        </div>
+        <div style="background:${bg2};border:1px solid ${border};border-radius:8px;padding:10px 16px;flex:1;min-width:90px;text-align:center">
+          <div style="font-size:10px;color:${text2};text-transform:uppercase;letter-spacing:.5px">Открыто</div>
+          <div style="font-size:24px;font-weight:800;color:${week.totalOpen>0?gold:text2}">${week.totalOpen}</div>
+        </div>
+        ${week.avgDelta!=null?`<div style="background:${bg2};border:1px solid ${border};border-radius:8px;padding:10px 16px;flex:2;min-width:140px;text-align:center">
+          <div style="font-size:10px;color:${text2};text-transform:uppercase;letter-spacing:.5px">Ср. Δ спреда</div>
+          <div style="font-size:24px;font-weight:800;color:${week.avgDelta>=0?green:red}">${week.avgDelta>=0?'+':''}${week.avgDelta.toFixed(4)}%</div>
+        </div>`:''}
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px">${week.tagCards}</div>`;
+  } else {
+    mainContent = `
+      <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+        <div style="background:${bg2};border:1px solid ${border};border-radius:8px;padding:10px 16px;flex:1;min-width:90px;text-align:center">
+          <div style="font-size:10px;color:${text2};text-transform:uppercase;letter-spacing:.5px">Всего сделок</div>
+          <div style="font-size:24px;font-weight:800;color:${text1}">${month.total}</div>
+        </div>
+        <div style="background:${bg2};border:1px solid ${border};border-radius:8px;padding:10px 16px;flex:1;min-width:90px;text-align:center">
+          <div style="font-size:10px;color:${text2};text-transform:uppercase;letter-spacing:.5px">Закрыто</div>
+          <div style="font-size:24px;font-weight:800;color:${green}">${month.totalClosed}</div>
+        </div>
+        <div style="background:${bg2};border:1px solid ${border};border-radius:8px;padding:10px 16px;flex:1;min-width:90px;text-align:center">
+          <div style="font-size:10px;color:${text2};text-transform:uppercase;letter-spacing:.5px">Открыто</div>
+          <div style="font-size:24px;font-weight:800;color:${month.totalOpen>0?gold:text2}">${month.totalOpen}</div>
+        </div>
+        ${month.avgDelta!=null?`<div style="background:${bg2};border:1px solid ${border};border-radius:8px;padding:10px 16px;flex:2;min-width:140px;text-align:center">
+          <div style="font-size:10px;color:${text2};text-transform:uppercase;letter-spacing:.5px">Ср. Δ спреда</div>
+          <div style="font-size:24px;font-weight:800;color:${month.avgDelta>=0?green:red}">${month.avgDelta>=0?'+':''}${month.avgDelta.toFixed(4)}%</div>
+        </div>`:''}
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px">${month.tagCards}</div>`;
+  }
 
   root.innerHTML = `
-    <!-- Header -->
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:10px">
-      <div>
-        <div style="font-size:22px;font-weight:800;color:${text1};letter-spacing:-.5px">
-          Арбитражный трейдинг
+    <div style="padding:20px;max-width:1200px;margin:0 auto">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:10px">
+        <div>
+          <div style="font-size:22px;font-weight:800;color:${text1};letter-spacing:-.5px">Дневник</div>
+          <div style="font-size:13px;color:${text2};margin-top:2px">Арбитражный трейдинг MOEX × Forex</div>
         </div>
-        <div style="font-size:13px;color:${text2};margin-top:2px">${selDate} · ${cards.length} конструкций</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          ${periodBtn('day','День')}
+          ${periodBtn('week','Неделя')}
+          ${periodBtn('month','Месяц')}
+        </div>
       </div>
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <button onclick="_showcaseDark=!_showcaseDark;renderShowcase()"
-          style="padding:6px 14px;font-size:12px;border-radius:6px;cursor:pointer;
-                 border:1px solid ${border};background:${bg3};color:${text2}">
-          ${dark?'☀️ Светлая':'🌙 Тёмная'}
-        </button>
-        ${dateBtns}
+      ${selPeriod==='day'?`<div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:16px">${dateBtns}</div>`:''}
+      ${mainContent}
+      <div style="margin-top:20px;text-align:center;font-size:11px;color:${text2};opacity:.4">
+        ${new Date().toLocaleString('ru-RU')}
       </div>
-    </div>
-
-    <!-- Stats bar -->
-    ${cards.length>0?`<div style="display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap">
-      <div style="background:${bg2};border:1px solid ${border};border-radius:8px;padding:10px 16px;flex:1;min-width:100px">
-        <div style="font-size:10px;color:${text2};text-transform:uppercase;letter-spacing:.5px">Закрыто</div>
-        <div style="font-size:20px;font-weight:800;color:${green};margin-top:2px">${closedCount}</div>
-      </div>
-      <div style="background:${bg2};border:1px solid ${border};border-radius:8px;padding:10px 16px;flex:1;min-width:100px">
-        <div style="font-size:10px;color:${text2};text-transform:uppercase;letter-spacing:.5px">Открыто</div>
-        <div style="font-size:20px;font-weight:800;color:${openCount2>0?gold:text2};margin-top:2px">${openCount2}</div>
-      </div>
-      ${avgDelta?`<div style="background:${bg2};border:1px solid ${border};border-radius:8px;padding:10px 16px;flex:1;min-width:130px">
-        <div style="font-size:10px;color:${text2};text-transform:uppercase;letter-spacing:.5px">Ср. дельта спреда</div>
-        <div style="font-size:20px;font-weight:800;color:${parseFloat(avgDelta)>=0?green:red};margin-top:2px">${parseFloat(avgDelta)>=0?'+':''}${avgDelta}%</div>
-      </div>`:''}
-      ${avgEntry?`<div style="background:${bg2};border:1px solid ${border};border-radius:8px;padding:10px 16px;flex:1;min-width:130px">
-        <div style="font-size:10px;color:${text2};text-transform:uppercase;letter-spacing:.5px">Ср. спред входа</div>
-        <div style="font-size:20px;font-weight:800;color:${text1};margin-top:2px">${avgEntry}%</div>
-      </div>`:''}
-    </div>`:''}
-
-    <!-- Cards grid -->
-    ${cards.length>0
-      ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px">${cardHtmls}</div>`
-      : `<div style="text-align:center;padding:60px 20px;color:${text2}">
-           <div style="font-size:40px;margin-bottom:12px">📊</div>
-           <div style="font-size:16px">Нет размеченных конструкций за ${selDate}</div>
-           <div style="font-size:13px;margin-top:6px">Разметь сделки в Журнале</div>
-         </div>`
-    }
-
-    <!-- Footer -->
-    <div style="margin-top:24px;text-align:center;font-size:11px;color:${text2};opacity:.5">
-      Арбитраж MOEX × Forex · ${new Date().toLocaleString('ru-RU')}
     </div>`;
 }
+
 </script>
