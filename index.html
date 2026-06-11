@@ -867,7 +867,7 @@ function renderRateBar() {
   }
 
   document.getElementById('rate-date-line').textContent = '📅 ' + fmtRateDate(date);
-  document.getElementById('rate-source-line').textContent = '🏦 ' + (source || '—');
+  const rsl = document.getElementById('rate-source-line'); if(rsl) rsl.textContent = '';
 
   updateRateCacheInfo();
 }
@@ -3832,6 +3832,87 @@ async function calcEstimatedPnl(g) {
   };
 }
 
+// ── Spread calculation ──
+// Formula: (MX1/lot1) / (MX2/lot2) / ... / FX → -1 → ×100 = %
+// lot normalization: MX prices in RUB are ~1000x larger than FX, divide MX by 1000
+function calcSpread(instrMap) {
+  const mxLegs = Object.values(instrMap).filter(ig => ig.platform === 'MX');
+  const fxLegs = Object.values(instrMap).filter(ig => ig.platform === 'FX');
+  if (!fxLegs.length) return null;
+
+  // For each leg get entry/exit avg price (VWAP)
+  // Entry = rows with same direction as FIRST row (sorted by time)
+  // Exit  = rows with opposite direction (closing trades)
+  function legAvg(ig, useClose) {
+    if (ig.platform === 'FX') {
+      if (useClose) {
+        const cl = ig.rows.filter(r => r.price_close != null);
+        if (!cl.length) return null;
+        const v = cl.reduce((s,r)=>s+(r.volume||0),0);
+        return cl.reduce((s,r)=>s+r.price_close*(r.volume||0),0) / (v||1);
+      }
+      const v = ig.rows.reduce((s,r)=>s+(r.volume||0),0);
+      return ig.rows.reduce((s,r)=>s+(r.price||0)*(r.volume||0),0) / (v||1);
+    } else {
+      // MX: determine entry direction from earliest row
+      const sorted = [...ig.rows].sort((a,b) => a.time.localeCompare(b.time));
+      const entryDir = sorted[0]?.direction || '';
+      const isEntryBuy = entryDir==='Buy'||entryDir==='L';
+
+      let src;
+      if (useClose) {
+        // exit = opposite direction rows
+        src = sorted.filter(r =>
+          isEntryBuy ? (r.direction==='Sell'||r.direction==='S')
+                     : (r.direction==='Buy'||r.direction==='L')
+        );
+      } else {
+        // entry = same direction as first row
+        src = sorted.filter(r =>
+          isEntryBuy ? (r.direction==='Buy'||r.direction==='L')
+                     : (r.direction==='Sell'||r.direction==='S')
+        );
+      }
+      if (!src.length) return null;
+      const v = src.reduce((s,r)=>s+(r.volume||0),0);
+      return src.reduce((s,r)=>s+(r.price||0)*(r.volume||0),0) / (v||1);
+    }
+  }
+
+  function computeSpread(useClose) {
+    // Step 1: get all raw prices
+    const mxPrices = mxLegs.map(mx => legAvg(mx, useClose));
+    const fxPrices = fxLegs.map(fx => legAvg(fx, useClose));
+    if (mxPrices.some(p => p == null) || fxPrices.some(p => p == null)) return null;
+
+    // Step 2: compute raw synthetic (chain-divide MX legs, then divide by FX)
+    // e.g. USDRUBF/CR1/USDCNH = (71.45 / 10.538) / 6.7773
+    let synthetic = mxPrices[0];
+    for (let i = 1; i < mxPrices.length; i++) synthetic /= mxPrices[i];
+
+    const fxPrice = fxPrices[0];
+
+    // Step 3: auto-scale — find power of 10 that brings ratio closest to 1.0
+    // Try scale factors: 1, 10, 100, 1000, 0.1, 0.01, 0.001
+    const scales = [1, 10, 100, 1000, 0.1, 0.01, 0.001];
+    let bestScale = 1, bestDist = Infinity;
+    for (const s of scales) {
+      const ratio = (synthetic * s) / fxPrice;
+      const dist = Math.abs(Math.log10(ratio)); // how far from 1.0 in log scale
+      if (dist < bestDist) { bestDist = dist; bestScale = s; }
+    }
+
+    const ratio = (synthetic * bestScale) / fxPrice;
+    return (ratio - 1) * 100; // → %
+  }
+
+  return {
+    entry: computeSpread(false),
+    exit : computeSpread(true),
+  };
+}
+
+
 function renderLjDashboard() {
   const el = document.getElementById('lj-dashboard');
   if (!el) return;
@@ -3852,86 +3933,6 @@ function renderLjDashboard() {
     const dd = parseDate(b.date) - parseDate(a.date);
     return dd !== 0 ? dd : (a.set - b.set);
   });
-
-  // ── Spread calculation ──
-  // Formula: (MX1/lot1) / (MX2/lot2) / ... / FX → -1 → ×100 = %
-  // lot normalization: MX prices in RUB are ~1000x larger than FX, divide MX by 1000
-  function calcSpread(instrMap) {
-    const mxLegs = Object.values(instrMap).filter(ig => ig.platform === 'MX');
-    const fxLegs = Object.values(instrMap).filter(ig => ig.platform === 'FX');
-    if (!fxLegs.length) return null;
-
-    // For each leg get entry/exit avg price (VWAP)
-    // Entry = rows with same direction as FIRST row (sorted by time)
-    // Exit  = rows with opposite direction (closing trades)
-    function legAvg(ig, useClose) {
-      if (ig.platform === 'FX') {
-        if (useClose) {
-          const cl = ig.rows.filter(r => r.price_close != null);
-          if (!cl.length) return null;
-          const v = cl.reduce((s,r)=>s+(r.volume||0),0);
-          return cl.reduce((s,r)=>s+r.price_close*(r.volume||0),0) / (v||1);
-        }
-        const v = ig.rows.reduce((s,r)=>s+(r.volume||0),0);
-        return ig.rows.reduce((s,r)=>s+(r.price||0)*(r.volume||0),0) / (v||1);
-      } else {
-        // MX: determine entry direction from earliest row
-        const sorted = [...ig.rows].sort((a,b) => a.time.localeCompare(b.time));
-        const entryDir = sorted[0]?.direction || '';
-        const isEntryBuy = entryDir==='Buy'||entryDir==='L';
-
-        let src;
-        if (useClose) {
-          // exit = opposite direction rows
-          src = sorted.filter(r =>
-            isEntryBuy ? (r.direction==='Sell'||r.direction==='S')
-                       : (r.direction==='Buy'||r.direction==='L')
-          );
-        } else {
-          // entry = same direction as first row
-          src = sorted.filter(r =>
-            isEntryBuy ? (r.direction==='Buy'||r.direction==='L')
-                       : (r.direction==='Sell'||r.direction==='S')
-          );
-        }
-        if (!src.length) return null;
-        const v = src.reduce((s,r)=>s+(r.volume||0),0);
-        return src.reduce((s,r)=>s+(r.price||0)*(r.volume||0),0) / (v||1);
-      }
-    }
-
-    function computeSpread(useClose) {
-      // Step 1: get all raw prices
-      const mxPrices = mxLegs.map(mx => legAvg(mx, useClose));
-      const fxPrices = fxLegs.map(fx => legAvg(fx, useClose));
-      if (mxPrices.some(p => p == null) || fxPrices.some(p => p == null)) return null;
-
-      // Step 2: compute raw synthetic (chain-divide MX legs, then divide by FX)
-      // e.g. USDRUBF/CR1/USDCNH = (71.45 / 10.538) / 6.7773
-      let synthetic = mxPrices[0];
-      for (let i = 1; i < mxPrices.length; i++) synthetic /= mxPrices[i];
-
-      const fxPrice = fxPrices[0];
-
-      // Step 3: auto-scale — find power of 10 that brings ratio closest to 1.0
-      // Try scale factors: 1, 10, 100, 1000, 0.1, 0.01, 0.001
-      const scales = [1, 10, 100, 1000, 0.1, 0.01, 0.001];
-      let bestScale = 1, bestDist = Infinity;
-      for (const s of scales) {
-        const ratio = (synthetic * s) / fxPrice;
-        const dist = Math.abs(Math.log10(ratio)); // how far from 1.0 in log scale
-        if (dist < bestDist) { bestDist = dist; bestScale = s; }
-      }
-
-      const ratio = (synthetic * bestScale) / fxPrice;
-      return (ratio - 1) * 100; // → %
-    }
-
-    return {
-      entry: computeSpread(false),
-      exit : computeSpread(true),
-    };
-  }
 
   const html = cards.map(g => {
     const rows = g.rows;
@@ -4414,7 +4415,25 @@ function ljParseCtLog(text) {
     }
 
     const id = `FX:${pid}:${info.instrument}:${firstFill.date}:${firstFill.timeMsk}`;
-    if (existingIds.has(id)) { dupes++; continue; }
+
+    // If row already exists — update price_close if we now have close data
+    if (existingIds.has(id)) {
+      if (closePrice) {
+        const existing = store.lj.rows.find(r => r.id === id);
+        if (existing && !existing.price_close) {
+          existing.price_close = Math.round(closePrice * 100000) / 100000;
+          existing.time_close  = closeTime;
+          existing.status      = 'closed';
+          added++; // count as updated
+        } else {
+          dupes++;
+        }
+      } else {
+        dupes++;
+      }
+      continue;
+    }
+
     store.lj.rows.push({
       id, pid,
       date      : firstFill.date,
