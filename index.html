@@ -3667,7 +3667,7 @@ function renderLjDashboard() {
 
       const times = ig.rows.map(r=>r.time).sort();
       const timeStr = times[0]+(times.length>1?'–'+times[times.length-1]:'');
-      const fmtP = v => ig.platform==='FX' ? v.toFixed(5).replace(/\.?0+$/,'') : Math.round(v).toLocaleString('ru');
+      const fmtP = v => ig.platform==='FX' ? v.toFixed(5).replace(/\.?0+$/,'') : Number.isInteger(v) ? v.toLocaleString('ru') : v.toLocaleString('ru-RU',{minimumFractionDigits:0,maximumFractionDigits:3});
 
       return `<div style="display:flex;align-items:center;gap:6px;padding:4px 0;
                           border-bottom:1px solid var(--border);flex-wrap:wrap;font-size:11px">
@@ -5033,7 +5033,7 @@ function renderPositionCard(g) {
     else { const net=Math.abs((entryRows.reduce((s,r)=>s+(r.volume||0),0))-(exitRows.reduce((s,r)=>s+(r.volume||0),0))); legNet = net<0.001&&ig.rows.length>1?'closed':exitRows.length?'partial':'open'; }
     const si = legNet==='closed'?'<span style="color:var(--green)">✓</span>':legNet==='partial'?'<span style="color:var(--amber)">◑</span>':'<span style="color:var(--text2)">◌</span>';
 
-    const fmtP = (v,p) => p==='FX' ? v.toFixed(5).replace(/\.?0+$/,'') : Math.round(v).toLocaleString('ru');
+    const fmtP = (v,p) => p==='FX' ? v.toFixed(5).replace(/\.?0+$/,'') : Number.isInteger(v) ? v.toLocaleString('ru') : v.toLocaleString('ru-RU',{minimumFractionDigits:0,maximumFractionDigits:3});
     const times = ig.rows.map(r=>r.time).sort();
     const timeRange = times[0]+(times.length>1?'–'+times[times.length-1]:'');
 
