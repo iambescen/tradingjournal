@@ -374,7 +374,7 @@
     <button class="nav-btn" onclick="switchTab('overview', event)">Обзор</button>
     <button class="nav-btn" onclick="switchTab('funds', event)">Движение средств</button>
     <button class="nav-btn active" onclick="switchTab('journal', event); renderLiveJournal()">Журнал</button>
-    <button class="nav-btn" onclick="switchTab('constructions', event)">Позиции</button>
+    <button class="nav-btn" onclick="switchTab('constructions', event)">Сделки</button>
   </div>
 
   <!-- OVERVIEW -->
@@ -576,7 +576,7 @@
   <div id="tab-constructions" class="tab-content">
     <div class="section">
       <div class="section-header" style="cursor:default">
-        <div class="section-title">Позиции <span id="pos-badge" style="font-size:12px;font-weight:400;color:var(--text2);margin-left:8px"></span></div>
+        <div class="section-title">Сделки <span id="pos-badge" style="font-size:12px;font-weight:400;color:var(--text2);margin-left:8px"></span></div>
         <div style="display:flex;gap:8px;align-items:center">
           <select id="pos-filter-status" onchange="renderPositionsTab()" style="font-size:12px;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:3px 7px;cursor:pointer">
             <option value="all">Все</option>
@@ -4999,7 +4999,7 @@ function renderPositionsTab() {
 
   if (!cards.length) {
     el.innerHTML = `<div class="empty"><div class="icon">📋</div>
-      <p>Нет позиций. Размечай сделки в Журнале — они появятся здесь.</p></div>`;
+      <p>Нет сделок. Размечай сделки в Журнале — после матчинга с PDF/XLSX они появятся здесь.</p></div>`;
     return;
   }
 
