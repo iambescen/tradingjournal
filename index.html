@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781177059 -->
+<!-- v:1781177435 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -4037,8 +4037,8 @@ function renderLjDashboard() {
       const seColor = spread.entry > 0 ? 'var(--green)' : 'var(--red)';
       if (spread.exit != null) {
         const sx = spread.exit.toFixed(4);
-        const delta = spread.exit - spread.entry;
-        const dc = delta > 0 ? 'var(--green)' : 'var(--red)';
+        const delta = spread.entry - spread.exit; // positive = spread narrowed = profit
+        const dc = delta >= 0 ? 'var(--green)' : 'var(--red)';
         spreadHtml = `
           <div style="display:flex;gap:12px;margin-top:8px;padding:6px 8px;
                       background:var(--bg3);border-radius:4px;font-size:11px;flex-wrap:wrap">
@@ -4047,7 +4047,7 @@ function renderLjDashboard() {
             <div><span style="color:var(--text2)">Выход:</span>
               <span style="font-family:monospace;font-weight:600;margin-left:4px">${sx}%</span></div>
             <div><span style="color:var(--text2)">Δ:</span>
-              <span style="font-family:monospace;font-weight:700;color:${dc};margin-left:4px">${delta>0?'+':''}${delta.toFixed(4)}%</span></div>
+              <span style="font-family:monospace;font-weight:700;color:${dc};margin-left:4px">${delta>=0?'+':''}${delta.toFixed(4)}%</span></div>
           </div>`;
       } else {
         spreadHtml = `
@@ -5652,8 +5652,8 @@ function renderPositionCard(g) {
     const seColor = parseFloat(se) > 0 ? 'var(--green)' : 'var(--red)';
     if (cardSpread.exit != null) {
       const sx = cardSpread.exit.toFixed(4);
-      const delta = cardSpread.exit - cardSpread.entry;
-      const dc = delta < 0 ? 'var(--green)' : 'var(--red)'; // negative delta = spread narrowed = profit
+      const delta = cardSpread.entry - cardSpread.exit; // positive = profit (spread narrowed)
+      const dc = delta >= 0 ? 'var(--green)' : 'var(--red)';
       return `<div style="display:flex;gap:16px;padding:8px 14px;background:var(--bg3);
                           border-top:1px solid var(--border);font-size:11px;flex-wrap:wrap;align-items:center">
         <span style="color:var(--text2);font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.5px">Спред</span>
@@ -5662,7 +5662,7 @@ function renderPositionCard(g) {
         <span><span style="color:var(--text2)">Выход:</span>
           <span style="font-family:monospace;font-weight:700;margin-left:4px">${sx}%</span></span>
         <span><span style="color:var(--text2)">Δ:</span>
-          <span style="font-family:monospace;font-weight:700;color:${dc};margin-left:4px">${delta>0?'+':''}${delta.toFixed(4)}%</span></span>
+          <span style="font-family:monospace;font-weight:700;color:${dc};margin-left:4px">${delta>=0?'+':''}${delta.toFixed(4)}%</span></span>
       </div>`;
     } else {
       return `<div style="display:flex;gap:16px;padding:8px 14px;background:var(--bg3);
