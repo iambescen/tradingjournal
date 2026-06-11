@@ -3705,6 +3705,133 @@ async function calcGroupCapital(g) {
 }
 
 // ── Live Journal Dashboard ──
+
+// ── Estimated P&L from journal data (no PDF needed) ──
+// Uses entry/exit prices from lj rows + STEPPRICE from MOEX ISS for MX
+async function calcEstimatedPnl(g) {
+  const rate = currentRate?.value || 85;
+  let mxPnl = 0, fxPnl = 0, hasMx = false, hasFx = false;
+
+  // Group by instrument
+  const instrMap = {};
+  for (const r of g.rows) {
+    const k = `${r.platform}:${r.instrument}`;
+    if (!instrMap[k]) instrMap[k] = { platform: r.platform, instrument: r.instrument, rows: [] };
+    instrMap[k].rows.push(r);
+  }
+
+  for (const ig of Object.values(instrMap)) {
+    const sorted = [...ig.rows].sort((a,b) => a.time.localeCompare(b.time));
+    const entryDir = sorted[0]?.direction || '';
+    const isEntryBuy = entryDir === 'Buy' || entryDir === 'L';
+    const sign = isEntryBuy ? 1 : -1;
+
+    if (ig.platform === 'MX') {
+      const entryRows = sorted.filter(r => isEntryBuy
+        ? (r.direction==='Buy'||r.direction==='L')
+        : (r.direction==='Sell'||r.direction==='S'));
+      const exitRows = sorted.filter(r => isEntryBuy
+        ? (r.direction==='Sell'||r.direction==='S')
+        : (r.direction==='Buy'||r.direction==='L'));
+      if (!entryRows.length || !exitRows.length) continue;
+
+      const eVol = entryRows.reduce((s,r)=>s+(r.volume||0),0);
+      const eAvg = entryRows.reduce((s,r)=>s+(r.price||0)*(r.volume||0),0)/(eVol||1);
+      const xVol = exitRows.reduce((s,r)=>s+(r.volume||0),0);
+      const xAvg = exitRows.reduce((s,r)=>s+(r.price||0)*(r.volume||0),0)/(xVol||1);
+      const vol  = Math.min(eVol, xVol);
+
+      // Get step price from cache
+      const secid = buildSecid(ig.instrument);
+      let stepPrice = 1;
+      if (secid && _goCache[secid]?.step) {
+        stepPrice = _goCache[secid].step;
+      } else if (secid) {
+        const info = await fetchGO(secid);
+        if (info?.step) stepPrice = info.step;
+      }
+
+      // pnl = (exitPrice - entryPrice) * vol * sign / minStep * stepPrice
+      // but prices are already in rubles per contract, so:
+      // pnl_rub = (xAvg - eAvg) * sign * vol * stepPrice / minStep
+      // For most futures: minStep = 1 price unit → pnl = diff * vol * stepPrice
+      // Actually: margin_rub from PDF = diff_pts * stepPrice * vol
+      // diff_pts = (xAvg - eAvg) / minPriceChange
+      // For simplicity: pnl ≈ (xAvg - eAvg) * sign * vol
+      // This works when price is already in RUB (SI, EU) but not for USDRUBF
+      // Use stepPrice to normalize:
+      const priceDiff = (xAvg - eAvg) * sign;
+      // For RUB-denominated futures (SI, EU, CR): price is in RUB/unit
+      // pnl = priceDiff * vol (already in RUB)
+      // For USD-denominated (ED, USDRUBF): price is in USD or rate
+      // We'll use a simple heuristic: if price < 1000, likely non-RUB → convert
+      const avgPrice = (eAvg + xAvg) / 2;
+      let pnlRub;
+      if (avgPrice < 200) {
+        // Price in non-RUB units (USDRUBF ~71, UCNY ~6.8, CNY ~10.5, ED ~1.15)
+        // Step size in RUB is given by stepPrice
+        // Find min price change (tick)
+        const tick = ig.instrument.toUpperCase().startsWith('ED') ? 0.0001
+                   : ig.instrument.toUpperCase().startsWith('UC') ? 0.0001
+                   : ig.instrument.toUpperCase().replace(/[-_].*/,'') === 'CNYRUBF' ? 0.0001
+                   : 0.001;
+        pnlRub = (priceDiff / tick) * stepPrice * vol;
+      } else {
+        // Price in RUB (SI ~75000, EU ~86000, CR ~10000... wait CR is ~10.5)
+        // Actually CR is yuan price ~10-11
+        const tick2 = avgPrice > 1000 ? 1 : 0.001;
+        pnlRub = (priceDiff / tick2) * stepPrice * vol;
+      }
+
+      mxPnl += pnlRub;
+      hasMx = true;
+
+    } else { // FX
+      const entryRows = ig.rows;
+      const exitRows  = ig.rows.filter(r => r.price_close != null);
+      if (!exitRows.length) continue;
+
+      const eVol = entryRows.reduce((s,r)=>s+(r.volume||0),0);
+      const eAvg = entryRows.reduce((s,r)=>s+(r.price||0)*(r.volume||0),0)/(eVol||1);
+      const xVol = exitRows.reduce((s,r)=>s+(r.volume||0),0);
+      const xAvg = exitRows.reduce((s,r)=>s+r.price_close*(r.volume||0),0)/(xVol||1);
+      const vol  = Math.min(eVol, xVol);
+
+      // FX pnl in quote currency
+      // For EURCNH: pnl_cnh = (exit-entry)*sign*vol*100000
+      // convert to USD: /USDCNH rate ≈ price
+      // For EURUSD: pnl_usd = (exit-entry)*sign*vol*100000
+      const instr = ig.instrument.toUpperCase().replace(/[^A-Z]/g,'');
+      const lotSize = instr==='BTCUSD'||instr==='ETHUSD' ? 1
+                    : instr==='XAUUSD'||instr==='XPTUSD'||instr==='XPDUSD' ? 100
+                    : instr==='XAGUSD' ? 5000
+                    : 100000;
+
+      const priceDiff = (xAvg - eAvg) * sign;
+      let pnlUsd;
+
+      if (instr.endsWith('CNH')) {
+        // Quote is CNH → convert to USD using ~USDCNH ≈ entry price for USDCNH
+        const usdcnh = eAvg > 5 ? eAvg : 7.8; // rough
+        pnlUsd = priceDiff * vol * lotSize / usdcnh;
+      } else {
+        pnlUsd = priceDiff * vol * lotSize;
+      }
+
+      fxPnl += pnlUsd * rate;
+      hasFx = true;
+    }
+  }
+
+  if (!hasMx && !hasFx) return null;
+  return {
+    mxPnl,
+    fxPnlRub: fxPnl,
+    total: mxPnl + fxPnl,
+    estimated: true
+  };
+}
+
 function renderLjDashboard() {
   const el = document.getElementById('lj-dashboard');
   if (!el) return;
@@ -3895,6 +4022,11 @@ function renderLjDashboard() {
       </div>`;
     }).join('');
 
+    // Estimated P&L (computed async — set placeholder, update after render)
+    let estPnlHtml = '';
+    // We'll update this after render via a data attribute
+    const cardId = 'card_' + g.tag.replace(/[^a-z0-9]/gi,'') + '_' + (g.set||1) + '_' + g.date.replace(/\./g,'');
+
     // Spread
     const spread = calcSpread(instrMap);
     let spreadHtml = '';
@@ -3933,7 +4065,7 @@ function renderLjDashboard() {
       background:${fxClosed?'rgba(52,211,153,.12)':'rgba(251,191,36,.12)'};
       color:${fxClosed?'var(--green)':'var(--amber)'}">FX ${fxClosed?'✓':'◌'}</span>` : '';
 
-    return `<div style="background:var(--bg2);border:1px solid var(--border);
+    return `<div id="${cardId}" style="background:var(--bg2);border:1px solid var(--border);
                         border-left:3px solid ${statusBorder};border-radius:8px;
                         padding:12px 14px;flex:1;min-width:270px;max-width:400px">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
@@ -3948,6 +4080,7 @@ function renderLjDashboard() {
       </div>
       <div style="font-size:11px;margin-bottom:2px">${legsHtml}</div>
       ${spreadHtml}
+      ${estPnlHtml}
     </div>`;
   }).join('');
 
@@ -3961,6 +4094,30 @@ function renderLjDashboard() {
     const fxC = fxR.length>0 && fxR.every(r=>r.price_close!=null);
     return !((mxR.length===0||mxC)&&(fxR.length===0||fxC));
   }).length;
+
+  // Async: calculate estimated P&L for each card after render
+  setTimeout(() => {
+    for (const g of cards) {
+      const cid = 'card_' + g.tag.replace(/[^a-z0-9]/gi,'') + '_' + (g.set||1) + '_' + g.date.replace(/\./g,'');
+      calcEstimatedPnl(g).then(est => {
+        if (!est) return;
+        const el2 = document.getElementById(cid);
+        if (!el2) return;
+        const existing = el2.querySelector('.est-pnl-block');
+        if (existing) existing.remove();
+        const tc = est.total>=0?'var(--green)':'var(--red)';
+        const div = document.createElement('div');
+        div.className = 'est-pnl-block';
+        div.style.cssText = 'margin-top:8px;padding:6px 8px;background:var(--bg3);border-radius:4px;font-size:11px;display:flex;gap:12px;flex-wrap:wrap;align-items:center';
+        div.innerHTML = `<span style="color:var(--text2);font-size:10px;text-transform:uppercase;letter-spacing:.5px;font-weight:600">Расчётный P&L</span>
+          ${est.mxPnl!==0?`<span><span style="color:var(--text2)">МХ:</span> <span style="font-family:monospace;color:${est.mxPnl>=0?'var(--green)':'var(--red)'}">${est.mxPnl>=0?'+':''}${Math.round(est.mxPnl)} ₽</span></span>`:''}
+          ${est.fxPnlRub!==0?`<span><span style="color:var(--text2)">FX:</span> <span style="font-family:monospace;color:${est.fxPnlRub>=0?'var(--green)':'var(--red)'}">${est.fxPnlRub>=0?'+':''}${Math.round(est.fxPnlRub)} ₽</span></span>`:''}
+          <span style="font-weight:700;color:${tc};font-family:monospace">${est.total>=0?'+':''}${Math.round(est.total)} ₽</span>
+          <span style="color:var(--text2);font-size:10px;margin-left:auto">~ без комиссий</span>`;
+        el2.appendChild(div);
+      });
+    }
+  }, 100);
 
   el.innerHTML = `
     <div style="display:flex;align-items:center;gap:8px;margin:0 12px 12px;
