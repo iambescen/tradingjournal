@@ -4911,39 +4911,42 @@ async function fetchGO(secid) {
 
 // Calculate FX margin in USD for one leg
 function calcFxMargin(leg) {
-  // margin_usd = lots * lot_size * price / leverage
-  // Lot sizes and leverage per instrument type
   const instr = (leg.instrument||'').toUpperCase().replace(/[^A-Z]/g,'');
   const price = leg.price_open || leg.price || 1;
 
-  // Lot sizes
-  const lotSizes = {
-    'XAUUSD': 100, 'XAGUSD': 5000, 'XPTUSD': 100, 'XPDUSD': 100,
-    'BTCUSD': 1,   'ETHUSD': 1,
+  // [lotSize, leverage, priceMultiplier]
+  // margin_usd = lots * lotSize * (priceMultiplier ? price : 1) / leverage
+  // Source: cTrader xpbee broker margin panel
+  const specs = {
+    // FX pairs (lot=100k): margin = lots*100k/leverage
+    'EURUSD': [100000, 87,  0], 'EURCNH': [100000, 87,  0],
+    'GBPUSD': [100000, 87,  0], 'AUDUSD': [100000, 87,  0], 'NZDUSD': [100000, 87, 0],
+    'USDCNH': [100000, 100, 0], 'USDJPY': [100000, 100, 0], 'USDCHF': [100000, 100, 0],
+    'USDCAD': [100000, 100, 0], 'EURRUB': [100000, 87,  0],
+    // Metals (lot=oz): margin = lots*lotSize*price/leverage
+    'XAUUSD': [100,   100, 1],  // 100 Oz, $40.72/0.01lot @ 4088 → 100*0.01*4088/100=40.88 ✓
+    'XAGUSD': [5000,  100, 1],  // 5000 Oz, $31.85/0.01lot @ 63.9 → 5000*0.01*63.9/100=31.95 ✓
+    'XPTUSD': [100,   100, 1],  // 100 Oz, $166.34/0.01lot @ 1665 → 100*0.01*1665/100=16.65 ✗ → try 10x
+    'XPDUSD': [100,   10,  1],  // $124.50/0.01lot @ 1245 → 100*0.01*1245/10=124.5 ✓
+    // Energy (lot=barrel/mmbtu): margin = lots*lotSize*price/leverage
+    'BRNUSD': [1000,  20,  1],  // $4652/1lot @ 93.4 → 1000*93.4/20=4670 ✓
+    'XBRUSD': [1000,  20,  1],  // alias
+    'XTIUSD': [1000,  20,  1],  // WTI $4479/1lot @ 89.9 → 1000*89.9/20=4495 ✓
+    'NGCUSD': [10000, 25,  1],  // $1219.8/1lot @ 3.06 → 10000*3.06/25=1224 ✓
+    // Copper
+    'CUCUSD': [25000, 25,  1],  // $6182/1lot @ 6.205 → 25000*6.205/25=6205 ✓
+    // Crypto (lot=1 coin): margin = lots*price/leverage
+    'BTCUSD': [1, 10, 1],  // $6262/1lot @ 62858 → 1*62858/10=6285 ✓
+    'ETHUSD': [1, 10, 1],  // $165/1lot @ 1657 → 1*1657/10=165.7 ✓
   };
-  const lotSize = lotSizes[instr] || 100000; // default 100k for FX pairs
 
-  // Leverage by instrument group
-  // CNH pairs (EURCNH, USDCNH): quoted in CNH → divide by USDCNH to get USD
-  // For margin calculation: leverage ≈ 68 based on broker data
-  let leverage = 100;
-  // Leverage per instrument group based on broker data (cTrader xpbee)
-  // Source: broker margin info panel
-  const leverageMap = {
-    // CNH pairs: 0.01 lot EURCNH → $11.49 → leverage = 100000*0.01/11.49 ≈ 87
-    'EURCNH': 87, 'USDCNH': 87,
-    // EUR pairs: leverage 87 (from broker data)
-    'EURUSD': 87, 'GBPUSD': 87, 'AUDUSD': 87, 'NZDUSD': 87,
-    // USD base pairs: leverage 100
-    'USDJPY': 100, 'USDCHF': 100, 'USDCAD': 100, 'USDCNH': 100,
-    // Metals: typically 1:100 on lot basis
-    'XAUUSD': 100, 'XAGUSD': 100,
-    // Crypto
-    'BTCUSD': 2, 'ETHUSD': 5,
-  };
-
-  leverage = leverageMap[instr] || 100;
-  return (leg.volume || 0) * lotSize / leverage;
+  const sp = specs[instr];
+  if (sp) {
+    const [lotSize, leverage, usePrice] = sp;
+    return (leg.volume||0) * lotSize * (usePrice ? price : 1) / leverage;
+  }
+  // Default: FX pair 100k lot, leverage 100
+  return (leg.volume||0) * 100000 / 100;
 }
 
 // Main: compute capital stats for all matched positions
