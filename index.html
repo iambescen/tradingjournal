@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781177849 -->
+<!-- v:1781178005 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -4041,7 +4041,7 @@ function renderLjDashboard() {
     let spreadHtml = '';
     if (spread && spread.entry != null) {
       const se = spread.entry.toFixed(4);
-      const seColor = spread.entry > 0 ? 'var(--green)' : 'var(--red)';
+      const seColor = 'var(--text)';
       if (spread.exit != null) {
         const sx = spread.exit.toFixed(4);
         const delta = Math.abs(spread.entry) - Math.abs(spread.exit); // |entry|-|exit|: positive = narrowed = profit
@@ -5656,7 +5656,7 @@ function renderPositionCard(g) {
   const cardSpread = calcSpread ? calcSpread(cardInstrMap) : null;
   const spreadBlockHtml = cardSpread && cardSpread.entry != null ? (() => {
     const se = cardSpread.entry.toFixed(4);
-    const seColor = parseFloat(se) > 0 ? 'var(--green)' : 'var(--red)';
+    const seColor = 'var(--text)';
     if (cardSpread.exit != null) {
       const sx = cardSpread.exit.toFixed(4);
       const delta = Math.abs(cardSpread.entry) - Math.abs(cardSpread.exit); // |entry|-|exit|
@@ -8540,7 +8540,7 @@ function renderShowcase() {
     let spreadHtml = '';
     if (sp && sp.entry != null) {
       const se = sp.entry.toFixed(4);
-      const seC = parseFloat(se)>0?green:red;
+      const seC = text1;
       if (sp.exit != null) {
         const sx = sp.exit.toFixed(4);
         const delta = Math.abs(sp.entry) - Math.abs(sp.exit); // |entry|-|exit|: positive = profit
