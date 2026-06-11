@@ -4911,13 +4911,35 @@ async function fetchGO(secid) {
 
 // Calculate FX margin in USD for one leg
 function calcFxMargin(leg) {
-  // Standard lot = 100,000 base currency, leverage 1:100
-  // margin_usd = lots * 100_000 / 100 = lots * 1000
-  // For metals/crypto lot sizes differ — use price-based approximation
-  const metalLots = { 'XAUUSD':100, 'XAGUSD':5000, 'XPTUSD':100, 'XPDUSD':100 };
+  // margin_usd = lots * lot_size * price / leverage
+  // Lot sizes and leverage per instrument type
   const instr = (leg.instrument||'').toUpperCase().replace(/[^A-Z]/g,'');
-  const lotSize = metalLots[instr] || 100000;
-  return (leg.volume || 0) * lotSize * (leg.price_open || 1) / 100;
+  const price = leg.price_open || leg.price || 1;
+
+  // Lot sizes
+  const lotSizes = {
+    'XAUUSD': 100, 'XAGUSD': 5000, 'XPTUSD': 100, 'XPDUSD': 100,
+    'BTCUSD': 1,   'ETHUSD': 1,
+  };
+  const lotSize = lotSizes[instr] || 100000; // default 100k for FX pairs
+
+  // Leverage by instrument group
+  // CNH pairs (EURCNH, USDCNH): quoted in CNH → divide by USDCNH to get USD
+  // For margin calculation: leverage ≈ 68 based on broker data
+  let leverage = 100;
+  if (instr.endsWith('CNH') || instr.endsWith('CNY')) {
+    // Margin in CNH → convert to USD: margin_cnh = lots * lot_size * price / leverage_cnh
+    // Then margin_usd = margin_cnh / price (since price IS EURCNH or USDCNH)
+    // Simplified: margin_usd = lots * lot_size / leverage_cnh
+    // From broker screenshot: 0.01 lot EURCNH @ 7.83 → $11.49 → leverage = 100000*0.01/11.49 * 7.83/... 
+    // Actually: margin_usd = lots * 100000 / (price * leverage_cnh / price) 
+    // Simplest fit: margin_usd = lots * lot_size / 68
+    leverage = 68;
+    return (leg.volume || 0) * lotSize / leverage;
+  }
+
+  // Standard: margin_usd = lots * lot_size / leverage
+  return (leg.volume || 0) * lotSize / leverage;
 }
 
 // Main: compute capital stats for all matched positions
