@@ -317,32 +317,28 @@
     <div class="rate-sep"></div>
     <div class="rate-meta">
       <span id="rate-date-line">—</span>
-      <span id="rate-source-line" style="color:var(--text2);">—</span>
     </div>
     <div class="rate-actions">
       <span class="rate-status status-loading" id="rate-status" style="display:none"></span>
-      <button class="rate-btn" onclick="fetchRate()">↻ Обновить</button>
-      <button class="rate-btn" id="rate-manual-btn" onclick="toggleManualRate()">✎ Вручную</button>
-      <label class="rate-btn" style="cursor:pointer" title="Загрузить файл курсов с сайта ЦБ РФ (.xlsx или .xml)">📂 Курсы ЦБ
-        <input type="file" accept=".xml,.xlsx,.xls" style="display:none" onchange="loadCBRFile(event)">
-      </label>
+      <button class="rate-btn" onclick="fetchRate()" title="Обновить курс">↻</button>
+      <button class="rate-btn" onclick="toggleRateCachePanel()" title="История курсов">📋</button>
+      <button class="rate-btn" id="rate-manual-btn" onclick="toggleManualRate()" title="Ввести вручную">✎</button>
       <span id="cbr-xml-status" style="font-size:11px;color:var(--text2);display:none"></span>
-      <span id="rate-cache-info" style="font-size:11px;color:var(--text2);cursor:pointer" onclick="toggleRateCachePanel()" title="Нажмите для просмотра кэша курсов"></span>
     </div>
     <div id="rate-cache-panel" style="display:none;margin-top:8px;padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;font-size:11px;max-height:180px;overflow-y:auto">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-        <b style="color:var(--text)">Кэш курсов USD/RUB</b>
+        <b style="color:var(--text)">Курсы USD/RUB</b>
         <button class="btn-sm" onclick="toggleRateCachePanel()" style="padding:1px 6px">✕</button>
       </div>
       <div id="rate-cache-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:3px"></div>
     </div>
     <div class="rate-manual-row" id="rate-manual-row">
-      <label>Курс USD/RUB:</label>
+      <label>USD/RUB:</label>
       <input type="number" id="rate-manual-input" placeholder="72.50" step="0.01">
-      <label>на дату:</label>
+      <label>дата:</label>
       <input type="date" id="rate-manual-date">
-      <button class="rate-btn" style="color:var(--green);border-color:var(--green)" onclick="saveManualRate()">Сохранить</button>
-      <button class="rate-btn" onclick="toggleManualRate()">Отмена</button>
+      <button class="rate-btn" style="color:var(--green);border-color:var(--green)" onclick="saveManualRate()">✓</button>
+      <button class="rate-btn" onclick="toggleManualRate()">✕</button>
     </div>
   </div>
 
