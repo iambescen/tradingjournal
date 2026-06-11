@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781177435 -->
+<!-- v:1781177696 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -372,6 +372,7 @@
     <button class="nav-btn" onclick="switchTab('funds', event)">Движение средств</button>
     <button class="nav-btn active" onclick="switchTab('journal', event); renderLiveJournal()">Журнал</button>
     <button class="nav-btn" onclick="switchTab('constructions', event)">Сделки</button>
+    <button class="nav-btn" onclick="switchTab('showcase', event); renderShowcase()">✨ Showcase</button>
   </div>
 
   <!-- OVERVIEW -->
@@ -595,6 +596,12 @@
   </div>
 
 </div>
+
+
+  <!-- SHOWCASE -->
+  <div id="tab-showcase" class="tab-content">
+    <div id="showcase-root"></div>
+  </div>
 
 <!-- Edit Modal -->
 <div class="modal-overlay" id="edit-modal">
@@ -8253,6 +8260,7 @@ function switchTab(name, e) {
   if (name === 'feed')     renderFeedTab();
   if (name === 'constructions') renderPositionsTab();
   if (name === 'journal') renderLiveJournal();
+  if (name === 'showcase') renderShowcase();
 }
 
 function toggleSection(name) {
@@ -8406,5 +8414,238 @@ async function renderOvConstructions() {
       </table>
     </div>
   </div>`;
+}
+</script>
+<script>
+// ═══════════════════════════════════════════════════════════════
+// ── SHOWCASE TAB ──
+// ═══════════════════════════════════════════════════════════════
+
+let _showcaseDark = true; // default dark for subscribers
+
+// Anonymize instrument name
+function showcaseInstr(instrument) {
+  const i = (instrument||'').toUpperCase().replace(/[-_].*/,'');
+  // Currency futures & FX
+  const currency = ['SI','CR','CNY','UC','UCNY','EU','ED','USDRUBF','CNYRUBF','EURRUBF',
+                    'EURUSD','USDCNH','EURCNH','USDCAD','GBPUSD','AUDUSD','USDJPY'];
+  if (currency.some(c => i.startsWith(c))) return '💱 Валюта';
+  // Metals
+  const metals = ['GD','SV','PT','PD','XAUUSD','XAGUSD','XPTUSD','XPDUSD'];
+  if (metals.some(c => i.startsWith(c))) return '🥇 Металл';
+  // Energy
+  const energy = ['BR','NG','XBR','XTI','BRNUSD','NGCUSD','XTIUSD'];
+  if (energy.some(c => i.startsWith(c))) return '⚡ Энергия';
+  // Crypto
+  const crypto = ['BTC','ETH'];
+  if (crypto.some(c => i.startsWith(c))) return '₿ Крипто';
+  // Copper/Commodities
+  const comm = ['CE','CUC','CUCUSD'];
+  if (comm.some(c => i.startsWith(c))) return '🔧 Сырьё';
+  return '📊 Актив';
+}
+
+function renderShowcase() {
+  const root = document.getElementById('showcase-root');
+  if (!root) return;
+  ljInit();
+
+  const dark = _showcaseDark;
+  const bg    = dark ? '#0f1117' : '#f8f9fa';
+  const bg2   = dark ? '#1a1d27' : '#ffffff';
+  const bg3   = dark ? '#252836' : '#f1f3f5';
+  const border= dark ? '#2d3148' : '#e2e6ea';
+  const text1 = dark ? '#e8eaf6' : '#1a1a2e';
+  const text2 = dark ? '#7b82b0' : '#6c757d';
+  const green = '#22c55e';
+  const red   = '#ef4444';
+  const blue  = '#6366f1';
+  const gold  = '#f59e0b';
+
+  // Gather today's tagged constructions
+  const today = todayStr();
+  const tagged = store.lj.rows.filter(r => r.tag);
+  const groups = {};
+  for (const r of tagged) {
+    const key = `${r.tag}||${r.set||1}||${r.date}`;
+    if (!groups[key]) groups[key] = { tag: r.tag, set: r.set||1, date: r.date, rows: [] };
+    groups[key].rows.push(r);
+  }
+
+  // Filter to selected date
+  const allDates = [...new Set(Object.values(groups).map(g=>g.date))].sort((a,b)=>parseDate(b)-parseDate(a));
+  const selDate  = root.dataset.date || allDates[0] || today;
+  const cards    = Object.values(groups).filter(g => g.date === selDate)
+                         .sort((a,b) => a.set - b.set);
+
+  // Stats
+  let totalSpreadEntry = 0, totalSpreadExit = 0, nSpread = 0;
+  let closedCount = 0, openCount2 = 0;
+
+  const cardHtmls = cards.map(g => {
+    const mxR = g.rows.filter(r=>r.platform==='MX');
+    const fxR = g.rows.filter(r=>r.platform==='FX');
+    const mxNet={};
+    for(const r of mxR){const k=r.instrument.replace(/[-_].*/,'').toUpperCase();const s=(r.direction==='Buy'||r.direction==='L')?1:-1;mxNet[k]=(mxNet[k]||0)+s*(r.volume||0);}
+    const mxClosed=mxR.length===0||Object.values(mxNet).every(v=>Math.abs(v)<0.001);
+    const fxClosed=fxR.length===0||fxR.every(r=>r.price_close!=null);
+    const allClosed=(mxR.length===0||mxClosed)&&(fxR.length===0||fxClosed);
+    const partial=!allClosed&&(mxClosed||fxClosed);
+    if (allClosed) closedCount++; else openCount2++;
+
+    const statusLabel = allClosed ? '✓ Закрыта' : partial ? '◑ Частично' : '● Открыта';
+    const statusColor = allClosed ? green : partial ? gold : text2;
+    const borderColor = allClosed ? green : partial ? gold : blue;
+
+    // Build instrMap for spread
+    const instrMap={};
+    for(const r of g.rows){const k=`${r.platform}:${r.instrument}`;if(!instrMap[k])instrMap[k]={platform:r.platform,instrument:r.instrument,rows:[]};instrMap[k].rows.push(r);}
+
+    // Anonymized legs
+    const seenInstrs = new Set();
+    const legItems = Object.values(instrMap).map(ig => {
+      const anonName = showcaseInstr(ig.instrument);
+      const sorted=[...ig.rows].sort((a,b)=>a.time.localeCompare(b.time));
+      const entryDir=sorted[0]?.direction||'';
+      const isEntryBuy=entryDir==='Buy'||entryDir==='L';
+      const entryRows=ig.platform==='FX'?ig.rows:sorted.filter(r=>isEntryBuy?(r.direction==='Buy'||r.direction==='L'):(r.direction==='Sell'||r.direction==='S'));
+      const exitRows=ig.platform==='FX'?ig.rows.filter(r=>r.price_close!=null):sorted.filter(r=>isEntryBuy?(r.direction==='Sell'||r.direction==='S'):(r.direction==='Buy'||r.direction==='L'));
+      const eVol=entryRows.reduce((s,r)=>s+(r.volume||0),0);
+      const eAvg=entryRows.reduce((s,r)=>s+(r.price||0)*(r.volume||0),0)/(eVol||1);
+      const xVol=exitRows.reduce((s,r)=>s+(r.volume||0),0);
+      const xAvg=ig.platform==='FX'?xVol>0?exitRows.reduce((s,r)=>s+r.price_close*(r.volume||0),0)/xVol:null:xVol>0?exitRows.reduce((s,r)=>s+(r.price||0)*(r.volume||0),0)/xVol:null;
+      const times=ig.rows.map(r=>r.time).sort();
+      const timeStr=times[0]+(times.length>1?'–'+times[times.length-1]:'');
+      const dirLabel=isEntryBuy?'▲ Лонг':'▼ Шорт';
+      const dirColor=isEntryBuy?green:red;
+      const fmtP=v=>Number.isInteger(v)?String(v):parseFloat(v.toFixed(ig.platform==='FX'?5:3).replace(/\.?0+$/,'')).toString();
+
+      const platColor = ig.platform==='MX' ? '#818cf8' : '#a78bfa';
+
+      return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;
+                          border-bottom:1px solid ${border};font-size:12px;flex-wrap:wrap">
+        <span style="font-size:10px;font-weight:700;border-radius:3px;padding:2px 7px;
+                     background:${ig.platform==='MX'?'rgba(129,140,248,.15)':'rgba(167,139,250,.15)'};
+                     color:${platColor}">${ig.platform}</span>
+        <span style="font-weight:600;color:${text1}">${anonName}</span>
+        <span style="color:${dirColor};font-weight:700;font-size:11px">${dirLabel}</span>
+        <span style="font-family:monospace;color:${text2}">${fmtP(eAvg)}</span>
+        ${xAvg!=null?`<span style="color:${text2}">→</span><span style="font-family:monospace;color:${text1}">${fmtP(xAvg)}</span>`:''}
+        <span style="margin-left:auto;color:${text2};font-size:11px">${timeStr}</span>
+      </div>`;
+    }).join('');
+
+    // Spread
+    const sp = calcSpread(instrMap);
+    let spreadHtml = '';
+    if (sp && sp.entry != null) {
+      const se = sp.entry.toFixed(4);
+      const seC = parseFloat(se)>0?green:red;
+      if (sp.exit != null) {
+        const sx = sp.exit.toFixed(4);
+        const delta = sp.entry - sp.exit;
+        const dc = delta>=0?green:red;
+        spreadHtml = `<div style="display:flex;gap:14px;padding:8px 0 0;font-size:11px;flex-wrap:wrap">
+          <span style="color:${text2}">Спред:</span>
+          <span><span style="color:${text2}">вход</span> <span style="font-family:monospace;font-weight:700;color:${seC}">${se}%</span></span>
+          <span><span style="color:${text2}">выход</span> <span style="font-family:monospace;color:${text1}">${sx}%</span></span>
+          <span style="font-family:monospace;font-weight:800;color:${dc};font-size:13px">${delta>=0?'+':''}${delta.toFixed(4)}%</span>
+        </div>`;
+        totalSpreadEntry += sp.entry; totalSpreadExit += sp.exit; nSpread++;
+      } else {
+        spreadHtml = `<div style="display:flex;gap:10px;padding:8px 0 0;font-size:11px">
+          <span style="color:${text2}">Спред входа:</span>
+          <span style="font-family:monospace;font-weight:700;color:${seC}">${se}%</span>
+          <span style="color:${gold};font-size:10px">в позиции</span>
+        </div>`;
+        totalSpreadEntry += sp.entry; nSpread++;
+      }
+    }
+
+    return `<div style="background:${bg2};border:1px solid ${border};
+                        border-left:3px solid ${borderColor};border-radius:10px;
+                        padding:14px 16px;break-inside:avoid">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+        <span style="font-size:16px;font-weight:800;color:${blue};letter-spacing:-.5px">${esc(g.tag)}</span>
+        <span style="font-size:11px;background:${bg3};border-radius:4px;padding:2px 8px;color:${text2}">набор ${g.set||1}</span>
+        <span style="font-size:11px;font-weight:700;color:${statusColor};margin-left:auto">${statusLabel}</span>
+      </div>
+      <div>${legItems}</div>
+      ${spreadHtml}
+    </div>`;
+  }).join('');
+
+  // Summary stats
+  const avgEntry = nSpread>0 ? (totalSpreadEntry/nSpread).toFixed(4) : null;
+  const avgExit  = nSpread>0 && totalSpreadExit>0 ? (totalSpreadExit/nSpread).toFixed(4) : null;
+  const avgDelta = avgEntry && avgExit ? (parseFloat(avgEntry)-parseFloat(avgExit)).toFixed(4) : null;
+
+  // Date selector
+  const dateBtns = allDates.map(d =>
+    `<button onclick="document.getElementById('showcase-root').dataset.date='${d}';renderShowcase()"
+      style="padding:4px 12px;font-size:12px;border-radius:4px;cursor:pointer;
+             border:1px solid ${d===selDate?blue:border};
+             background:${d===selDate?blue:bg2};
+             color:${d===selDate?'#fff':text2}">${d}</button>`
+  ).join('');
+
+  root.style.background = bg;
+  root.style.minHeight = '100vh';
+  root.style.padding = '20px';
+  root.style.fontFamily = 'var(--font)';
+
+  root.innerHTML = `
+    <!-- Header -->
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:10px">
+      <div>
+        <div style="font-size:22px;font-weight:800;color:${text1};letter-spacing:-.5px">
+          Арбитражный трейдинг
+        </div>
+        <div style="font-size:13px;color:${text2};margin-top:2px">${selDate} · ${cards.length} конструкций</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button onclick="_showcaseDark=!_showcaseDark;renderShowcase()"
+          style="padding:6px 14px;font-size:12px;border-radius:6px;cursor:pointer;
+                 border:1px solid ${border};background:${bg3};color:${text2}">
+          ${dark?'☀️ Светлая':'🌙 Тёмная'}
+        </button>
+        ${dateBtns}
+      </div>
+    </div>
+
+    <!-- Stats bar -->
+    ${cards.length>0?`<div style="display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap">
+      <div style="background:${bg2};border:1px solid ${border};border-radius:8px;padding:10px 16px;flex:1;min-width:100px">
+        <div style="font-size:10px;color:${text2};text-transform:uppercase;letter-spacing:.5px">Закрыто</div>
+        <div style="font-size:20px;font-weight:800;color:${green};margin-top:2px">${closedCount}</div>
+      </div>
+      <div style="background:${bg2};border:1px solid ${border};border-radius:8px;padding:10px 16px;flex:1;min-width:100px">
+        <div style="font-size:10px;color:${text2};text-transform:uppercase;letter-spacing:.5px">Открыто</div>
+        <div style="font-size:20px;font-weight:800;color:${openCount2>0?gold:text2};margin-top:2px">${openCount2}</div>
+      </div>
+      ${avgDelta?`<div style="background:${bg2};border:1px solid ${border};border-radius:8px;padding:10px 16px;flex:1;min-width:130px">
+        <div style="font-size:10px;color:${text2};text-transform:uppercase;letter-spacing:.5px">Ср. дельта спреда</div>
+        <div style="font-size:20px;font-weight:800;color:${parseFloat(avgDelta)>=0?green:red};margin-top:2px">${parseFloat(avgDelta)>=0?'+':''}${avgDelta}%</div>
+      </div>`:''}
+      ${avgEntry?`<div style="background:${bg2};border:1px solid ${border};border-radius:8px;padding:10px 16px;flex:1;min-width:130px">
+        <div style="font-size:10px;color:${text2};text-transform:uppercase;letter-spacing:.5px">Ср. спред входа</div>
+        <div style="font-size:20px;font-weight:800;color:${text1};margin-top:2px">${avgEntry}%</div>
+      </div>`:''}
+    </div>`:''}
+
+    <!-- Cards grid -->
+    ${cards.length>0
+      ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px">${cardHtmls}</div>`
+      : `<div style="text-align:center;padding:60px 20px;color:${text2}">
+           <div style="font-size:40px;margin-bottom:12px">📊</div>
+           <div style="font-size:16px">Нет размеченных конструкций за ${selDate}</div>
+           <div style="font-size:13px;margin-top:6px">Разметь сделки в Журнале</div>
+         </div>`
+    }
+
+    <!-- Footer -->
+    <div style="margin-top:24px;text-align:center;font-size:11px;color:${text2};opacity:.5">
+      Арбитраж MOEX × Forex · ${new Date().toLocaleString('ru-RU')}
+    </div>`;
 }
 </script>
