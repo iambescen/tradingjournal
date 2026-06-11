@@ -634,6 +634,40 @@ function fmtRateDate(isoStr) {
   return `${d}.${m}.${y}`;
 }
 
+// Автоматически подгружает курсы ЦБ для всех дат из MX отчётов и LJ записей
+async function autoFetchAllRates() {
+  const dates = new Set();
+
+  // Даты из MX отчётов (формат DD.MM.YYYY → YYYY-MM-DD)
+  for (const r of store.mx || []) {
+    if (r.date) {
+      const p = r.date.split('.');
+      if (p.length === 3) dates.add(`${p[2]}-${p[1]}-${p[0]}`);
+    }
+  }
+
+  // Даты из LJ строк
+  for (const r of (store.lj?.rows || [])) {
+    if (r.date) {
+      const p = r.date.split('.');
+      if (p.length === 3) dates.add(`${p[2]}-${p[1]}-${p[0]}`);
+    }
+  }
+
+  // Даты из FX сделок
+  for (const r of store.fx || []) {
+    const d = (r.open_time || r.close_time || '').slice(0,10);
+    if (d) dates.add(d);
+  }
+
+  if (!dates.size) return;
+  const missing = [...dates].filter(d => !rateCache[d]);
+  if (!missing.length) return;
+
+  // Тихо подгружаем в фоне — не показываем статус
+  await fetchHistoricalRates(missing);
+}
+
 async function fetchRate() {
   const statusEl = document.getElementById('rate-status');
   statusEl.style.display = '';
@@ -1605,7 +1639,7 @@ function confirmStagedMX(i) {
   store.mx.sort((a, b) => parseDate(a.date) - parseDate(b.date));
   pending.mx.splice(i, 1);
   saveStore();
-  renderMXTable(); renderUnifiedTableAsync(); updateDashboard(); renderMXStaging(); autoMatchPositions();
+  renderMXTable(); renderUnifiedTableAsync(); updateDashboard(); renderMXStaging(); autoMatchPositions(); autoFetchAllRates();
 }
 
 function rejectStagedMX(i) {
@@ -1642,7 +1676,7 @@ function confirmStagedFX() {
   store.fx = merged.sort((a, b) => new Date(a.close_time) - new Date(b.close_time));
   pending.fx = [];
   saveStore();
-  renderFXTable(); renderFXFiles(); renderUnifiedTableAsync(); renderJournalTab(); updateDashboard(); renderFXStaging(); autoMatchPositions();
+  renderFXTable(); renderFXFiles(); renderUnifiedTableAsync(); renderJournalTab(); updateDashboard(); renderFXStaging(); autoMatchPositions(); autoFetchAllRates();
   console.log(`[FX] принято: +${added} новых, ~${updated} обновлено`);
 }
 
@@ -7636,6 +7670,7 @@ if (cached) {
   renderRateBar();
 }
 fetchRate(); // async, updates bar when done
+autoFetchAllRates(); // фоновая подгрузка исторических курсов для всех дат
 
 
 renderMXTable();
