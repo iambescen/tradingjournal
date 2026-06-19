@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781873961 -->
+<!-- v:1781874474 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -7967,7 +7967,45 @@ function renderOverviewTab(force) {
   const hasMx = mxDays.length > 0;
   const hasFx = fxDays.length > 0;
   if (!hasMx && !hasFx) {
-    container.innerHTML = `<div class="empty"><div class="icon">📊</div><p>Загрузи PDF-отчёты МХ и/или XLSX ForEx для отображения аналитики</p></div>`;
+    // No reports yet — show balance from manual deposit entries
+    const manual = store.manual || [];
+    const mxDeps = manual.filter(m => (m.account==='MX'||m.account==='both') && (m.type==='deposit'||m.type==='withdrawal'));
+    const fxDeps = manual.filter(m => (m.account==='FX'||m.account==='both') && (m.type==='deposit'||m.type==='withdrawal'));
+    const mxBal = mxDeps.reduce((s,m) => s + (m.type==='deposit'?1:-1)*Math.abs(parseFloat(m.amount)||0), 0);
+    const fxBal = fxDeps.reduce((s,m) => s + (m.type==='deposit'?1:-1)*Math.abs(parseFloat(m.amount)||0), 0);
+    const rate = currentRate?.value || 0;
+
+    if (mxBal <= 0 && fxBal <= 0) {
+      container.innerHTML = `<div class="empty"><div class="icon">📊</div>
+        <p>Загрузи PDF-отчёты МХ и/или XLSX ForEx для отображения аналитики</p>
+        <p style="font-size:12px;color:var(--text2);margin-top:8px">Или добавь пополнение на вкладке «Движение средств»</p>
+      </div>`;
+      return;
+    }
+
+    const totalRub = mxBal + (rate > 0 ? fxBal * rate : 0);
+    container.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:24px">
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:18px 20px">
+          <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Баланс МХ</div>
+          <div style="font-size:22px;font-weight:800">${mxBal > 0 ? Math.round(mxBal).toLocaleString('ru') + ' ₽' : '—'}</div>
+          <div style="font-size:11px;color:var(--text2);margin-top:4px">из записей пополнений</div>
+        </div>
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:18px 20px">
+          <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Баланс FX</div>
+          <div style="font-size:22px;font-weight:800">${fxBal > 0 ? '$' + fxBal.toFixed(2) : '—'}</div>
+          <div style="font-size:11px;color:var(--text2);margin-top:4px">${rate > 0 && fxBal > 0 ? '≈ ' + Math.round(fxBal*rate).toLocaleString('ru') + ' ₽' : 'из записей пополнений'}</div>
+        </div>
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:18px 20px">
+          <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Итого капитал</div>
+          <div style="font-size:22px;font-weight:800">${totalRub > 0 ? Math.round(totalRub).toLocaleString('ru') + ' ₽' : '—'}</div>
+          <div style="font-size:11px;color:var(--text2);margin-top:4px">курс ${rate > 0 ? rate.toFixed(2) : '—'} ₽/$</div>
+        </div>
+      </div>
+      <div class="empty" style="margin-top:8px">
+        <div class="icon">📊</div>
+        <p>Загрузи PDF-отчёты МХ и/или XLSX ForEx для полной аналитики</p>
+      </div>`;
     return;
   }
 
