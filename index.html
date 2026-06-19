@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781869415 -->
+<!-- v:1781869578 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -9556,9 +9556,21 @@ async function calcRefreshGo() {
   // Clear cache to force reload
   secids.forEach(s => { delete _goCache[s]; });
 
+  // Reverse map: secid → goKey (so cache is accessible by both)
+  const secidToGoKey = {};
+  ['Si1','Eu1','CNY1','UCNY1','ED1','GD1','SV1',
+   'Si2','Eu2','CNY2','UCNY2','ED2','GD2','SV2',
+   'USDRUBF','CNYRUBF','EURRUBF'].forEach(k => {
+    secidToGoKey[goKeyToSecid(k)] = k;
+  });
+
   let done = 0;
   for (const secid of secids) {
-    fetchGO(secid).then(() => {
+    fetchGO(secid).then(result => {
+      // Also store by goKey for getDynGO lookup
+      if (result && secidToGoKey[secid]) {
+        _goCache[secidToGoKey[secid]] = result;
+      }
       done++;
       if (done === secids.length) renderCalc();
       else if (done % 3 === 0) renderCalc();
