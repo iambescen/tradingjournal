@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781863831 -->
+<!-- v:1781863966 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8952,12 +8952,13 @@ function renderCalc() {
     { secid: 'GD'+front+y2,   name: 'GD-'+frontLabel,   key: 'GD'      },
     { secid: 'SV'+front+y2,   name: 'SV-'+frontLabel,   key: 'SV'      },
   ];
+  // FX: marginPer001 = маржа на 0.01 лот в USD
   const FX_INSTRUMENTS = [
-    { name: 'USDCNH', leverage: 100, lotSize: 100000 },
-    { name: 'EURCNH', leverage: 87,  lotSize: 100000 },
-    { name: 'EURUSD', leverage: 87,  lotSize: 100000 },
-    { name: 'XAUUSD', leverage: 100, lotSize: 100  },
-    { name: 'XAGUSD', leverage: 100, lotSize: 5000 },
+    { name: 'USDCNH', marginPer001: 9.95  },
+    { name: 'EURCNH', marginPer001: 11.49 },
+    { name: 'EURUSD', marginPer001: 11.49 },
+    { name: 'XAUUSD', marginPer001: 46.35 },
+    { name: 'XAGUSD', marginPer001: 35.82 },
   ];
 
   // Load saved GO overrides
@@ -8984,16 +8985,16 @@ function renderCalc() {
 
   // Build FX rows
   const fxRows = FX_INSTRUMENTS.map(ins => {
-    const margin = fxOverrides[ins.name] || ins.leverage;
-    // margin per 0.1 lot at current rate (approx)
-    const marginPerUnit = ins.lotSize / ins.leverage;
+    const margin = parseFloat(fxOverrides[ins.name] || ins.marginPer001);
+    const isOverride = !!fxOverrides[ins.name];
     return `<tr style="font-size:12px;border-bottom:1px solid var(--border)">
       <td style="padding:5px 8px;font-weight:600;color:var(--text)">${ins.name}</td>
-      <td style="padding:5px 8px;text-align:right;font-family:monospace">×${margin}</td>
-      <td style="padding:5px 8px;text-align:right;font-family:monospace;color:var(--text2)">${ins.lotSize.toLocaleString('en')}</td>
-      <td style="padding:5px 8px;text-align:right;font-family:monospace">$${(ins.lotSize/ins.leverage).toFixed(0)}/лот</td>
+      <td style="padding:5px 8px;text-align:right;font-family:monospace;font-weight:600">
+        $${margin.toFixed(2)}
+        ${isOverride ? '<span style="color:var(--blue);font-size:10px"> ✏</span>' : ''}
+      </td>
       <td style="padding:5px 8px;text-align:center">
-        <button class="btn-sm" style="font-size:10px;padding:2px 6px" onclick="calcEditFx('${ins.name}',${ins.leverage})">✏️</button>
+        <button class="btn-sm" style="font-size:10px;padding:2px 6px" onclick="calcEditFx('${ins.name}',${ins.marginPer001})">✏️</button>
       </td>
     </tr>`;
   }).join('');
@@ -9024,9 +9025,7 @@ function renderCalc() {
         <table style="width:100%;border-collapse:collapse">
           <thead><tr style="font-size:10px;color:var(--text2);background:var(--bg3)">
             <th style="padding:4px 8px;text-align:left">Инструмент</th>
-            <th style="padding:4px 8px;text-align:right">Плечо</th>
-            <th style="padding:4px 8px;text-align:right">Размер лота</th>
-            <th style="padding:4px 8px;text-align:right">Маржа/лот</th>
+            <th style="padding:4px 8px;text-align:right">Маржа на 0.01 лот</th>
             <th style="padding:4px 8px;width:36px"></th>
           </tr></thead>
           <tbody>${fxRows}</tbody>
@@ -9316,12 +9315,13 @@ function calcEditGo(key, secid) {
   renderCalc();
 }
 
-function calcEditFx(name, defaultLeverage) {
+function calcEditFx(name, defaultMargin) {
   const overrides = (() => { try { return JSON.parse(localStorage.getItem('calc_fx_v1') || '{}'); } catch { return {}; } })();
-  const cur = overrides[name] || defaultLeverage;
-  const val = prompt(`Плечо для ${name}:`, cur);
+  const cur = overrides[name] || defaultMargin;
+  const val = prompt(`Маржа на 0.01 лот для ${name} ($):`, cur);
   if (val === null) return;
-  overrides[name] = parseFloat(val) || defaultLeverage;
+  const parsed = parseFloat(val);
+  if (!parsed) { delete overrides[name]; } else { overrides[name] = parsed; }
   localStorage.setItem('calc_fx_v1', JSON.stringify(overrides));
   renderCalc();
 }
