@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781858177 -->
+<!-- v:1781858937 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8850,10 +8850,18 @@ function renderCalc() {
   const root = document.getElementById('calc-root');
   if (!root) return;
 
-  // Get MX balance from last PDF
-  const mxBal = store.mx.length
+  const state = (() => { try { return JSON.parse(localStorage.getItem('calc_state_v1') || '{}'); } catch { return {}; } })();
+
+  // MX balance: manual override → last PDF → 0
+  const mxBalPdf = store.mx.length
     ? store.mx.slice().sort((a,b) => normDate(b.date).localeCompare(normDate(a.date)))[0].balance_end || 0
     : 0;
+  const mxBalManual = parseFloat(state['_mxBal'] || '0') || 0;
+  const mxBal = mxBalManual > 0 ? mxBalManual : mxBalPdf;
+
+  // FX balance: manual input only (in USD)
+  const fxBalUsd = parseFloat(state['_fxBal'] || '0') || 0;
+
   const rate = currentRate?.value || 85;
   const leverage = 7; // ×7 leverage from MX balance
 
@@ -8900,7 +8908,7 @@ function renderCalc() {
   }
 
   // Build constructions rows
-  const state = getState();
+  // (state already loaded above)
 
   // Total load
   let totalGoAll = 0, totalFxAll = 0;
@@ -9028,31 +9036,57 @@ function renderCalc() {
     </div>`;
   }).join('');
 
+
+  const mxSource = mxBalManual > 0 ? 'вручную' : (mxBalPdf > 0 ? 'из PDF' : 'не задан');
+  const fxSource = fxBalUsd > 0 ? 'вручную' : 'не задан';
+
   root.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px">
       <div>
         <div style="font-size:18px;font-weight:800">Калькулятор позиционирования</div>
-        <div style="font-size:12px;color:var(--text2);margin-top:2px">
-          Курс: ${rate.toFixed(2)} ₽ · Баланс МХ из PDF · Плечо ×${leverage}
-        </div>
+        <div style="font-size:12px;color:var(--text2);margin-top:2px">Курс: ${rate.toFixed(2)} ₽ · Плечо ×${leverage}</div>
       </div>
       <button class="btn-sm" onclick="calcReset()" style="color:var(--neg)">🗑 Сбросить</button>
     </div>
+
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin-bottom:16px">
+      <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Текущие балансы</div>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end">
+        <div>
+          <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:4px">Баланс МХ (₽) <span style="color:${mxBalManual>0?'var(--blue)':'var(--text2)'}">${mxSource}</span></label>
+          <input type="number" step="1000" value="${mxBalManual > 0 ? mxBalManual : ''}"
+            placeholder="${mxBalPdf > 0 ? Math.round(mxBalPdf) + ' (PDF)' : 'введи вручную'}"
+            style="width:180px;font-size:13px;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:6px 10px"
+            oninput="calcSaveBal('_mxBal',this.value)"
+            onchange="calcSaveBal('_mxBal',this.value)">
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:4px">Баланс FX (USDT) <span style="color:${fxBalUsd>0?'var(--blue)':'var(--text2)'}">${fxSource}</span></label>
+          <input type="number" step="100" value="${fxBalUsd > 0 ? fxBalUsd : ''}"
+            placeholder="введи вручную"
+            style="width:180px;font-size:13px;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:6px 10px"
+            oninput="calcSaveBal('_fxBal',this.value)"
+            onchange="calcSaveBal('_fxBal',this.value)">
+        </div>
+        <div style="font-size:12px;color:var(--text2);padding-bottom:6px">
+          МХ доступно: <strong>${Math.round(mxBal*leverage).toLocaleString('ru')} ₽</strong>
+          ${fxBalUsd > 0 ? '· FX: <strong>$' + fxBalUsd.toLocaleString('en-US') + '</strong>' : ''}
+        </div>
+      </div>
+    </div>
+
     ${capitalHtml}
     ${cardsHtml}`;
 }
 
-function calcUpdateState(safeTag, field, val) {
-  const state = (() => {
-    try { return JSON.parse(localStorage.getItem('calc_state_v1') || '{}'); } catch { return {}; }
-  })();
-  // Convert safeTag back: _ → /
-  state[`${safeTag.replace(/_/g, '/')}_${field}`] = val;
+function calcSaveBal(key, val) {
+  const state = (() => { try { return JSON.parse(localStorage.getItem('calc_state_v1') || '{}'); } catch { return {}; } })();
+  state[key] = val;
   localStorage.setItem('calc_state_v1', JSON.stringify(state));
-  // Debounce re-render
   clearTimeout(window._calcTimer);
-  window._calcTimer = setTimeout(renderCalc, 300);
+  window._calcTimer = setTimeout(renderCalc, 400);
 }
+
 
 function calcReset() {
   if (!confirm('Сбросить все данные калькулятора?')) return;
