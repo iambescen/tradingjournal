@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781864206 -->
+<!-- v:1781864384 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8849,6 +8849,24 @@ const CALC_CONSTRUCTIONS = [
 // Averaging steps coefficients (halvings from 100%)
 const STEP_COEFFS = [1, 0.5, 0.25, 0.125, 0.0625, 0.03125, 0.015625];
 
+function mxTable(rows, title, showRefresh) {
+  return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
+    <div style="padding:8px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+      <span style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">${title}</span>
+      ${showRefresh ? '<button class="btn-sm" style="font-size:10px" onclick="calcRefreshGo()">↻</button>' : ''}
+    </div>
+    <table style="width:100%;border-collapse:collapse">
+      <thead><tr style="font-size:10px;color:var(--text2);background:var(--bg3)">
+        <th style="padding:4px 8px;text-align:left">Инструмент</th>
+        <th style="padding:4px 8px;text-align:right">ГО</th>
+        <th style="padding:4px 8px;width:32px"></th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
+}
+
+
 function renderCalc() {
   const root = document.getElementById('calc-root');
   if (!root) return;
@@ -9000,22 +9018,6 @@ function renderCalc() {
     </tr>`;
   }).join('');
 
-  function mxTable(rows, title, showRefresh) {
-    return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
-      <div style="padding:8px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
-        <span style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">${title}</span>
-        ${showRefresh ? '<button class="btn-sm" style="font-size:10px" onclick="calcRefreshGo()">↻</button>' : ''}
-      </div>
-      <table style="width:100%;border-collapse:collapse">
-        <thead><tr style="font-size:10px;color:var(--text2);background:var(--bg3)">
-          <th style="padding:4px 8px;text-align:left">Инструмент</th>
-          <th style="padding:4px 8px;text-align:right">ГО</th>
-          <th style="padding:4px 8px;width:32px"></th>
-        </tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-    </div>`;
-  }
 
   const instrumentsHtml = `
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px">
@@ -9059,7 +9061,7 @@ function renderCalc() {
 
   const capitalHtml = ''; // removed from calc
 
-    const cardsHtml = CALC_CONSTRUCTIONS.map(con => {
+  const cardsHtml = CALC_CONSTRUCTIONS.map(con => {
     const units  = parseFloat(state[`${con.tag}_units`] || '1') || 1;
     const spread = parseFloat(state[`${con.tag}_spread`] || '0') || 0;
     const r = calcConstruction(con, units, spread, con.stepPct);
