@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781865375 -->
+<!-- v:1781865604 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8993,22 +8993,23 @@ function renderCalc() {
     }
 
     // MOEX secid: SI=Si, EU=Eu, CR=CNY, UC=UCNY, GD=GD, SV=SV, ED=ED
-    const r1 = mxRow('Si1','SI'+front+frontY,'Si-'+fL)
-      + mxRow('Eu1','EU'+front+frontY,'Eu-'+fL)
-      + mxRow('CNY1','CR'+front+frontY,'CNY-'+fL)
-      + mxRow('UCNY1','UC'+front+frontY,'UCNY-'+fL)
-      + mxRow('ED1','ED'+back+backY,'ED-'+bL)
-      + mxRow('USDRUBF','USDRUBF','USDRUBF')
-      + mxRow('CNYRUBF','CNYRUBF','CNYRUBF')
-      + mxRow('EURRUBF','EURRUBF','EURRUBF')
-      + mxRow('GD1','GD'+front+frontY,'GD-'+fL)
-      + mxRow('SV1','SV'+front+frontY,'SV-'+fL);
-    const r2 = mxRow('Si2','SI'+back+backY,'Si-'+bL)
-      + mxRow('Eu2','EU'+back+backY,'Eu-'+bL)
-      + mxRow('CNY2','CR'+back+backY,'CNY-'+bL)
-      + mxRow('UCNY2','UC'+back+backY,'UCNY-'+bL)
-      + mxRow('GD2','GD'+back+backY,'GD-'+bL)
-      + mxRow('SV2','SV'+back+backY,'SV-'+bL);
+    const r1 = mxRow('Si1',  'SI'+front+frontY, 'Si-'+fL)
+      + mxRow('Eu1',   'EU'+front+frontY, 'Eu-'+fL)
+      + mxRow('CNY1',  'CR'+front+frontY, 'CNY-'+fL)
+      + mxRow('UCNY1', 'UC'+front+frontY, 'UCNY-'+fL)
+      + mxRow('ED1',   'ED'+front+frontY, 'ED-'+fL)
+      + mxRow('USDRUBF','USDRUBF',        'USDRUBF')
+      + mxRow('CNYRUBF','CNYRUBF',        'CNYRUBF')
+      + mxRow('EURRUBF','EURRUBF',        'EURRUBF')
+      + mxRow('GD1',   'GD'+front+frontY, 'GD-'+fL)
+      + mxRow('SV1',   'SV'+front+frontY, 'SV-'+fL);
+    const r2 = mxRow('Si2',  'SI'+back+backY,  'Si-'+bL)
+      + mxRow('Eu2',   'EU'+back+backY,  'Eu-'+bL)
+      + mxRow('CNY2',  'CR'+back+backY,  'CNY-'+bL)
+      + mxRow('UCNY2', 'UC'+back+backY,  'UCNY-'+bL)
+      + mxRow('ED2',   'ED'+back+backY,  'ED-'+bL)
+      + mxRow('GD2',   'GD'+back+backY,  'GD-'+bL)
+      + mxRow('SV2',   'SV'+back+backY,  'SV-'+bL);
     const rf = fxRow('USDCNH',9.95)+fxRow('EURCNH',11.49)+fxRow('EURUSD',11.49)
       + fxRow('XAUUSD',46.35)+fxRow('XAGUSD',35.82);
 
@@ -9302,7 +9303,7 @@ async function calcRefreshGo() {
     'GD'+front+frontY2, 'SV'+front+frontY2,
     'SI'+back+backY2,   'EU'+back+backY2,   'CR'+back+backY2,   'UC'+back+backY2,
     'GD'+back+backY2,   'SV'+back+backY2,
-    'ED'+back+backY2,
+    'ED'+front+frontY2, 'ED'+back+backY2,
     'USDRUBF', 'CNYRUBF', 'EURRUBF'
   ];
 
