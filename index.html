@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781864565 -->
+<!-- v:1781864884 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8934,109 +8934,80 @@ function renderCalc() {
 
 
   // ── Instruments table ──
-  // Auto-detect current quarter secid suffix
-  // MOEX month codes: H=3, M=6, U=9, Z=12
-  function getCurrentQuarter() {
+  const instrumentsHtml = (function() {
     const now = new Date();
-    const m = now.getMonth() + 1; // 1-12
-    const y = String(now.getFullYear()).slice(-2);
-    // Expiry: 3rd Thu of Mar/Jun/Sep/Dec
-    // After expiry, roll to next quarter
-    if (m <= 3)  return { code: 'H', label: '3.' + y, next: 'M', nextLabel: '6.' + y };
-    if (m <= 6)  return { code: 'M', label: '6.' + y, next: 'U', nextLabel: '9.' + y };
-    if (m <= 9)  return { code: 'U', label: '9.' + y, next: 'Z', nextLabel: '12.' + y };
-                 return { code: 'Z', label: '12.' + y, next: 'H', nextLabel: '3.' + String(now.getFullYear()+1).slice(-2) };
-  }
-  const q = getCurrentQuarter();
-  // Today is 19 Jun — M6 expired yesterday, so use U6 as front
-  // Simple rule: if today >= 18th of expiry month, use next quarter
-  const now2 = new Date();
-  const expMonth = { H:3, M:6, U:9, Z:12 }[q.code];
-  const useNext = now2.getMonth()+1 === expMonth && now2.getDate() >= 18;
-  const front = useNext ? q.next : q.code;
-  const frontLabel = useNext ? q.nextLabel : q.label;
-  const back  = useNext ? q.code : q.next;  // for ED which trades U6
-  const backLabel = useNext ? q.label : q.nextLabel;
-  const y2 = String(now2.getFullYear()).slice(-2);
+    const m = now.getMonth() + 1;
+    const y2 = String(now.getFullYear()).slice(-2);
+    const nextY = String(now.getFullYear()+1).slice(-2);
+    const allCodes = {H:'3.',M:'6.',U:'9.',Z:'12.'};
+    let front, back;
+    if (m<=3){front='H';back='M';} else if(m<=6){front='M';back='U';}
+    else if(m<=9){front='U';back='Z';} else{front='Z';back='H';}
+    const expM = {H:3,M:6,U:9,Z:12};
+    if (now.getDate()>=18 && m===expM[front]) { const t=front; front=back; back=t; }
+    const fL = allCodes[front]+y2;
+    const bL = allCodes[back]+(back==='H' && front==='Z' ? nextY : y2);
 
-  const MX_INSTRUMENTS = [
-    { secid: 'SI'+front+y2,   name: 'Si-'+frontLabel,   key: 'Si'      },
-    { secid: 'EU'+front+y2,   name: 'Eu-'+frontLabel,   key: 'Eu'      },
-    { secid: 'CNY'+front+y2,  name: 'CNY-'+frontLabel,  key: 'CNY'     },
-    { secid: 'UCNY'+front+y2, name: 'UCNY-'+frontLabel, key: 'UCNY'    },
-    { secid: 'ED'+back+y2,    name: 'ED-'+backLabel,    key: 'ED'      },
-    { secid: 'USDRUBF',       name: 'USDRUBF',          key: 'USDRUBF' },
-    { secid: 'CNYRUBF',       name: 'CNYRUBF',          key: 'CNYRUBF' },
-    { secid: 'GD'+front+y2,   name: 'GD-'+frontLabel,   key: 'GD'      },
-    { secid: 'SV'+front+y2,   name: 'SV-'+frontLabel,   key: 'SV'      },
-  ];
-  // FX: marginPer001 = маржа на 0.01 лот в USD
-  const FX_INSTRUMENTS = [
-    { name: 'USDCNH', marginPer001: 9.95  },
-    { name: 'EURCNH', marginPer001: 11.49 },
-    { name: 'EURUSD', marginPer001: 11.49 },
-    { name: 'XAUUSD', marginPer001: 46.35 },
-    { name: 'XAGUSD', marginPer001: 35.82 },
-  ];
+    const goOv = (function(){try{return JSON.parse(localStorage.getItem('calc_go_v1')||'{}');}catch(e){return{};}})();
+    const fxOv = (function(){try{return JSON.parse(localStorage.getItem('calc_fx_v1')||'{}');}catch(e){return{};}})();
 
-  // Load saved GO overrides
-  const goOverrides = (() => { try { return JSON.parse(localStorage.getItem('calc_go_v1') || '{}'); } catch { return {}; } })();
-  const fxOverrides = (() => { try { return JSON.parse(localStorage.getItem('calc_fx_v1') || '{}'); } catch { return {}; } })();
+    function mxRow(key, secid, name) {
+      const go = goOv[key] || (_goCache[secid] && _goCache[secid].go) || 0;
+      return '<tr style="font-size:12px;border-bottom:1px solid var(--border)"><td style="padding:5px 8px;font-weight:600">'
+        + name + '</td><td style="padding:5px 8px;text-align:right;font-family:monospace">'
+        + (go ? Math.round(go).toLocaleString('ru')+' ₽' : '<span style="color:var(--text2)">—</span>')
+        + '</td><td style="padding:5px 8px;text-align:center">'
+        + '<button class="btn-sm" style="font-size:10px;padding:2px 5px" data-go-key="'+key+'" data-go-sec="'+secid+'" onclick="calcEditGo(this.dataset.goKey,this.dataset.goSec)">✏️</button>'
+        + '</td></tr>';
+    }
+    function fxRow(name, def) {
+      const mg = parseFloat(fxOv[name]||def);
+      return '<tr style="font-size:12px;border-bottom:1px solid var(--border)"><td style="padding:5px 8px;font-weight:600">'
+        + name + '</td><td style="padding:5px 8px;text-align:right;font-family:monospace;font-weight:600">$'
+        + mg.toFixed(2) + '</td><td style="padding:5px 8px;text-align:center">'
+        + '<button class="btn-sm" style="font-size:10px;padding:2px 5px" data-fx-name="'+name+'" data-fx-def="'+def+'" onclick="calcEditFx(this.dataset.fxName,this.dataset.fxDef)">✏️</button>'
+        + '</td></tr>';
+    }
+    function tbl(title, rows, refresh) {
+      return '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">'
+        + '<div style="padding:8px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">'
+        + '<span style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">'+title+'</span>'
+        + (refresh ? '<button class="btn-sm" style="font-size:10px" onclick="calcRefreshGo()">↻</button>' : '')
+        + '</div><table style="width:100%;border-collapse:collapse">'
+        + '<thead><tr style="font-size:10px;color:var(--text2);background:var(--bg3)">'
+        + '<th style="padding:4px 8px;text-align:left">Инструмент</th>'
+        + '<th style="padding:4px 8px;text-align:right">ГО / Маржа</th>'
+        + '<th style="padding:4px 8px;width:32px"></th>'
+        + '</tr></thead><tbody>'+rows+'</tbody></table></div>';
+    }
 
-  // Build MX rows helper
-  function buildMxRows(list) {
-    return list.map(ins => {
-      const goVal = goOverrides[ins.key] || _goCache[ins.secid]?.go || '';
-      const isOverride = !!goOverrides[ins.key];
-      return `<tr style="font-size:12px;border-bottom:1px solid var(--border)">
-        <td style="padding:5px 8px;font-weight:600;color:var(--text)">${ins.name}</td>
-        <td style="padding:5px 8px;text-align:right;font-family:monospace">
-          ${goVal ? Math.round(goVal).toLocaleString('ru') + ' ₽' + (isOverride ? ' <span style="color:var(--blue);font-size:10px">✏</span>' : '') : '<span style="color:var(--text2)">загрузка...</span>'}
-        </td>
-        <td style="padding:5px 8px;text-align:center">
-          <button class="btn-sm" style="font-size:10px;padding:2px 6px" onclick="calcEditGo('${ins.key}','${ins.secid}')">✏️</button>
-        </td>
-      </tr>`;
-    }).join('');
-  }
-  const mxRows1 = buildMxRows(MX_INSTRUMENTS_1);
-  const mxRows2 = buildMxRows(MX_INSTRUMENTS_2);
+    const r1 = mxRow('Si1','SI'+front+y2,'Si-'+fL)
+      + mxRow('Eu1','EU'+front+y2,'Eu-'+fL)
+      + mxRow('CNY1','CNY'+front+y2,'CNY-'+fL)
+      + mxRow('UCNY1','UCNY'+front+y2,'UCNY-'+fL)
+      + mxRow('ED1','ED'+back+y2,'ED-'+bL)
+      + mxRow('USDRUBF','USDRUBF','USDRUBF')
+      + mxRow('CNYRUBF','CNYRUBF','CNYRUBF')
+      + mxRow('EURRUBF','EURRUBF','EURRUBF')
+      + mxRow('GD1','GD'+front+y2,'GD-'+fL)
+      + mxRow('SV1','SV'+front+y2,'SV-'+fL);
+    const r2 = mxRow('Si2','SI'+back+y2,'Si-'+bL)
+      + mxRow('Eu2','EU'+back+y2,'Eu-'+bL)
+      + mxRow('CNY2','CNY'+back+y2,'CNY-'+bL)
+      + mxRow('UCNY2','UCNY'+back+y2,'UCNY-'+bL)
+      + mxRow('GD2','GD'+back+y2,'GD-'+bL)
+      + mxRow('SV2','SV'+back+y2,'SV-'+bL);
+    const rf = fxRow('USDCNH',9.95)+fxRow('EURCNH',11.49)+fxRow('EURUSD',11.49)
+      + fxRow('XAUUSD',46.35)+fxRow('XAGUSD',35.82);
 
-  // Build FX rows
-  const fxRows = FX_INSTRUMENTS.map(ins => {
-    const margin = parseFloat(fxOverrides[ins.name] || ins.marginPer001);
-    const isOverride = !!fxOverrides[ins.name];
-    return `<tr style="font-size:12px;border-bottom:1px solid var(--border)">
-      <td style="padding:5px 8px;font-weight:600;color:var(--text)">${ins.name}</td>
-      <td style="padding:5px 8px;text-align:right;font-family:monospace;font-weight:600">
-        $${margin.toFixed(2)}
-        ${isOverride ? '<span style="color:var(--blue);font-size:10px"> ✏</span>' : ''}
-      </td>
-      <td style="padding:5px 8px;text-align:center">
-        <button class="btn-sm" style="font-size:10px;padding:2px 6px" onclick="calcEditFx('${ins.name}',${ins.marginPer001})">✏️</button>
-      </td>
-    </tr>`;
-  }).join('');
+    return '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px">'
+      + tbl('МХ — контракты 1', r1, true)
+      + tbl('МХ — контракты 2', r2, false)
+      + tbl('FX — маржа 0.01 лот', rf, false)
+      + '</div>';
+  })();
 
 
-  const fxTable = '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">'
-    + '<div style="padding:8px 12px;border-bottom:1px solid var(--border)">'
-    + '<span style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">FX — Маржа на 0.01 лот</span>'
-    + '</div>'
-    + '<table style="width:100%;border-collapse:collapse">'
-    + '<thead><tr style="font-size:10px;color:var(--text2);background:var(--bg3)">'
-    + '<th style="padding:4px 8px;text-align:left">Инструмент</th>'
-    + '<th style="padding:4px 8px;text-align:right">Маржа ($)</th>'
-    + '<th style="padding:4px 8px;width:32px"></th>'
-    + '</tr></thead>'
-    + '<tbody>' + fxRows + '</tbody>'
-    + '</table></div>';
-
-  const instrumentsHtml = '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px">'
-    + mxTable(mxRows1, 'МХ — контракты 1', true)
-    + mxTable(mxRows2, 'МХ — контракты 2', false)
-    + fxTable
-    + '</div>';
 
 
   // Build constructions rows
