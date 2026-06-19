@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781874474 -->
+<!-- v:1781874768 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -2983,12 +2983,14 @@ function updateDashboard() {
   const rate = currentRate?.value || null;
 
   // ── MX ──
-  // База = последний balance_end из PDF.
-  // Поверх = ручные корректировки ПОСЛЕ даты последнего PDF (ещё не попали в выгрузку).
   const lastMX     = store.mx.length ? store.mx[store.mx.length-1] : null;
   const mxPdfBal   = lastMX ? (lastMX.balance_end || 0) : 0;
-  const mxBal      = mxPdfBal; // только факт из выгрузки
-  const mxHasData  = store.mx.length || store.manual.some(m => m.account === 'MX' || m.account === 'both');
+  // Fallback: sum of manual deposit/withdrawal entries for MX
+  const mxDepBal   = (store.manual||[])
+    .filter(m => (m.account==='MX'||m.account==='both') && (m.type==='deposit'||m.type==='withdrawal'))
+    .reduce((s,m) => s + (m.type==='deposit'?1:-1)*Math.abs(parseFloat(m.amount)||0), 0);
+  const mxBal      = mxPdfBal > 0 ? mxPdfBal : mxDepBal;
+  const mxHasData  = store.mx.length || mxDepBal > 0;
   const mxPnl      = store.mx.reduce((s, r) => s + (r.equity || 0), 0);
 
   // MX — баланс
@@ -2999,6 +3001,8 @@ function updateDashboard() {
   if (lastMX) {
     const d = normDate(lastMX.date); // ISO → DD.MM.YYYY
     mxSourceEl.textContent = `Отчёт от ${d.split('-').reverse().join('.')}`;
+  } else if (mxDepBal > 0) {
+    mxSourceEl.textContent = 'Из пополнений';
   } else if (mxHasData) {
     mxSourceEl.textContent = 'Только ручные записи';
   } else {
@@ -3009,8 +3013,12 @@ function updateDashboard() {
   const lastFX      = store.fx.length ? store.fx[store.fx.length-1] : null;
   const fxBrokerBal = lastFX ? (lastFX.balance || 0) : 0;
   const fxLastDate  = lastFX ? normDate(lastFX.close_date) : null;
-  const fxBal       = fxBrokerBal; // только факт из выгрузки
-  const fxHasData   = store.fx.length || store.manual.some(m => m.account === 'FX' || m.account === 'both');
+  // Fallback: sum of manual deposit/withdrawal entries for FX
+  const fxDepBal    = (store.manual||[])
+    .filter(m => (m.account==='FX'||m.account==='both') && (m.type==='deposit'||m.type==='withdrawal'))
+    .reduce((s,m) => s + (m.type==='deposit'?1:-1)*Math.abs(parseFloat(m.amount)||0), 0);
+  const fxBal       = fxBrokerBal > 0 ? fxBrokerBal : fxDepBal;
+  const fxHasData   = store.fx.length || fxDepBal > 0;
 
   document.getElementById('dash-fx-balance').textContent = fxHasData
     ? fxBal.toFixed(2) + ' USDT' : '— USDT';
@@ -3020,6 +3028,8 @@ function updateDashboard() {
   if (lastFX) {
     const d = fxLastDate ? fxLastDate.split('-').reverse().join('.') : '—';
     fxSourceEl.textContent = `Баланс из выгрузки · ${d}`;
+  } else if (fxDepBal > 0) {
+    fxSourceEl.textContent = 'Из пополнений';
   } else if (fxHasData) {
     fxSourceEl.textContent = 'Только ручные записи';
   } else {
