@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781863966 -->
+<!-- v:1781864206 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8965,23 +8965,24 @@ function renderCalc() {
   const goOverrides = (() => { try { return JSON.parse(localStorage.getItem('calc_go_v1') || '{}'); } catch { return {}; } })();
   const fxOverrides = (() => { try { return JSON.parse(localStorage.getItem('calc_fx_v1') || '{}'); } catch { return {}; } })();
 
-  // Build MX rows
-  const mxRows = MX_INSTRUMENTS.map(ins => {
-    const goVal = goOverrides[ins.key] || _goCache[ins.secid]?.go || _goCache[ins.secid.replace('M6','M26')]?.go || '';
-    const stepVal = goOverrides[ins.key + '_step'] || _goCache[ins.secid]?.step || '';
-    return `<tr style="font-size:12px;border-bottom:1px solid var(--border)">
-      <td style="padding:5px 8px;font-weight:600;color:var(--text)">${ins.name}</td>
-      <td style="padding:5px 8px;text-align:right;font-family:monospace" id="go_${ins.key}">
-        ${goVal ? Math.round(goVal).toLocaleString('ru') + ' ₽' : '<span style="color:var(--text2)">загрузка...</span>'}
-      </td>
-      <td style="padding:5px 8px;text-align:right;font-family:monospace;color:var(--text2)">
-        ${stepVal ? stepVal + ' ₽' : '—'}
-      </td>
-      <td style="padding:5px 8px;text-align:center">
-        <button class="btn-sm" style="font-size:10px;padding:2px 6px" onclick="calcEditGo('${ins.key}','${ins.secid}')">✏️</button>
-      </td>
-    </tr>`;
-  }).join('');
+  // Build MX rows helper
+  function buildMxRows(list) {
+    return list.map(ins => {
+      const goVal = goOverrides[ins.key] || _goCache[ins.secid]?.go || '';
+      const isOverride = !!goOverrides[ins.key];
+      return `<tr style="font-size:12px;border-bottom:1px solid var(--border)">
+        <td style="padding:5px 8px;font-weight:600;color:var(--text)">${ins.name}</td>
+        <td style="padding:5px 8px;text-align:right;font-family:monospace">
+          ${goVal ? Math.round(goVal).toLocaleString('ru') + ' ₽' + (isOverride ? ' <span style="color:var(--blue);font-size:10px">✏</span>' : '') : '<span style="color:var(--text2)">загрузка...</span>'}
+        </td>
+        <td style="padding:5px 8px;text-align:center">
+          <button class="btn-sm" style="font-size:10px;padding:2px 6px" onclick="calcEditGo('${ins.key}','${ins.secid}')">✏️</button>
+        </td>
+      </tr>`;
+    }).join('');
+  }
+  const mxRows1 = buildMxRows(MX_INSTRUMENTS_1);
+  const mxRows2 = buildMxRows(MX_INSTRUMENTS_2);
 
   // Build FX rows
   const fxRows = FX_INSTRUMENTS.map(ins => {
@@ -8999,34 +9000,36 @@ function renderCalc() {
     </tr>`;
   }).join('');
 
-  const instrumentsHtml = `
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
-      <!-- MX -->
-      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
-        <div style="padding:8px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
-          <span style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">МХ — Гарантийное обеспечение</span>
-          <button class="btn-sm" style="font-size:10px" onclick="calcRefreshGo()">↻ Обновить</button>
-        </div>
-        <table style="width:100%;border-collapse:collapse">
-          <thead><tr style="font-size:10px;color:var(--text2);background:var(--bg3)">
-            <th style="padding:4px 8px;text-align:left">Инструмент</th>
-            <th style="padding:4px 8px;text-align:right">ГО</th>
-            <th style="padding:4px 8px;text-align:right">Шаг цены</th>
-            <th style="padding:4px 8px;width:36px"></th>
-          </tr></thead>
-          <tbody>${mxRows}</tbody>
-        </table>
+  function mxTable(rows, title, showRefresh) {
+    return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
+      <div style="padding:8px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+        <span style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">${title}</span>
+        ${showRefresh ? '<button class="btn-sm" style="font-size:10px" onclick="calcRefreshGo()">↻</button>' : ''}
       </div>
-      <!-- FX -->
+      <table style="width:100%;border-collapse:collapse">
+        <thead><tr style="font-size:10px;color:var(--text2);background:var(--bg3)">
+          <th style="padding:4px 8px;text-align:left">Инструмент</th>
+          <th style="padding:4px 8px;text-align:right">ГО</th>
+          <th style="padding:4px 8px;width:32px"></th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+  }
+
+  const instrumentsHtml = `
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px">
+      ${mxTable(mxRows1, 'МХ — контракты 1', true)}
+      ${mxTable(mxRows2, 'МХ — контракты 2', false)}
       <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
         <div style="padding:8px 12px;border-bottom:1px solid var(--border)">
-          <span style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">FX — Маржа</span>
+          <span style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">FX — Маржа на 0.01 лот</span>
         </div>
         <table style="width:100%;border-collapse:collapse">
           <thead><tr style="font-size:10px;color:var(--text2);background:var(--bg3)">
             <th style="padding:4px 8px;text-align:left">Инструмент</th>
-            <th style="padding:4px 8px;text-align:right">Маржа на 0.01 лот</th>
-            <th style="padding:4px 8px;width:36px"></th>
+            <th style="padding:4px 8px;text-align:right">Маржа ($)</th>
+            <th style="padding:4px 8px;width:32px"></th>
           </tr></thead>
           <tbody>${fxRows}</tbody>
         </table>
