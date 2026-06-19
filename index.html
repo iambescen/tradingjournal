@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781861959 -->
+<!-- v:1781862144 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8304,7 +8304,8 @@ function switchTab(name, e) {
   if (e && e.target) e.target.classList.add('active');
   // Rate bar only on funds + constructions
   const rateBar = document.getElementById('rate-bar');
-  if (rateBar) rateBar.style.display = ['funds','constructions'].includes(name) ? '' : 'none';
+  const showRate = ['funds','constructions'].includes(name);
+  if (rateBar) { rateBar.style.display = showRate ? '' : 'none'; rateBar.style.marginBottom = showRate ? '' : '0'; }
   // Dashboard cards only on overview
   const dash = document.getElementById('main-dashboard');
   if (dash) { dash.style.display = name === 'overview' ? '' : 'none'; dash.style.marginBottom = name === 'overview' ? '' : '0'; }
@@ -8337,7 +8338,7 @@ fetchRate(); // async, updates bar when done
 autoFetchAllRates(); // фоновая подгрузка исторических курсов для всех дат
 // Hide rate bar and dashboard on initial load (journal tab is default)
 const _rb = document.getElementById('rate-bar');
-if (_rb) _rb.style.display = 'none';
+if (_rb) { _rb.style.display = 'none'; _rb.style.marginBottom = '0'; }
 const _db = document.getElementById('main-dashboard');
 if (_db) { _db.style.display = 'none'; _db.style.marginBottom = '0'; }
 
