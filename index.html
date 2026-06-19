@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781859048 -->
+<!-- v:1781859274 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -412,16 +412,7 @@
   </div>
 
   <!-- Nav -->
-  <div class="nav">
-    <button class="nav-btn" onclick="switchTab('overview', event)">Обзор</button>
-    <button class="nav-btn" onclick="switchTab('funds', event)">Движение средств</button>
-    <button class="nav-btn active" onclick="switchTab('journal', event); renderLiveJournal()">Журнал</button>
-    <button class="nav-btn" onclick="switchTab('constructions', event)">Сделки</button>
-    <button class="nav-btn" onclick="switchTab('showcase', event); renderShowcase()">Дневник</button>
-    <button class="nav-btn" onclick="switchTab('calc', event); renderCalc()">Калькулятор</button>
-  <div style="margin-left:auto;display:flex;gap:6px;align-items:center">
-      <button class="btn-sm" onclick="openGithubSettings()" title="Настройки GitHub" style="font-size:11px;opacity:.6">⚙️ GitHub</button>
-    </div>
+  
   </div>
 
   <!-- OVERVIEW -->
@@ -8311,6 +8302,9 @@ function switchTab(name, e) {
   document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'));
   document.getElementById('tab-' + name)?.classList.add('active');
   if (e && e.target) e.target.classList.add('active');
+  // Rate bar only on funds + constructions
+  const rateBar = document.getElementById('rate-bar');
+  if (rateBar) rateBar.style.display = ['funds','constructions'].includes(name) ? '' : 'none';
   if (name === 'overview') renderOverviewTab();
   if (name === 'feed')     renderFeedTab();
   if (name === 'constructions') renderPositionsTab();
@@ -8338,6 +8332,9 @@ if (cached) {
 }
 fetchRate(); // async, updates bar when done
 autoFetchAllRates(); // фоновая подгрузка исторических курсов для всех дат
+// Hide rate bar on initial load (journal tab is default)
+const _rb = document.getElementById('rate-bar');
+if (_rb) _rb.style.display = 'none';
 
 
 renderMXTable();
@@ -8931,32 +8928,9 @@ function renderCalc() {
   const freeMx  = availableMx - totalGoAll;
   const loadColor = loadPct > 80 ? 'var(--red)' : loadPct > 50 ? 'var(--amber)' : 'var(--green)';
 
-  // Capital summary block
-  const capitalHtml = `
-  <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
-    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:10px 16px;flex:1;min-width:140px">
-      <div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">Баланс МХ</div>
-      <div style="font-size:16px;font-weight:700;margin-top:4px">${Math.round(mxBal).toLocaleString('ru')} ₽</div>
-      <div style="font-size:11px;color:var(--text2)">× ${leverage} = ${Math.round(availableMx).toLocaleString('ru')} ₽</div>
-    </div>
-    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:10px 16px;flex:1;min-width:140px">
-      <div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">Загружено ГО МХ</div>
-      <div style="font-size:16px;font-weight:700;margin-top:4px;color:${loadColor}">${Math.round(totalGoAll).toLocaleString('ru')} ₽</div>
-      <div style="font-size:11px;color:${loadColor}">${loadPct.toFixed(1)}% от доступных</div>
-    </div>
-    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:10px 16px;flex:1;min-width:140px">
-      <div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">Свободно МХ</div>
-      <div style="font-size:16px;font-weight:700;margin-top:4px;color:var(--green)">${Math.round(freeMx).toLocaleString('ru')} ₽</div>
-    </div>
-    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:10px 16px;flex:1;min-width:140px">
-      <div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">Маржа FX итого</div>
-      <div style="font-size:16px;font-weight:700;margin-top:4px">$${totalFxAll.toFixed(0)}</div>
-      <div style="font-size:11px;color:var(--text2)">${Math.round(totalFxAll * rate).toLocaleString('ru')} ₽</div>
-    </div>
-  </div>`;
+  const capitalHtml = ''; // removed from calc
 
-  // Construction cards
-  const cardsHtml = CALC_CONSTRUCTIONS.map(con => {
+    const cardsHtml = CALC_CONSTRUCTIONS.map(con => {
     const units  = parseFloat(state[`${con.tag}_units`] || '1') || 1;
     const spread = parseFloat(state[`${con.tag}_spread`] || '0') || 0;
     const r = calcConstruction(con, units, spread, con.stepPct);
