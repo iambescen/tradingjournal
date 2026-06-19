@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781869701 -->
+<!-- v:1781869884 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8850,6 +8850,9 @@ const CALC_GROUPS = [
   { label: 'GD / XAUUSD',        tags: ['GD1/XAUUSD',      'GD2/XAUUSD']      },
   { label: 'SV / XAGUSD',        tags: ['SV1/XAGUSD',      'SV2/XAGUSD']      },
   { label: 'USDRUBF / CNYRUBF',  tags: ['URF/CRF/USDCNH']                     },
+  { label: 'EURRUBF / CR / EURCNH', tags: ['ERF/CR1/EURCNH', 'ERF/CR2/EURCNH']  },
+  { label: 'EURRUBF / CR / USDCNH', tags: ['ERF/CR1/USDCNH', 'ERF/CR2/USDCNH']  },
+  { label: 'USDRUBF / CR / USDCNH', tags: ['URF/CR1/USDCNH', 'URF/CR2/USDCNH']  },
 ];
 
 // Labels for each construction card header
@@ -8867,6 +8870,12 @@ const CALC_LABELS = {
   'SV1/XAGUSD':      'SV1 / XAGUSD',
   'SV2/XAGUSD':      'SV2 / XAGUSD',
   'URF/CRF/USDCNH':  'USDRUBF / CNYRUBF / USDCNH',
+  'ERF/CR1/EURCNH':  'EURRUBF / CR1 / EURCNH',
+  'ERF/CR2/EURCNH':  'EURRUBF / CR2 / EURCNH',
+  'ERF/CR1/USDCNH':  'EURRUBF / CR1 / USDCNH',
+  'ERF/CR2/USDCNH':  'EURRUBF / CR2 / USDCNH',
+  'URF/CR1/USDCNH':  'USDRUBF / CR1 / USDCNH',
+  'URF/CR2/USDCNH':  'USDRUBF / CR2 / USDCNH',
 };
 
 const CALC_CONSTRUCTIONS = [
@@ -8956,6 +8965,61 @@ const CALC_CONSTRUCTIONS = [
     legs: [
       { name: 'UCNY-12.26', go: 7261, isMx: true,  ratio: 100, goKey: 'UCNY2' },
       { name: 'USDCNH',     go: 0,    isMx: false, ratio: 1.0, marginPerLot: 995 },
+    ],
+    stepPct: 0.2, maxPct: 1.2,
+  },
+  // ── Вечники + квартальные CR ──
+  {
+    tag: 'ERF/CR1/EURCNH', label: 'EURRUBF / CR1 / EURCNH',
+    legs: [
+      { name: 'EURRUBF',   go: 12803, isMx: true,  ratio: 1,   goKey: 'EURRUBF' },
+      { name: 'CNY-9.26',  go: 1051,  isMx: true,  ratio: 80,  goKey: 'CNY1', crPair: 'EURCNH', siLots: 1 },
+      { name: 'EURCNH',    go: 0,     isMx: false, ratio: 0.01, marginPerLot: 1149 },
+    ],
+    stepPct: 0.2, maxPct: 1.2,
+  },
+  {
+    tag: 'ERF/CR2/EURCNH', label: 'EURRUBF / CR2 / EURCNH',
+    legs: [
+      { name: 'EURRUBF',   go: 12803, isMx: true,  ratio: 1,   goKey: 'EURRUBF' },
+      { name: 'CNY-12.26', go: 1051,  isMx: true,  ratio: 80,  goKey: 'CNY2', crPair: 'EURCNH', siLots: 1 },
+      { name: 'EURCNH',    go: 0,     isMx: false, ratio: 0.01, marginPerLot: 1149 },
+    ],
+    stepPct: 0.2, maxPct: 1.2,
+  },
+  {
+    tag: 'ERF/CR1/USDCNH', label: 'EURRUBF / CR1 / USDCNH',
+    legs: [
+      { name: 'EURRUBF',   go: 12803, isMx: true,  ratio: 1,   goKey: 'EURRUBF' },
+      { name: 'CNY-9.26',  go: 1051,  isMx: true,  ratio: 72,  goKey: 'CNY1', crPair: 'USDCNH', siLots: 1 },
+      { name: 'USDCNH',    go: 0,     isMx: false, ratio: 0.01, marginPerLot: 995 },
+    ],
+    stepPct: 0.2, maxPct: 1.2,
+  },
+  {
+    tag: 'ERF/CR2/USDCNH', label: 'EURRUBF / CR2 / USDCNH',
+    legs: [
+      { name: 'EURRUBF',   go: 12803, isMx: true,  ratio: 1,   goKey: 'EURRUBF' },
+      { name: 'CNY-12.26', go: 1051,  isMx: true,  ratio: 72,  goKey: 'CNY2', crPair: 'USDCNH', siLots: 1 },
+      { name: 'USDCNH',    go: 0,     isMx: false, ratio: 0.01, marginPerLot: 995 },
+    ],
+    stepPct: 0.2, maxPct: 1.2,
+  },
+  {
+    tag: 'URF/CR1/USDCNH', label: 'USDRUBF / CR1 / USDCNH',
+    legs: [
+      { name: 'USDRUBF',   go: 11344, isMx: true,  ratio: 1,   goKey: 'USDRUBF' },
+      { name: 'CNY-9.26',  go: 1051,  isMx: true,  ratio: 68,  goKey: 'CNY1', crPair: 'USDCNH', siLots: 1 },
+      { name: 'USDCNH',    go: 0,     isMx: false, ratio: 0.01, marginPerLot: 995 },
+    ],
+    stepPct: 0.2, maxPct: 1.2,
+  },
+  {
+    tag: 'URF/CR2/USDCNH', label: 'USDRUBF / CR2 / USDCNH',
+    legs: [
+      { name: 'USDRUBF',   go: 11344, isMx: true,  ratio: 1,   goKey: 'USDRUBF' },
+      { name: 'CNY-12.26', go: 1051,  isMx: true,  ratio: 68,  goKey: 'CNY2', crPair: 'USDCNH', siLots: 1 },
+      { name: 'USDCNH',    go: 0,     isMx: false, ratio: 0.01, marginPerLot: 995 },
     ],
     stepPct: 0.2, maxPct: 1.2,
   },
