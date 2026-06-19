@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781866669 -->
+<!-- v:1781867382 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -9111,93 +9111,147 @@ function renderCalc() {
 
   const capitalHtml = ''; // removed from calc
 
+  // ── New card logic ──
+  // Min FX lot = 0.01. From that, MX lots are derived via cross rates.
+  // Steps go from MAX spread down to 0. At MAX: full capital. Each step down: /2.
+
   const cardsHtml = CALC_CONSTRUCTIONS.map(con => {
-    const units  = parseFloat(state[`${con.tag}_units`] || '1') || 1;
-    const spread = parseFloat(state[`${con.tag}_spread`] || '0') || 0;
-    const r = calcConstruction(con, units, spread, con.stepPct);
-    const loadPctCon = availableMx > 0 ? r.totalGoMx / availableMx * 100 : 0;
-    const lc = loadPctCon > 80 ? 'var(--red)' : loadPctCon > 40 ? 'var(--amber)' : 'var(--green)';
+    const safeTag  = con.tag.replace(/[/]/g, '_');
+    const stepPct  = parseFloat(state[safeTag+'_step'] || con.stepPct);
+    const maxPct   = parseFloat(state[safeTag+'_max']  || con.maxPct);
+
+    // Determine min FX lot and min MX lots from construction
+    const fxLeg    = con.legs.find(l => !l.isMx);
+    const fxMinLot = 0.01; // always 0.01 FX lot as base unit
+
+    // FX margin for min lot
+    const fxMarginMin = fxLeg ? (fxLeg.marginPerLot || 0) * fxMinLot : 0;
+
+    // MX ratios per 0.01 FX lot
+    // For Si/CR: 0.01 USDCNH = 1000 USD = 1 Si lot = USDCNH CR lots
+    const mxLotsPerFxMin = {};
+    con.legs.filter(l => l.isMx).forEach(l => {
+      if (l.crPair) {
+        // dynamic ratio
+        const rate = _crossRates[l.crPair] || 7.2;
+        mxLotsPerFxMin[l.name] = Math.round(rate * (l.siLots || 1) * fxMinLot / (fxLeg?.ratio || 0.1) * 10) / 10;
+      } else {
+        mxLotsPerFxMin[l.name] = Math.round(l.ratio * fxMinLot / (fxLeg?.ratio || 0.1) * 10) / 10;
+      }
+    });
+
+    // GO per 0.01 FX lot
+    const goPerFxMin = con.legs.filter(l => l.isMx).reduce((s, l) => {
+      const go = (l.goKey && _goCache[l.goKey]) ? _goCache[l.goKey].go : l.go;
+      const lots = mxLotsPerFxMin[l.name] || 0;
+      return s + go * lots;
+    }, 0);
+
+    // How many 0.01 FX lots fit in full FX capital
+    const maxFxUnits = fxBalUsd > 0 && fxMarginMin > 0 ? Math.floor(fxBalUsd / fxMarginMin) : 0;
+
+    // Build steps: from maxPct DOWN to 0, step size = stepPct
+    const numSteps = maxPct > 0 && stepPct > 0 ? Math.round(maxPct / stepPct) : 6;
+    const steps = [];
+    for (let i = 0; i < numSteps; i++) {
+      const spreadLevel = maxPct - i * stepPct; // e.g. 1.2, 1.0, 0.8...
+      const coeff = Math.pow(0.5, i); // 1, 0.5, 0.25, 0.125...
+      const fxUnits = maxFxUnits > 0 ? Math.round(maxFxUnits * coeff) : coeff; // actual units or relative
+      const fxLots  = fxUnits * fxMinLot;
+      const fxMarg  = fxLots * (fxLeg?.marginPerLot || 0);
+      const goMx    = fxUnits * goPerFxMin;
+      // MX lots
+      const mxLots  = {};
+      con.legs.filter(l => l.isMx).forEach(l => {
+        mxLots[l.name] = Math.round((mxLotsPerFxMin[l.name] || 0) * fxUnits * 100) / 100;
+      });
+
+      steps.push({ spreadLevel, coeff, fxUnits, fxLots, fxMarg, goMx, mxLots,
+        frozen: goMx + fxMarg * rate });
+    }
+
+    // Load at max (step 0)
+    const maxGoMx   = steps[0]?.goMx   || 0;
+    const maxFxMarg = steps[0]?.fxMarg || 0;
+    const maxFrozen = steps[0]?.frozen  || 0;
+    const loadPctMx = availableMx > 0 ? maxGoMx / availableMx * 100 : 0;
+    const loadPctFx = fxBalUsd > 0 ? maxFxMarg / fxBalUsd * 100 : 0;
+    const lc = Math.max(loadPctMx, loadPctFx) > 90 ? 'var(--red)'
+             : Math.max(loadPctMx, loadPctFx) > 60 ? 'var(--amber)' : 'var(--green)';
+
+    // Legs display
+    const legsHtml = con.legs.map(l => {
+      const go = (l.goKey && _goCache[l.goKey]) ? _goCache[l.goKey].go : l.go;
+      const lots = l.isMx ? (mxLotsPerFxMin[l.name] || l.ratio) : fxMinLot;
+      return '<span style="background:var(--bg3);border-radius:4px;padding:2px 8px;font-size:11px;color:var(--text2)">'
+        + '<strong style="color:var(--text)">' + l.name + '</strong>'
+        + ' × ' + lots
+        + (l.isMx ? ' (ГО ' + Math.round(go).toLocaleString('ru') + ' ₽)' : ' ($' + (l.marginPerLot||0) + '/лот)')
+        + '</span>';
+    }).join(' ');
 
     // Steps table
-    const stepsHtml = r.steps.map(st => `
-      <tr style="font-size:11px;border-bottom:1px solid var(--border)">
-        <td style="padding:3px 8px;color:var(--text2)">+${(st.i * con.stepPct).toFixed(1)}%</td>
-        <td style="padding:3px 8px;text-align:right;font-family:monospace">${st.units.toFixed(2)}</td>
-        <td style="padding:3px 8px;text-align:right;font-family:monospace">${Math.round(st.goMx).toLocaleString('ru')} ₽</td>
-        <td style="padding:3px 8px;text-align:right;font-family:monospace">$${st.fxMarginUsd.toFixed(0)}</td>
-        <td style="padding:3px 8px;text-align:right;font-family:monospace;color:${lc}">${Math.round(st.totalFrozen).toLocaleString('ru')} ₽</td>
-      </tr>`).join('');
+    const stepsHtml = steps.map((st, i) => {
+      const isMax = i === 0;
+      return '<tr style="font-size:11px;border-bottom:1px solid var(--border)' + (isMax ? ';background:var(--bg3)' : '') + '">'
+        + '<td style="padding:4px 8px;font-weight:' + (isMax?'700':'400') + ';color:var(--text)">'
+        + st.spreadLevel.toFixed(1) + '%' + (isMax ? ' ★' : '') + '</td>'
+        + '<td style="padding:4px 8px;text-align:right;font-family:monospace">'
+        + (maxFxUnits > 0 ? st.fxUnits + ' ед.' : 'x' + st.coeff) + '</td>'
+        + '<td style="padding:4px 8px;text-align:right;font-family:monospace">'
+        + st.fxLots.toFixed(2) + ' лот</td>'
+        + '<td style="padding:4px 8px;text-align:right;font-family:monospace">'
+        + (st.goMx > 0 ? Math.round(st.goMx).toLocaleString('ru') + ' ₽' : '—') + '</td>'
+        + '<td style="padding:4px 8px;text-align:right;font-family:monospace">'
+        + '$' + st.fxMarg.toFixed(0) + '</td>'
+        + '<td style="padding:4px 8px;text-align:right;font-family:monospace;color:' + lc + '">'
+        + (st.frozen > 0 ? Math.round(st.frozen).toLocaleString('ru') + ' ₽' : '—') + '</td>'
+        + '</tr>';
+    }).join('');
 
-    const safeTag = con.tag.replace(/[/]/g, '_');
-
-    return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:12px">
-      <!-- Header -->
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">
-        <span style="font-size:14px;font-weight:800;color:var(--blue)">${con.label}</span>
-        <span style="font-size:11px;color:var(--text2)">шаг ${con.stepPct}% · макс ${con.maxPct}%</span>
-        <span style="margin-left:auto;font-size:11px;font-weight:600;color:${lc}">загрузка ${loadPctCon.toFixed(1)}%</span>
-      </div>
-
-      <!-- Inputs -->
-      <div style="display:flex;gap:10px;margin-bottom:10px;flex-wrap:wrap;align-items:center">
-        <div>
-          <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:3px">Начальный объём (ед.)</label>
-          <input type="number" min="0.01" step="0.01" value="${units}"
-            style="width:100px;font-size:13px;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:4px 8px"
-            onchange="calcUpdateState('${safeTag}','units',this.value)"
-            oninput="calcUpdateState('${safeTag}','units',this.value)">
-        </div>
-        <div>
-          <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:3px">Текущий спред (%)</label>
-          <input type="number" step="0.001" value="${spread}"
-            style="width:100px;font-size:13px;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:4px 8px"
-            onchange="calcUpdateState('${safeTag}','spread',this.value)"
-            oninput="calcUpdateState('${safeTag}','spread',this.value)">
-        </div>
-        <div style="font-size:11px;color:var(--text2);margin-top:16px">
-          ГО/ед: <strong>${Math.round(r.goPerUnit).toLocaleString('ru')} ₽</strong> +
-          Маржа/ед: <strong>$${r.fxPerUnit.toFixed(0)}</strong>
-        </div>
-      </div>
-
-      <!-- Legs -->
-      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;font-size:11px">
-        ${con.legs.map(l => `<span style="background:var(--bg3);border-radius:4px;padding:2px 8px;color:var(--text2)">
-          <strong style="color:var(--text)">${l.name}</strong> × ${l.ratio}
-          ${l.isMx ? `(ГО ${l.go} ₽)` : `($${(l.marginPerLot||0).toFixed(0)}/лот)`}
-        </span>`).join('')}
-      </div>
-
-      <!-- Steps table -->
-      <div style="overflow-x:auto">
-        <table style="width:100%;border-collapse:collapse;min-width:400px">
-          <thead>
-            <tr style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;border-bottom:2px solid var(--border)">
-              <th style="padding:3px 8px;text-align:left">Шаг</th>
-              <th style="padding:3px 8px;text-align:right">Ед.</th>
-              <th style="padding:3px 8px;text-align:right">ГО МХ</th>
-              <th style="padding:3px 8px;text-align:right">Маржа FX</th>
-              <th style="padding:3px 8px;text-align:right">Заморожено</th>
-            </tr>
-          </thead>
-          <tbody>${stepsHtml}</tbody>
-          <tfoot>
-            <tr style="font-size:11px;font-weight:700;border-top:2px solid var(--border)">
-              <td style="padding:3px 8px">Итого</td>
-              <td style="padding:3px 8px;text-align:right;font-family:monospace">${r.totalUnits.toFixed(2)}</td>
-              <td style="padding:3px 8px;text-align:right;font-family:monospace">${Math.round(r.totalGoMx).toLocaleString('ru')} ₽</td>
-              <td style="padding:3px 8px;text-align:right;font-family:monospace">$${r.totalFxUsd.toFixed(0)}</td>
-              <td style="padding:3px 8px;text-align:right;font-family:monospace;color:${lc}">${Math.round(r.totalFrozen).toLocaleString('ru')} ₽</td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-    </div>`;
+    return '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:12px">'
+      // Header
+      + '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">'
+      + '<span style="font-size:14px;font-weight:800;color:var(--blue)">' + con.label + '</span>'
+      + '<div style="display:flex;gap:6px;margin-left:4px">'
+      + '<label style="font-size:11px;color:var(--text2)">Шаг: <input type="number" step="0.1" value="' + stepPct + '" style="width:55px;font-size:11px;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:3px;padding:1px 4px" data-tag="' + safeTag + '" data-field="step" onchange="calcUpdateState(this.dataset.tag,this.dataset.field,this.value)"> %</label>'
+      + '<label style="font-size:11px;color:var(--text2)">Макс: <input type="number" step="0.1" value="' + maxPct + '" style="width:55px;font-size:11px;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:3px;padding:1px 4px" data-tag="' + safeTag + '" data-field="max" onchange="calcUpdateState(this.dataset.tag,this.dataset.field,this.value)"> %</label>'
+      + '</div>'
+      + '<span style="margin-left:auto;font-size:11px;font-weight:600;color:' + lc + '">'
+      + 'МХ ' + loadPctMx.toFixed(0) + '% · FX ' + loadPctFx.toFixed(0) + '%'
+      + '</span>'
+      + '</div>'
+      // Min lot info
+      + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">' + legsHtml + '</div>'
+      // Min lot summary
+      + '<div style="font-size:11px;color:var(--text2);margin-bottom:8px">'
+      + 'На 0.01 FX лот: ГО ' + Math.round(goPerFxMin).toLocaleString('ru') + ' ₽'
+      + ' + Маржа $' + fxMarginMin.toFixed(2)
+      + (maxFxUnits > 0 ? ' · Максимум ед: <strong style="color:var(--text)">' + maxFxUnits + '</strong>' : '')
+      + '</div>'
+      // Steps table
+      + '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:500px">'
+      + '<thead><tr style="font-size:10px;color:var(--text2);text-transform:uppercase;border-bottom:2px solid var(--border)">'
+      + '<th style="padding:3px 8px;text-align:left">Разлёт</th>'
+      + '<th style="padding:3px 8px;text-align:right">Ед. (×0.01)</th>'
+      + '<th style="padding:3px 8px;text-align:right">FX лот</th>'
+      + '<th style="padding:3px 8px;text-align:right">ГО МХ</th>'
+      + '<th style="padding:3px 8px;text-align:right">Маржа FX</th>'
+      + '<th style="padding:3px 8px;text-align:right">Заморожено</th>'
+      + '</tr></thead>'
+      + '<tbody>' + stepsHtml + '</tbody>'
+      + '<tfoot><tr style="font-size:11px;font-weight:700;border-top:2px solid var(--border)">'
+      + '<td style="padding:3px 8px">Итого (макс)</td>'
+      + '<td style="padding:3px 8px;text-align:right">' + (maxFxUnits > 0 ? steps.reduce((s,st)=>s+st.fxUnits,0) + ' ед.' : '—') + '</td>'
+      + '<td style="padding:3px 8px;text-align:right">' + steps.reduce((s,st)=>s+st.fxLots,0).toFixed(2) + ' лот</td>'
+      + '<td style="padding:3px 8px;text-align:right">' + Math.round(steps.reduce((s,st)=>s+st.goMx,0)).toLocaleString('ru') + ' ₽</td>'
+      + '<td style="padding:3px 8px;text-align:right">$' + steps.reduce((s,st)=>s+st.fxMarg,0).toFixed(0) + '</td>'
+      + '<td style="padding:3px 8px;text-align:right;color:' + lc + '">' + Math.round(steps.reduce((s,st)=>s+st.frozen,0)).toLocaleString('ru') + ' ₽</td>'
+      + '</tr></tfoot>'
+      + '</table></div>'
+      + '</div>';
   }).join('');
 
-
-  const mxSource = mxBalManual > 0 ? 'вручную' : (mxBalPdf > 0 ? 'из PDF' : 'не задан');
-  const fxSource = fxBalManual > 0 ? 'вручную' : (fxBalPdf > 0 ? 'из выгрузки' : 'не задан');
 
   root.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px;margin-top:0">
