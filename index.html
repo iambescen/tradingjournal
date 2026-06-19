@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781874768 -->
+<!-- v:1781874921 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -2722,9 +2722,20 @@ function renderUnifiedTable() {
              fxGross, fxSwap, fxComm, fxNet, manRub, manUsd, dayTotalRub };
   }
 
+  // Filter dates: skip days with only capital movements (deposit/withdrawal) and no trading data
+  const tradingDates = dates.filter(date => {
+    const hasMx  = store.mx.some(r => normDate(r.date) === date);
+    const hasFx  = store.fx.some(t => normDate(t.close_date) === date);
+    const capitalTypes = new Set(['deposit','withdrawal','rebalance','rebalance_rev']);
+    const hasTradingManual = store.manual.some(m =>
+      normDate(m.date) === date && !capitalTypes.has(m.type)
+    );
+    return hasMx || hasFx || hasTradingManual;
+  });
+
   // Build grouped structure: weeks inside months
   const monthGroups = new Map(); // monthKey → { dates: [], weeks: Map<weekKey, dates[]> }
-  for (const date of [...dates].reverse()) { // ascending for grouping
+  for (const date of [...tradingDates].reverse()) { // ascending for grouping
     const mk = monthKey(date);
     const wk = isoWeekKey(date);
     if (!monthGroups.has(mk)) monthGroups.set(mk, { dates: [], weeks: new Map() });
@@ -7993,28 +8004,11 @@ function renderOverviewTab(force) {
       return;
     }
 
-    const totalRub = mxBal + (rate > 0 ? fxBal * rate : 0);
     container.innerHTML = `
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:24px">
-        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:18px 20px">
-          <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Баланс МХ</div>
-          <div style="font-size:22px;font-weight:800">${mxBal > 0 ? Math.round(mxBal).toLocaleString('ru') + ' ₽' : '—'}</div>
-          <div style="font-size:11px;color:var(--text2);margin-top:4px">из записей пополнений</div>
-        </div>
-        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:18px 20px">
-          <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Баланс FX</div>
-          <div style="font-size:22px;font-weight:800">${fxBal > 0 ? '$' + fxBal.toFixed(2) : '—'}</div>
-          <div style="font-size:11px;color:var(--text2);margin-top:4px">${rate > 0 && fxBal > 0 ? '≈ ' + Math.round(fxBal*rate).toLocaleString('ru') + ' ₽' : 'из записей пополнений'}</div>
-        </div>
-        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:18px 20px">
-          <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Итого капитал</div>
-          <div style="font-size:22px;font-weight:800">${totalRub > 0 ? Math.round(totalRub).toLocaleString('ru') + ' ₽' : '—'}</div>
-          <div style="font-size:11px;color:var(--text2);margin-top:4px">курс ${rate > 0 ? rate.toFixed(2) : '—'} ₽/$</div>
-        </div>
-      </div>
-      <div class="empty" style="margin-top:8px">
+      <div class="empty">
         <div class="icon">📊</div>
         <p>Загрузи PDF-отчёты МХ и/или XLSX ForEx для полной аналитики</p>
+        <p style="font-size:12px;color:var(--text2);margin-top:4px">Балансы отображаются в шапке страницы</p>
       </div>`;
     return;
   }
@@ -8361,7 +8355,7 @@ function switchTab(name, e) {
   if (e && e.target) e.target.classList.add('active');
   // Rate bar only on funds + constructions
   const rateBar = document.getElementById('rate-bar');
-  const showRate = ['funds','constructions'].includes(name);
+  const showRate = ['constructions'].includes(name); // rate shown in header
   if (rateBar) { rateBar.style.display = showRate ? '' : 'none'; rateBar.style.marginBottom = showRate ? '' : '0'; }
   // Dashboard cards only on overview
   const dash = document.getElementById('main-dashboard');
