@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781865604 -->
+<!-- v:1781865699 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -5089,14 +5089,18 @@ function buildSecid(instrument) {
 // Fetch GO from MOEX ISS for one secid
 async function fetchGO(secid) {
   if (_goCache[secid]) return _goCache[secid];
-  // Try both formats: EUM26 and EUM6
+  // Build all possible secid variants to try
   const secids = [secid];
-  if (secid.length === 5 && secid.slice(-2) !== secid.slice(-2).replace(/^2/,'')) {
-    // EUM26 → also try EUM6
-    secids.push(secid.slice(0,-2) + secid.slice(-1));
-  } else if (secid.length === 4) {
-    // EUM6 → also try EUM26
-    secids.push(secid.slice(0,-1) + '2' + secid.slice(-1));
+  // Extract base (letters) and suffix (digits+letter e.g. Z26 or Z6)
+  const m = secid.match(/^([A-Z]+)([A-Z])(\d+)$/);
+  if (m) {
+    const base = m[1], month = m[2], year = m[3];
+    // Try short year (Z6) and long year (Z26)
+    if (year.length === 1) {
+      secids.push(base + month + '2' + year); // Z6 -> Z26
+    } else if (year.startsWith('2') && year.length === 2) {
+      secids.push(base + month + year.slice(1)); // Z26 -> Z6
+    }
   }
 
   for (const sid of secids) {
