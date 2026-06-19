@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781875481 -->
+<!-- v:1781875688 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -3788,29 +3788,57 @@ async function calcEstimatedPnl(g) {
   const rate = currentRate?.value || 85;
   let mxPnl = 0, fxPnl = 0, hasMx = false, hasFx = false;
 
-  // PRIORITY: use margin_rub from MX rows directly (already calculated by broker)
-  // This is the most accurate source — no need to recalculate
-  const mxRowsWithMargin = g.rows.filter(r => r.platform === 'MX' && r.margin_rub != null && Math.abs(r.margin_rub) > 0);
-  if (mxRowsWithMargin.length > 0) {
-    mxPnl = mxRowsWithMargin.reduce((s,r) => s + (r.margin_rub || 0), 0);
-    hasMx = true;
+  // PRIORITY: match MX rows to store.mx trades by date+instrument+price+volume
+  // store.mx[i].trades[] contains margin_rub from PDF — most accurate source
+  const mxRows = g.rows.filter(r => r.platform === 'MX');
+  if (mxRows.length > 0) {
+    for (const row of mxRows) {
+      // Find matching day in store.mx
+      const rowDate = row.date; // "DD.MM.YYYY"
+      for (const day of store.mx) {
+        const dayDate = day.date; // may be "DD.MM.YYYY" or "YYYY-MM-DD"
+        const dayDateNorm = normDate(dayDate);
+        const rowDateNorm = normDate(rowDate);
+        if (dayDateNorm !== rowDateNorm) continue;
+        // Find matching trade by instrument + direction + price
+        for (const t of (day.trades || [])) {
+          const instrMatch = (t.instrument||'').toLowerCase().includes((row.instrument||'').split('-')[0].toLowerCase())
+                          || (row.instrument||'').toLowerCase().includes((t.instrument||'').split('-')[0].toLowerCase());
+          const priceMatch = Math.abs((t.price||0) - (row.price||0)) < 1;
+          const volMatch   = Math.abs((t.volume||0) - (row.volume||0)) < 0.001;
+          if (instrMatch && priceMatch && volMatch && t.margin_rub) {
+            mxPnl += t.margin_rub;
+            hasMx = true;
+          }
+        }
+      }
+    }
   }
 
-  // For FX: use net_pnl_usd if available
-  const fxRowsWithPnl = g.rows.filter(r => r.platform === 'FX' && r.net_pnl_usd != null);
-  if (fxRowsWithPnl.length > 0) {
-    const fxPnlUsd = fxRowsWithPnl.reduce((s,r) => s + (r.net_pnl_usd || 0), 0);
-    fxPnl = fxPnlUsd * rate;
-    hasFx = true;
+  // For FX: match to store.fx trades by instrument + open_time + volume
+  const fxRows = g.rows.filter(r => r.platform === 'FX' && r.status === 'closed');
+  if (fxRows.length > 0) {
+    for (const row of fxRows) {
+      // Try to find in store.fx by pid or by price+volume match
+      for (const t of store.fx) {
+        const pidMatch = row.pid && t.deal_id && String(t.deal_id) === String(row.pid);
+        const instrMatch = (t.instrument||'').replace('/','').toUpperCase() === (row.instrument||'').replace('/','').toUpperCase();
+        const volMatch   = Math.abs((parseFloat(t.lots)||0) - (row.volume||0)) < 0.0001;
+        if ((pidMatch || (instrMatch && volMatch)) && t.net_pnl_usd != null) {
+          fxPnl += t.net_pnl_usd * rate;
+          hasFx = true;
+        }
+      }
+    }
   }
 
-  // If we have margin_rub or net_pnl_usd — return immediately, no estimation needed
+  // If we found real data — return immediately
   if (hasMx || hasFx) {
     return {
       mxPnl,
       fxPnlRub: fxPnl,
       total: mxPnl + fxPnl,
-      estimated: false // real data from broker
+      estimated: false
     };
   }
 
