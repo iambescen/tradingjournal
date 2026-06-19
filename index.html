@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781870508 -->
+<!-- v:1781870726 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -9316,6 +9316,8 @@ function goKeyToSecid(key) {
     ED1:'ED'+front+y, GD1:'GD'+front+y, SV1:'SV'+front+y,
     Si2:'Si'+back+y,  Eu2:'Eu'+back+y,  CNY2:'CR'+back+y,  UCNY2:'UC'+back+y,
     ED2:'ED'+back+y,  GD2:'GD'+back+y,  SV2:'SV'+back+y,
+    PT1:'PT'+front+y,  PD1:'PD'+front+y,
+    PT2:'PT'+back+y,   PD2:'PD'+back+y,
     USDRUBF:'USDRUBF', CNYRUBF:'CNYRUBF', EURRUBF:'EURRUBF',
   };
   return map[key] || key;
@@ -9478,16 +9480,21 @@ function _renderCalcInner(root) {
       + mxRow('CNYRUBF','CNYRUBF',     'CNYRUBF')
       + mxRow('EURRUBF','EURRUBF',     'EURRUBF')
       + mxRow('GD1',   'GD'+front+fy,  'GD-'+fL)
-      + mxRow('SV1',   'SV'+front+fy,  'SV-'+fL);
+      + mxRow('SV1',   'SV'+front+fy,  'SV-'+fL)
+      + mxRow('PT1',   'PT'+front+fy,  'PT-'+fL)
+      + mxRow('PD1',   'PD'+front+fy,  'PD-'+fL);
     const r2 = mxRow('Si2',  'Si'+back+by,   'Si-'+bL)
       + mxRow('Eu2',   'Eu'+back+by,   'Eu-'+bL)
       + mxRow('CNY2',  'CR'+back+by,   'CNY-'+bL)
       + mxRow('UCNY2', 'UC'+back+by,   'UCNY-'+bL)
       + mxRow('ED2',   'ED'+back+by,   'ED-'+bL)
       + mxRow('GD2',   'GD'+back+by,   'GD-'+bL)
-      + mxRow('SV2',   'SV'+back+by,   'SV-'+bL);
+      + mxRow('SV2',   'SV'+back+by,   'SV-'+bL)
+      + mxRow('PT2',   'PT'+back+by,   'PT-'+bL)
+      + mxRow('PD2',   'PD'+back+by,   'PD-'+bL);
     const rf = fxRow('USDCNH',9.95)+fxRow('EURCNH',11.49)+fxRow('EURUSD',11.49)
-      + fxRow('XAUUSD',46.35)+fxRow('XAGUSD',35.82);
+      + fxRow('XAUUSD',46.35)+fxRow('XAGUSD',35.82)
+      + fxRow('XPTUSD',30.00)+fxRow('XPDUSD',25.00);
 
     return '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px">'
       + tbl('МХ — контракты 1', r1, true)
