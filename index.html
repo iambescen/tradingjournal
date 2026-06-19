@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781865912 -->
+<!-- v:1781866105 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -9000,11 +9000,11 @@ function renderCalc() {
         + '</tr></thead><tbody>'+rows+'</tbody></table></div>';
     }
 
-    // MOEX secid uses SHORT year: SIU6, SIZ6 (not SIU26, SIZ26)
+    // MOEX secid: SHORT year, mixed case: SiU6, SiZ6, EuU6, EuZ6, CRU6, UCU6, GDU6, SVU6
     const fy = frontY.slice(-1); // '6'
     const by = backY.slice(-1);  // '6'
-    const r1 = mxRow('Si1',  'SI'+front+fy,  'Si-'+fL)
-      + mxRow('Eu1',   'EU'+front+fy,  'Eu-'+fL)
+    const r1 = mxRow('Si1',  'Si'+front+fy,  'Si-'+fL)
+      + mxRow('Eu1',   'Eu'+front+fy,  'Eu-'+fL)
       + mxRow('CNY1',  'CR'+front+fy,  'CNY-'+fL)
       + mxRow('UCNY1', 'UC'+front+fy,  'UCNY-'+fL)
       + mxRow('ED1',   'ED'+front+fy,  'ED-'+fL)
@@ -9013,8 +9013,8 @@ function renderCalc() {
       + mxRow('EURRUBF','EURRUBF',     'EURRUBF')
       + mxRow('GD1',   'GD'+front+fy,  'GD-'+fL)
       + mxRow('SV1',   'SV'+front+fy,  'SV-'+fL);
-    const r2 = mxRow('Si2',  'SI'+back+by,   'Si-'+bL)
-      + mxRow('Eu2',   'EU'+back+by,   'Eu-'+bL)
+    const r2 = mxRow('Si2',  'Si'+back+by,   'Si-'+bL)
+      + mxRow('Eu2',   'Eu'+back+by,   'Eu-'+bL)
       + mxRow('CNY2',  'CR'+back+by,   'CNY-'+bL)
       + mxRow('UCNY2', 'UC'+back+by,   'UCNY-'+bL)
       + mxRow('ED2',   'ED'+back+by,   'ED-'+bL)
@@ -9310,9 +9310,9 @@ async function calcRefreshGo() {
   const fy2 = y2.slice(-1); // '6'
   const by2 = y2.slice(-1); // '6' (same year for both quarters in 2026)
   const secids = [
-    'SI'+front+fy2, 'EU'+front+fy2, 'CR'+front+fy2, 'UC'+front+fy2,
+    'Si'+front+fy2, 'Eu'+front+fy2, 'CR'+front+fy2, 'UC'+front+fy2,
     'GD'+front+fy2, 'SV'+front+fy2,
-    'SI'+back+by2,  'EU'+back+by2,  'CR'+back+by2,  'UC'+back+by2,
+    'Si'+back+by2,  'Eu'+back+by2,  'CR'+back+by2,  'UC'+back+by2,
     'GD'+back+by2,  'SV'+back+by2,
     'ED'+front+fy2, 'ED'+back+by2,
     'USDRUBF', 'CNYRUBF', 'EURRUBF'
