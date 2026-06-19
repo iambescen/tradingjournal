@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781871243 -->
+<!-- v:1781871709 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -9697,6 +9697,96 @@ function _renderCalcInner(root) {
   }).join('');
 
 
+  // ── Open positions dashboard ──
+  let openGoMx = 0, openFxUsd = 0;
+  const openDetails = [];
+  try {
+    const { constructions } = detectConstructions();
+    const openCons = constructions.filter(c => c.status === 'open');
+    for (const con of openCons) {
+      // MX GO
+      let conGoMx = 0;
+      for (const t of con.mxEntry || []) {
+        const base = (t._baseQ || '').toUpperCase();
+        // Find matching goKey from cache
+        let go = 0;
+        // Try direct secid lookup
+        for (const [k, v] of Object.entries(_goCache)) {
+          if (k.toUpperCase().startsWith(base.slice(0,2))) { go = v.go; break; }
+        }
+        const vol = Math.abs(t.volume || 0);
+        conGoMx += go * vol;
+      }
+      // FX margin
+      let conFxUsd = 0;
+      for (const t of con.fxTrades || []) {
+        if (t._dt_close) continue; // closed FX leg
+        const instr = (t.instrument || '').toUpperCase().replace('/', '');
+        const fxOv = (() => { try { return JSON.parse(localStorage.getItem('calc_fx_v1')||'{}'); } catch{return{};} })();
+        const FX_DEFAULTS = {USDCNH:9.95,EURCNH:11.49,EURUSD:11.49,XAUUSD:46.35,XAGUSD:35.82,XPTUSD:30,XPDUSD:25};
+        const marginPer001 = parseFloat(fxOv[instr] || FX_DEFAULTS[instr] || 0);
+        const lots = Math.abs(parseFloat(t.lots || t.volume || 0));
+        conFxUsd += lots / 0.01 * marginPer001;
+      }
+      openGoMx  += conGoMx;
+      openFxUsd += conFxUsd;
+      if (conGoMx > 0 || conFxUsd > 0) {
+        openDetails.push({ tag: con.tag, level: con.level, goMx: conGoMx, fxUsd: conFxUsd });
+      }
+    }
+  } catch(e) { /* detectConstructions may fail if no data */ }
+
+  const freeGoMx  = availableMx - openGoMx;
+  const freeFxUsd = fxBalUsd - openFxUsd;
+  const loadMxPct = availableMx > 0 ? openGoMx / availableMx * 100 : 0;
+  const loadFxPct = fxBalUsd  > 0 ? openFxUsd / fxBalUsd  * 100 : 0;
+
+  // Overnight fee (ПРОПИТ): fee on amount > own deposit
+  const ownDeposit = mxBal; // собственные средства = баланс без плеча
+  const transferAmt = openGoMx; // ГО открытых позиций
+  const overnightFee = transferAmt > 500000
+    ? Math.max(0, transferAmt - ownDeposit) * 0.205 / 365
+    : 0;
+
+  const openPosDashHtml = openDetails.length === 0 ? '' :
+    '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin-bottom:16px">'
+    + '<div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Текущая загрузка (открытые позиции)</div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:10px">'
+    // МХ
+    + '<div><div style="font-size:10px;color:var(--text2);margin-bottom:4px">ГО МХ занято</div>'
+    + '<div style="font-size:15px;font-weight:700">' + Math.round(openGoMx).toLocaleString('ru') + ' ₽</div>'
+    + '<div style="font-size:11px;color:var(--text2)">' + loadMxPct.toFixed(1) + '% от доступного</div>'
+    + '<div style="font-size:11px;color:var(--green)">Свободно: ' + Math.round(freeGoMx).toLocaleString('ru') + ' ₽</div></div>'
+    // FX
+    + '<div><div style="font-size:10px;color:var(--text2);margin-bottom:4px">Маржа FX занято</div>'
+    + '<div style="font-size:15px;font-weight:700">$' + openFxUsd.toFixed(0) + '</div>'
+    + '<div style="font-size:11px;color:var(--text2)">' + loadFxPct.toFixed(1) + '% от баланса</div>'
+    + '<div style="font-size:11px;color:var(--green)">Свободно: $' + freeFxUsd.toFixed(0) + '</div></div>'
+    // Overnight fee
+    + '<div><div style="font-size:10px;color:var(--text2);margin-bottom:4px">Плата за перенос/ночь</div>'
+    + '<div style="font-size:15px;font-weight:700' + (overnightFee > 0 ? ';color:var(--neg)' : '') + '">'
+    + (overnightFee > 0 ? Math.round(overnightFee).toLocaleString('ru') + ' ₽' : '—') + '</div>'
+    + '<div style="font-size:11px;color:var(--text2)">'
+    + (overnightFee > 0 ? 'ГО ' + Math.round(transferAmt/1000) + 'к − депозит ' + Math.round(ownDeposit/1000) + 'к × 0.205/365' : 'в пределах депозита') + '</div></div>'
+    + '</div>'
+    // Details table
+    + (openDetails.length > 0 ? '<details style="margin-top:4px"><summary style="font-size:11px;color:var(--text2);cursor:pointer">Открытые позиции (' + openDetails.length + ')</summary>'
+    + '<table style="width:100%;border-collapse:collapse;margin-top:6px;font-size:11px">'
+    + '<thead><tr style="color:var(--text2);border-bottom:1px solid var(--border)">'
+    + '<th style="padding:3px 6px;text-align:left">Конструкция</th>'
+    + '<th style="padding:3px 6px;text-align:right">ГО МХ</th>'
+    + '<th style="padding:3px 6px;text-align:right">Маржа FX</th>'
+    + '</tr></thead><tbody>'
+    + openDetails.map(d =>
+        '<tr style="border-bottom:1px solid var(--border)">'
+        + '<td style="padding:3px 6px">' + d.tag + (d.level > 1 ? ' #' + d.level : '') + '</td>'
+        + '<td style="padding:3px 6px;text-align:right;font-family:monospace">' + (d.goMx > 0 ? Math.round(d.goMx).toLocaleString('ru') + ' ₽' : '—') + '</td>'
+        + '<td style="padding:3px 6px;text-align:right;font-family:monospace">' + (d.fxUsd > 0 ? '$' + d.fxUsd.toFixed(0) : '—') + '</td>'
+        + '</tr>'
+      ).join('')
+    + '</tbody></table></details>' : '')
+    + '</div>';
+
   const mxSource = mxBalManual > 0 ? 'вручную' : (mxBalPdf > 0 ? 'из PDF' : 'не задан');
   const fxSource = fxBalManual > 0 ? 'вручную' : (fxBalPdf > 0 ? 'из выгрузки' : 'не задан');
 
@@ -9748,6 +9838,7 @@ function _renderCalcInner(root) {
     </div>
 
     ${instrumentsHtml}
+    ${openPosDashHtml}
     ${capitalHtml}
     ${cardsHtml}`;
 }
