@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781871997 -->
+<!-- v:1781872129 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -9757,12 +9757,12 @@ function _renderCalcInner(root) {
   const loadMxPct = availableMx > 0 ? openGoMx / availableMx * 100 : 0;
   const loadFxPct = fxBalUsd  > 0 ? openFxUsd / fxBalUsd  * 100 : 0;
 
-  // Overnight fee (ПРОПИТ): fee on amount > own deposit
-  const ownDeposit = mxBal; // собственные средства = баланс без плеча
-  const transferAmt = openGoMx; // ГО открытых позиций
-  const overnightFee = transferAmt > 500000
-    ? Math.max(0, transferAmt - ownDeposit) * 0.205 / 365
-    : 0;
+  // Overnight fee (ПРОПИТ): fee on GO exceeding own deposit
+  // Prop firm charges 20.5%/year on borrowed capital = GO - own deposit
+  const ownDeposit = mxBal; // баланс МХ = собственные средства
+  const transferAmt = openGoMx; // суммарное ГО открытых позиций
+  const borrowedAmt = Math.max(0, transferAmt - ownDeposit);
+  const overnightFee = borrowedAmt > 0 ? borrowedAmt * 0.205 / 365 : 0;
 
   const openPosDashHtml = openDetails.length === 0 ? '' :
     '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin-bottom:16px">'
@@ -9783,7 +9783,7 @@ function _renderCalcInner(root) {
     + '<div style="font-size:15px;font-weight:700' + (overnightFee > 0 ? ';color:var(--neg)' : '') + '">'
     + (overnightFee > 0 ? Math.round(overnightFee).toLocaleString('ru') + ' ₽' : '—') + '</div>'
     + '<div style="font-size:11px;color:var(--text2)">'
-    + (overnightFee > 0 ? 'ГО ' + Math.round(transferAmt/1000) + 'к − депозит ' + Math.round(ownDeposit/1000) + 'к × 0.205/365' : 'в пределах депозита') + '</div></div>'
+    + (overnightFee > 0 ? 'заём ' + Math.round(borrowedAmt).toLocaleString('ru') + ' ₽ × 0.205/365' : 'ГО в пределах депозита') + '</div></div>'
     + '</div>'
     // Details table
     + (openDetails.length > 0 ? '<details style="margin-top:4px"><summary style="font-size:11px;color:var(--text2);cursor:pointer">Открытые позиции (' + openDetails.length + ')</summary>'
