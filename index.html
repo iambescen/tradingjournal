@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781868523 -->
+<!-- v:1781868666 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8841,6 +8841,17 @@ function getCRRatio(fxPair, siLots) {
   return Math.round(rate * siLots * 10) / 10;
 }
 
+// Groups: paired first/second contracts shown side by side
+const CALC_GROUPS = [
+  { label: 'Si / CR / USDCNH',   tags: ['SI1/CR1/USDCNH',  'SI2/CR2/USDCNH']  },
+  { label: 'EU / CR / EURCNH',   tags: ['EU1/CR1/EURCNH',  'EU2/CR2/EURCNH']  },
+  { label: 'UC / USDCNH',        tags: ['UC1/USDCNH',      'UC2/USDCNH']      },
+  { label: 'ED / EURUSD',        tags: ['ED1/EURUSD',      'ED2/EURUSD']      },
+  { label: 'GD / XAUUSD',        tags: ['GD1/XAUUSD',      'GD2/XAUUSD']      },
+  { label: 'SV / XAGUSD',        tags: ['SV1/XAGUSD',      'SV2/XAGUSD']      },
+  { label: 'USDRUBF / CNYRUBF',  tags: ['URF/CRF/USDCNH']                     },
+];
+
 const CALC_CONSTRUCTIONS = [
   {
     tag: 'SI1/CR1/USDCNH', label: 'Si/CR/USDCNH',
@@ -9172,7 +9183,8 @@ function _renderCalcInner(root) {
   // Min FX lot = 0.01. From that, MX lots are derived via cross rates.
   // Steps go from MAX spread down to 0. At MAX: full capital. Each step down: /2.
 
-  const cardsHtml = CALC_CONSTRUCTIONS.map(con => {
+  // Build single card HTML for one construction
+  function buildCard(con) {
     const safeTag  = con.tag.replace(/[/]/g, '_');
     const stepPct  = parseFloat(state[safeTag+'_step'] || con.stepPct);
     const maxPct   = parseFloat(state[safeTag+'_max']  || con.maxPct);
@@ -9308,6 +9320,19 @@ function _renderCalcInner(root) {
       + '<tbody>' + stepsHtml + '</tbody>'
       + '</table></div>'
       + '</div>';
+  }
+
+  // Render groups: each group = label + 1 or 2 cards side by side
+  const cardsHtml = CALC_GROUPS.map(grp => {
+    const cons = grp.tags.map(t => CALC_CONSTRUCTIONS.find(c => c.tag === t)).filter(Boolean);
+    const cards = cons.map(buildCard).join('');
+    const grid = cons.length > 1
+      ? '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">' + cards + '</div>'
+      : cards;
+    return '<div style="margin-bottom:20px">'
+      + '<div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;padding-left:2px">'
+      + grp.label + '</div>'
+      + grid + '</div>';
   }).join('');
 
 
