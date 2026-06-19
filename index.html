@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781872129 -->
+<!-- v:1781872684 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -338,6 +338,8 @@
   <div class="header">
     <h1>Торговый журнал</h1>
     <div class="header-right">
+      <button class="btn-sm" onclick="saveToGithub()" title="Сохранить всё на GitHub" style="color:var(--blue)">☁ Сохранить</button>
+      <button class="btn-sm" onclick="loadFromGithub()" title="Загрузить с GitHub" style="color:var(--blue)">⬇ Загрузить</button>
       <button class="btn-sm" onclick="openGithubSettings()" title="Настройки" style="opacity:.5">⚙️</button>
       <button class="theme-toggle" onclick="toggleTheme()" id="theme-btn">🌙</button>
     </div>
@@ -9812,11 +9814,7 @@ function _renderCalcInner(root) {
         <div style="font-size:18px;font-weight:800">Калькулятор позиционирования</div>
         <div style="font-size:12px;color:var(--text2);margin-top:2px">Курс: ${rate.toFixed(2)} ₽ · Плечо ×${leverage}</div>
       </div>
-      <div style="display:flex;gap:6px">
-        <button class="btn-sm" onclick="calcSaveToGithub()" style="color:var(--blue)">☁ Сохранить</button>
-        <button class="btn-sm" onclick="calcLoadFromGithub()" style="color:var(--blue)">⬇ Загрузить</button>
-        <button class="btn-sm" onclick="calcReset()" style="color:var(--neg)">🗑 Сбросить</button>
-      </div>
+      <button class="btn-sm" onclick="calcReset()" style="color:var(--neg)">🗑 Сбросить</button>
     </div>
 
     <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin-bottom:16px">
@@ -9879,8 +9877,8 @@ function calcSaveBal(key, val) {
 }
 
 
-// ── GitHub backup for calculator state ──
-async function calcSaveToGithub() {
+// ── GitHub backup (global — saves ALL data) ──
+async function saveToGithub() {
   const token = prompt('GitHub токен (или оставь пустым если уже сохранён):',
     localStorage.getItem('_gh_token') || '');
   if (token === null) return;
@@ -9888,12 +9886,15 @@ async function calcSaveToGithub() {
   const tok = localStorage.getItem('_gh_token');
   if (!tok) return alert('Токен не задан');
 
+  // Save ALL relevant localStorage keys
   const data = {
     calc_state:   localStorage.getItem('calc_state_v1'),
     calc_go:      localStorage.getItem('calc_go_v1'),
     calc_fx:      localStorage.getItem('calc_fx_v1'),
     journal:      localStorage.getItem('trading_journal_v1'),
+    tj_theme:     localStorage.getItem('tj_theme'),
     saved_at:     new Date().toISOString(),
+    version:      'v1',
   };
 
   try {
@@ -9918,7 +9919,7 @@ async function calcSaveToGithub() {
   } catch(e) { alert('❌ ' + e.message); }
 }
 
-async function calcLoadFromGithub() {
+async function loadFromGithub() {
   const tok = localStorage.getItem('_gh_token');
   if (!tok) { alert('Сначала сохрани — токен не задан'); return; }
   if (!confirm('Загрузить данные с GitHub? Текущие данные будут перезаписаны.')) return;
@@ -9935,6 +9936,7 @@ async function calcLoadFromGithub() {
     if (data.calc_go)     localStorage.setItem('calc_go_v1', data.calc_go);
     if (data.calc_fx)     localStorage.setItem('calc_fx_v1', data.calc_fx);
     if (data.journal)     localStorage.setItem('trading_journal_v1', data.journal);
+    if (data.tj_theme)    localStorage.setItem('tj_theme', data.tj_theme);
 
     alert('✅ Загружено! Сохранено: ' + (data.saved_at || 'неизвестно'));
     location.reload();
