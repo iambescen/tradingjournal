@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781869884 -->
+<!-- v:1781870141 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8916,14 +8916,6 @@ const CALC_CONSTRUCTIONS = [
     stepPct: 0.2, maxPct: 1.0,
   },
   {
-    tag: 'GD1/XAUUSD', label: 'GD/XAUUSD',
-    legs: [
-      { name: 'GD-9.26', go: 34078, isMx: true,  ratio: 1,   goKey: 'GD1' },
-      { name: 'XAUUSD',  go: 0,     isMx: false, ratio: 0.01, marginPerLot: 4635 },
-    ],
-    stepPct: 0.5, maxPct: 5.0,
-  },
-  {
     tag: 'URF/CRF/USDCNH', label: 'USDRUBF/CNYRUBF/USDCNH',
     legs: [
       { name: 'USDRUBF', go: 11344, isMx: true,  ratio: 1,   goKey: 'USDRUBF' },
@@ -9024,6 +9016,22 @@ const CALC_CONSTRUCTIONS = [
     stepPct: 0.2, maxPct: 1.2,
   },
   // ── Металлы ──
+  {
+    tag: 'SV1/XAGUSD', label: 'SV1/XAGUSD',
+    legs: [
+      { name: 'SV-9.26', go: 11550, isMx: true,  ratio: 5,    goKey: 'SV1' },
+      { name: 'XAGUSD',  go: 0,     isMx: false, ratio: 0.05, marginPerLot: 3582 },
+    ],
+    stepPct: 0.5, maxPct: 5.0,
+  },
+  {
+    tag: 'GD1/XAUUSD', label: 'GD1/XAUUSD',
+    legs: [
+      { name: 'GD-9.26', go: 27844, isMx: true,  ratio: 1,    goKey: 'GD1' },
+      { name: 'XAUUSD',  go: 0,     isMx: false, ratio: 0.01, marginPerLot: 4635 },
+    ],
+    stepPct: 0.5, maxPct: 5.0,
+  },
   {
     tag: 'GD2/XAUUSD', label: 'GD2/XAUUSD',
     legs: [
