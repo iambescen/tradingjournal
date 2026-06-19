@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781872684 -->
+<!-- v:1781872841 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -338,9 +338,10 @@
   <div class="header">
     <h1>Торговый журнал</h1>
     <div class="header-right">
-      <button class="btn-sm" onclick="saveToGithub()" title="Сохранить всё на GitHub" style="color:var(--blue)">☁ Сохранить</button>
-      <button class="btn-sm" onclick="loadFromGithub()" title="Загрузить с GitHub" style="color:var(--blue)">⬇ Загрузить</button>
-      <button class="btn-sm" onclick="openGithubSettings()" title="Настройки" style="opacity:.5">⚙️</button>
+      <span id="header-rate" style="font-size:12px;color:var(--text2);margin-right:4px"></span>
+      <button class="theme-toggle" onclick="saveToGithub()" title="Сохранить всё на GitHub" style="color:var(--blue);font-size:14px">☁</button>
+      <button class="theme-toggle" onclick="loadFromGithub()" title="Загрузить с GitHub" style="color:var(--blue);font-size:14px">⬇</button>
+      <button class="theme-toggle" onclick="openGithubSettings()" title="Настройки" style="opacity:.5;font-size:14px">⚙️</button>
       <button class="theme-toggle" onclick="toggleTheme()" id="theme-btn">🌙</button>
     </div>
   </div>
@@ -897,6 +898,16 @@ function getCachedRate() {
 function renderRateBar() {
   if (!currentRate) return;
   const { value, date, prevValue, prevDate, source } = currentRate;
+
+  // Update header rate display
+  const headerRate = document.getElementById('header-rate');
+  if (headerRate) {
+    const diff = prevValue !== undefined ? value - prevValue : 0;
+    const sign = diff >= 0 ? '+' : '';
+    const color = diff >= 0 ? 'var(--red)' : 'var(--green)';
+    headerRate.innerHTML = `<span style="font-weight:600;color:var(--text)">$${value.toFixed(2)}</span>`
+      + (prevValue !== undefined ? ` <span style="font-size:11px;color:${color}">${sign}${diff.toFixed(2)}</span>` : '');
+  }
 
   document.getElementById('rate-value').textContent = value.toFixed(2);
 
