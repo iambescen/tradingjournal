@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781865699 -->
+<!-- v:1781865912 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -5089,18 +5089,22 @@ function buildSecid(instrument) {
 // Fetch GO from MOEX ISS for one secid
 async function fetchGO(secid) {
   if (_goCache[secid]) return _goCache[secid];
-  // Build all possible secid variants to try
-  const secids = [secid];
-  // Extract base (letters) and suffix (digits+letter e.g. Z26 or Z6)
-  const m = secid.match(/^([A-Z]+)([A-Z])(\d+)$/);
-  if (m) {
-    const base = m[1], month = m[2], year = m[3];
-    // Try short year (Z6) and long year (Z26)
+  // Build all possible secid variants — try short year first (SIZ6), then long (SIZ26)
+  const _m = secid.match(/^([A-Z]+)([A-Z])(\d+)$/);
+  let secids;
+  if (_m) {
+    const base = _m[1], month = _m[2], year = _m[3];
     if (year.length === 1) {
-      secids.push(base + month + '2' + year); // Z6 -> Z26
+      // Short year given (SIZ6) → also try long (SIZ26)
+      secids = [secid, base + month + '2' + year];
     } else if (year.startsWith('2') && year.length === 2) {
-      secids.push(base + month + year.slice(1)); // Z26 -> Z6
+      // Long year given (SIZ26) → try short FIRST (SIZ6), then long
+      secids = [base + month + year.slice(1), secid];
+    } else {
+      secids = [secid];
     }
+  } else {
+    secids = [secid]; // USDRUBF etc — no year
   }
 
   for (const sid of secids) {
@@ -8996,24 +9000,26 @@ function renderCalc() {
         + '</tr></thead><tbody>'+rows+'</tbody></table></div>';
     }
 
-    // MOEX secid: SI=Si, EU=Eu, CR=CNY, UC=UCNY, GD=GD, SV=SV, ED=ED
-    const r1 = mxRow('Si1',  'SI'+front+frontY, 'Si-'+fL)
-      + mxRow('Eu1',   'EU'+front+frontY, 'Eu-'+fL)
-      + mxRow('CNY1',  'CR'+front+frontY, 'CNY-'+fL)
-      + mxRow('UCNY1', 'UC'+front+frontY, 'UCNY-'+fL)
-      + mxRow('ED1',   'ED'+front+frontY, 'ED-'+fL)
-      + mxRow('USDRUBF','USDRUBF',        'USDRUBF')
-      + mxRow('CNYRUBF','CNYRUBF',        'CNYRUBF')
-      + mxRow('EURRUBF','EURRUBF',        'EURRUBF')
-      + mxRow('GD1',   'GD'+front+frontY, 'GD-'+fL)
-      + mxRow('SV1',   'SV'+front+frontY, 'SV-'+fL);
-    const r2 = mxRow('Si2',  'SI'+back+backY,  'Si-'+bL)
-      + mxRow('Eu2',   'EU'+back+backY,  'Eu-'+bL)
-      + mxRow('CNY2',  'CR'+back+backY,  'CNY-'+bL)
-      + mxRow('UCNY2', 'UC'+back+backY,  'UCNY-'+bL)
-      + mxRow('ED2',   'ED'+back+backY,  'ED-'+bL)
-      + mxRow('GD2',   'GD'+back+backY,  'GD-'+bL)
-      + mxRow('SV2',   'SV'+back+backY,  'SV-'+bL);
+    // MOEX secid uses SHORT year: SIU6, SIZ6 (not SIU26, SIZ26)
+    const fy = frontY.slice(-1); // '6'
+    const by = backY.slice(-1);  // '6'
+    const r1 = mxRow('Si1',  'SI'+front+fy,  'Si-'+fL)
+      + mxRow('Eu1',   'EU'+front+fy,  'Eu-'+fL)
+      + mxRow('CNY1',  'CR'+front+fy,  'CNY-'+fL)
+      + mxRow('UCNY1', 'UC'+front+fy,  'UCNY-'+fL)
+      + mxRow('ED1',   'ED'+front+fy,  'ED-'+fL)
+      + mxRow('USDRUBF','USDRUBF',     'USDRUBF')
+      + mxRow('CNYRUBF','CNYRUBF',     'CNYRUBF')
+      + mxRow('EURRUBF','EURRUBF',     'EURRUBF')
+      + mxRow('GD1',   'GD'+front+fy,  'GD-'+fL)
+      + mxRow('SV1',   'SV'+front+fy,  'SV-'+fL);
+    const r2 = mxRow('Si2',  'SI'+back+by,   'Si-'+bL)
+      + mxRow('Eu2',   'EU'+back+by,   'Eu-'+bL)
+      + mxRow('CNY2',  'CR'+back+by,   'CNY-'+bL)
+      + mxRow('UCNY2', 'UC'+back+by,   'UCNY-'+bL)
+      + mxRow('ED2',   'ED'+back+by,   'ED-'+bL)
+      + mxRow('GD2',   'GD'+back+by,   'GD-'+bL)
+      + mxRow('SV2',   'SV'+back+by,   'SV-'+bL);
     const rf = fxRow('USDCNH',9.95)+fxRow('EURCNH',11.49)+fxRow('EURUSD',11.49)
       + fxRow('XAUUSD',46.35)+fxRow('XAGUSD',35.82);
 
@@ -9300,14 +9306,15 @@ async function calcRefreshGo() {
   const expM = {H:3,M:6,U:9,Z:12};
   if (now.getDate()>=18 && m===expM[front]) { const t=front; front=back; back=t; }
 
-  const frontY2 = (front==='H' && raw==='Z') ? nextY : y2;
-  const backY2  = (back==='H') ? nextY : frontY2;
+  // Use short year suffix (SIZ6, not SIZ26)
+  const fy2 = y2.slice(-1); // '6'
+  const by2 = y2.slice(-1); // '6' (same year for both quarters in 2026)
   const secids = [
-    'SI'+front+frontY2, 'EU'+front+frontY2, 'CR'+front+frontY2, 'UC'+front+frontY2,
-    'GD'+front+frontY2, 'SV'+front+frontY2,
-    'SI'+back+backY2,   'EU'+back+backY2,   'CR'+back+backY2,   'UC'+back+backY2,
-    'GD'+back+backY2,   'SV'+back+backY2,
-    'ED'+front+frontY2, 'ED'+back+backY2,
+    'SI'+front+fy2, 'EU'+front+fy2, 'CR'+front+fy2, 'UC'+front+fy2,
+    'GD'+front+fy2, 'SV'+front+fy2,
+    'SI'+back+by2,  'EU'+back+by2,  'CR'+back+by2,  'UC'+back+by2,
+    'GD'+back+by2,  'SV'+back+by2,
+    'ED'+front+fy2, 'ED'+back+by2,
     'USDRUBF', 'CNYRUBF', 'EURRUBF'
   ];
 
