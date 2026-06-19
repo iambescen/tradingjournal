@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781875368 -->
+<!-- v:1781875481 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8382,7 +8382,7 @@ function switchTab(name, e) {
   if (e && e.target) e.target.classList.add('active');
   // Rate bar only on funds + constructions
   const rateBar = document.getElementById('rate-bar');
-  const showRate = ['constructions'].includes(name); // rate shown in header
+  const showRate = false; // rate shown in header only
   if (rateBar) { rateBar.style.display = showRate ? '' : 'none'; rateBar.style.marginBottom = showRate ? '' : '0'; }
   // Dashboard cards only on overview
   const dash = document.getElementById('main-dashboard');
