@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781178633 -->
+<!-- v:1781857561 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -291,10 +291,48 @@
   /* Period separator rows */
   .period-header-row td { padding: 6px 16px 4px; background: var(--bg); border-top: 2px solid var(--border); border-bottom: 1px dashed var(--border); }
   .period-label { font-size: 12px; font-weight: 700; color: var(--text2); text-transform: uppercase; letter-spacing: 0.5px; margin-right: 12px; }
+
+/* ── Password Gate ── */
+#password-gate {
+  position:fixed;inset:0;background:var(--bg);z-index:9999;
+  display:flex;align-items:center;justify-content:center;
+}
+#password-gate .gate-box {
+  background:var(--bg2);border:1px solid var(--border);border-radius:12px;
+  padding:32px 40px;text-align:center;min-width:320px;
+}
+#password-gate h2 { font-size:20px;font-weight:700;margin-bottom:6px; }
+#password-gate p  { font-size:13px;color:var(--text2);margin-bottom:20px; }
+#password-gate input {
+  width:100%;padding:10px 14px;font-size:14px;
+  background:var(--bg3);color:var(--text);
+  border:1px solid var(--border);border-radius:6px;
+  margin-bottom:10px;box-sizing:border-box;
+}
+#password-gate button {
+  width:100%;padding:10px;font-size:14px;font-weight:600;
+  background:var(--blue);color:#fff;border:none;
+  border-radius:6px;cursor:pointer;
+}
+#password-gate .gate-error {
+  color:var(--red);font-size:12px;margin-top:6px;min-height:16px;
+}
 </style>
 </head>
 <body>
-<div class="app">
+<div id="password-gate" style="display:none">
+  <div class="gate-box">
+    <div style="font-size:32px;margin-bottom:8px">🔐</div>
+    <h2>Торговый журнал</h2>
+    <p>Введите пароль для доступа</p>
+    <input type="password" id="gate-input" placeholder="Пароль"
+      onkeydown="if(event.key==='Enter')checkPassword()">
+    <button onclick="checkPassword()">Войти</button>
+    <div class="gate-error" id="gate-error"></div>
+  </div>
+</div>
+
+<div class="app" id="main-app" style="display:none">
 
   <!-- Header -->
   <div class="header">
@@ -373,6 +411,10 @@
     <button class="nav-btn active" onclick="switchTab('journal', event); renderLiveJournal()">Журнал</button>
     <button class="nav-btn" onclick="switchTab('constructions', event)">Сделки</button>
     <button class="nav-btn" onclick="switchTab('showcase', event); renderShowcase()">Дневник</button>
+    <button class="nav-btn" onclick="switchTab('calc', event); renderCalc()">Калькулятор</button>
+  <div style="margin-left:auto;display:flex;gap:6px;align-items:center">
+      <button class="btn-sm" onclick="openGithubSettings()" title="Настройки GitHub" style="font-size:11px;opacity:.6">⚙️ GitHub</button>
+    </div>
   </div>
 
   <!-- OVERVIEW -->
@@ -601,6 +643,12 @@
   <!-- SHOWCASE -->
   <div id="tab-showcase" class="tab-content">
     <div id="showcase-root"></div>
+  </div>
+
+
+  <!-- CALCULATOR -->
+  <div id="tab-calc" class="tab-content">
+    <div id="calc-root" style="padding:16px 20px;max-width:1400px"></div>
   </div>
 
 <!-- Edit Modal -->
@@ -8261,6 +8309,7 @@ function switchTab(name, e) {
   if (name === 'constructions') renderPositionsTab();
   if (name === 'journal') renderLiveJournal();
   if (name === 'showcase') renderShowcase();
+  if (name === 'calc') renderCalc();
 }
 
 function toggleSection(name) {
@@ -8296,6 +8345,7 @@ renderPositionsTab();
 setTimeout(() => { renderLiveJournal(); renderCapitalLoad(); }, 50);
 updateDashboard();
 </script>
+</div><!-- /main-app -->
 </body>
 </html>
 <!-- renderOvConstructions injected -->
@@ -8724,4 +8774,375 @@ function renderShowcase() {
     </div>`;
 }
 
+</script>
+<script>
+// ═══════════════════════════════════════════════════════════════
+// ── ARBITRAGE CALCULATOR ──
+// ═══════════════════════════════════════════════════════════════
+
+// Construction definitions from Excel
+// [tag, legs: [{name, goPerLot, fxMarginPerUnit, lotRatio}], fxInstr, stepPct, maxSpreadPct]
+const CALC_CONSTRUCTIONS = [
+  {
+    tag: 'SI1/CR1/USDCNH', label: 'Si/CR/USDCNH',
+    legs: [
+      { name: 'Si-6.26',  go: 12078, isMx: true,  ratio: 10   },
+      { name: 'CNY-6.26', go: 1051,  isMx: true,  ratio: 68   },
+      { name: 'USDCNH',   go: 0,     isMx: false, ratio: 0.1, marginPerLot: 995 },
+    ],
+    stepPct: 0.2, maxPct: 1.2,
+  },
+  {
+    tag: 'EU1/CR1/EURCNH', label: 'EU/CR/EURCNH',
+    legs: [
+      { name: 'Eu-6.26',  go: 14115, isMx: true,  ratio: 10   },
+      { name: 'CNY-6.26', go: 1051,  isMx: true,  ratio: 80   },
+      { name: 'EURCNH',   go: 0,     isMx: false, ratio: 0.1, marginPerLot: 1149 },
+    ],
+    stepPct: 0.2, maxPct: 1.2,
+  },
+  {
+    tag: 'UC1/USDCNH', label: 'UC/USDCNH',
+    legs: [
+      { name: 'UCNY-6.26', go: 7261, isMx: true,  ratio: 100  },
+      { name: 'USDCNH',    go: 0,    isMx: false, ratio: 1.0, marginPerLot: 995 },
+    ],
+    stepPct: 0.2, maxPct: 1.2,
+  },
+  {
+    tag: 'ED1/EURUSD', label: 'ED/EURUSD',
+    legs: [
+      { name: 'ED-9.26', go: 5993, isMx: true,  ratio: 60  },
+      { name: 'EURUSD',  go: 0,    isMx: false, ratio: 0.6, marginPerLot: 1149 },
+    ],
+    stepPct: 0.2, maxPct: 1.0,
+  },
+  {
+    tag: 'GD1/XAUUSD', label: 'GD/XAUUSD',
+    legs: [
+      { name: 'GD-6.26', go: 34078, isMx: true,  ratio: 1    },
+      { name: 'XAUUSD',  go: 0,     isMx: false, ratio: 0.01, marginPerLot: 4635 },
+    ],
+    stepPct: 0.5, maxPct: 5.0,
+  },
+  {
+    tag: 'URF/CRF/USDCNH', label: 'USDRUBF/CNYRUBF/USDCNH',
+    legs: [
+      { name: 'USDRUBF', go: 11344, isMx: true,  ratio: 1    },
+      { name: 'CNYRUBF', go: 882,   isMx: true,  ratio: 6.8  },
+      { name: 'USDCNH',  go: 0,     isMx: false, ratio: 0.01, marginPerLot: 995 },
+    ],
+    stepPct: 0.2, maxPct: 1.2,
+  },
+];
+
+// Averaging steps coefficients (halvings from 100%)
+const STEP_COEFFS = [1, 0.5, 0.25, 0.125, 0.0625, 0.03125, 0.015625];
+
+function renderCalc() {
+  const root = document.getElementById('calc-root');
+  if (!root) return;
+
+  // Get MX balance from last PDF
+  const mxBal = store.mx.length
+    ? store.mx.slice().sort((a,b) => normDate(b.date).localeCompare(normDate(a.date)))[0].balance_end || 0
+    : 0;
+  const rate = currentRate?.value || 85;
+  const leverage = 7; // ×7 leverage from MX balance
+
+  // Load saved state
+  const savedState = (() => {
+    try { return JSON.parse(localStorage.getItem('calc_state_v1') || '{}'); } catch { return {}; }
+  })();
+
+  function saveState(s) {
+    localStorage.setItem('calc_state_v1', JSON.stringify(s));
+  }
+
+  function getState() {
+    try { return JSON.parse(localStorage.getItem('calc_state_v1') || '{}'); } catch { return {}; }
+  }
+
+  // Calculate for one construction
+  function calcConstruction(con, units, spread, stepPct) {
+    const goPerUnit  = con.legs.filter(l=>l.isMx).reduce((s,l) => s + l.go * l.ratio, 0);
+    const fxPerUnit  = con.legs.filter(l=>!l.isMx).reduce((s,l) => s + (l.marginPerLot||0) * l.ratio, 0);
+    const fxPerUnitRub = fxPerUnit * rate;
+
+    // Steps
+    const steps = STEP_COEFFS.map((coeff, i) => {
+      const u = units * coeff;
+      const spreadAtStep = Math.abs(spread) + stepPct * i;
+      return {
+        i, coeff,
+        units: u,
+        spreadPct: spreadAtStep,
+        goMx: goPerUnit * u,
+        fxMarginUsd: fxPerUnit * u,
+        fxMarginRub: fxPerUnitRub * u,
+        totalFrozen: goPerUnit * u + fxPerUnitRub * u,
+      };
+    });
+
+    const totalUnits = steps.reduce((s, st) => s + st.units, 0);
+    const totalGoMx   = steps.reduce((s, st) => s + st.goMx, 0);
+    const totalFxUsd  = steps.reduce((s, st) => s + st.fxMarginUsd, 0);
+    const totalFrozen = steps.reduce((s, st) => s + st.totalFrozen, 0);
+
+    return { steps, totalUnits, totalGoMx, totalFxUsd, totalFrozen, goPerUnit, fxPerUnit };
+  }
+
+  // Build constructions rows
+  const state = getState();
+
+  // Total load
+  let totalGoAll = 0, totalFxAll = 0;
+  CALC_CONSTRUCTIONS.forEach(con => {
+    const units  = parseFloat(state[`${con.tag}_units`] || '0') || 0;
+    const spread = parseFloat(state[`${con.tag}_spread`] || '0') || 0;
+    if (units > 0) {
+      const r = calcConstruction(con, units, spread, con.stepPct);
+      totalGoAll += r.totalGoMx;
+      totalFxAll += r.totalFxUsd;
+    }
+  });
+
+  const availableMx = mxBal * leverage;
+  const loadPct = availableMx > 0 ? totalGoAll / availableMx * 100 : 0;
+  const freeMx  = availableMx - totalGoAll;
+  const loadColor = loadPct > 80 ? 'var(--red)' : loadPct > 50 ? 'var(--amber)' : 'var(--green)';
+
+  // Capital summary block
+  const capitalHtml = `
+  <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:10px 16px;flex:1;min-width:140px">
+      <div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">Баланс МХ</div>
+      <div style="font-size:16px;font-weight:700;margin-top:4px">${Math.round(mxBal).toLocaleString('ru')} ₽</div>
+      <div style="font-size:11px;color:var(--text2)">× ${leverage} = ${Math.round(availableMx).toLocaleString('ru')} ₽</div>
+    </div>
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:10px 16px;flex:1;min-width:140px">
+      <div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">Загружено ГО МХ</div>
+      <div style="font-size:16px;font-weight:700;margin-top:4px;color:${loadColor}">${Math.round(totalGoAll).toLocaleString('ru')} ₽</div>
+      <div style="font-size:11px;color:${loadColor}">${loadPct.toFixed(1)}% от доступных</div>
+    </div>
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:10px 16px;flex:1;min-width:140px">
+      <div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">Свободно МХ</div>
+      <div style="font-size:16px;font-weight:700;margin-top:4px;color:var(--green)">${Math.round(freeMx).toLocaleString('ru')} ₽</div>
+    </div>
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:10px 16px;flex:1;min-width:140px">
+      <div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">Маржа FX итого</div>
+      <div style="font-size:16px;font-weight:700;margin-top:4px">$${totalFxAll.toFixed(0)}</div>
+      <div style="font-size:11px;color:var(--text2)">${Math.round(totalFxAll * rate).toLocaleString('ru')} ₽</div>
+    </div>
+  </div>`;
+
+  // Construction cards
+  const cardsHtml = CALC_CONSTRUCTIONS.map(con => {
+    const units  = parseFloat(state[`${con.tag}_units`] || '1') || 1;
+    const spread = parseFloat(state[`${con.tag}_spread`] || '0') || 0;
+    const r = calcConstruction(con, units, spread, con.stepPct);
+    const loadPctCon = availableMx > 0 ? r.totalGoMx / availableMx * 100 : 0;
+    const lc = loadPctCon > 80 ? 'var(--red)' : loadPctCon > 40 ? 'var(--amber)' : 'var(--green)';
+
+    // Steps table
+    const stepsHtml = r.steps.map(st => `
+      <tr style="font-size:11px;border-bottom:1px solid var(--border)">
+        <td style="padding:3px 8px;color:var(--text2)">+${(st.i * con.stepPct).toFixed(1)}%</td>
+        <td style="padding:3px 8px;text-align:right;font-family:monospace">${st.units.toFixed(2)}</td>
+        <td style="padding:3px 8px;text-align:right;font-family:monospace">${Math.round(st.goMx).toLocaleString('ru')} ₽</td>
+        <td style="padding:3px 8px;text-align:right;font-family:monospace">$${st.fxMarginUsd.toFixed(0)}</td>
+        <td style="padding:3px 8px;text-align:right;font-family:monospace;color:${lc}">${Math.round(st.totalFrozen).toLocaleString('ru')} ₽</td>
+      </tr>`).join('');
+
+    const safeTag = con.tag.replace(/[/]/g, '_');
+
+    return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:12px">
+      <!-- Header -->
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">
+        <span style="font-size:14px;font-weight:800;color:var(--blue)">${con.label}</span>
+        <span style="font-size:11px;color:var(--text2)">шаг ${con.stepPct}% · макс ${con.maxPct}%</span>
+        <span style="margin-left:auto;font-size:11px;font-weight:600;color:${lc}">загрузка ${loadPctCon.toFixed(1)}%</span>
+      </div>
+
+      <!-- Inputs -->
+      <div style="display:flex;gap:10px;margin-bottom:10px;flex-wrap:wrap;align-items:center">
+        <div>
+          <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:3px">Начальный объём (ед.)</label>
+          <input type="number" min="0.01" step="0.01" value="${units}"
+            style="width:100px;font-size:13px;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:4px 8px"
+            onchange="calcUpdateState('${safeTag}','units',this.value)"
+            oninput="calcUpdateState('${safeTag}','units',this.value)">
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:3px">Текущий спред (%)</label>
+          <input type="number" step="0.001" value="${spread}"
+            style="width:100px;font-size:13px;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:4px 8px"
+            onchange="calcUpdateState('${safeTag}','spread',this.value)"
+            oninput="calcUpdateState('${safeTag}','spread',this.value)">
+        </div>
+        <div style="font-size:11px;color:var(--text2);margin-top:16px">
+          ГО/ед: <strong>${Math.round(r.goPerUnit).toLocaleString('ru')} ₽</strong> +
+          Маржа/ед: <strong>$${r.fxPerUnit.toFixed(0)}</strong>
+        </div>
+      </div>
+
+      <!-- Legs -->
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;font-size:11px">
+        ${con.legs.map(l => `<span style="background:var(--bg3);border-radius:4px;padding:2px 8px;color:var(--text2)">
+          <strong style="color:var(--text)">${l.name}</strong> × ${l.ratio}
+          ${l.isMx ? `(ГО ${l.go} ₽)` : `($${(l.marginPerLot||0).toFixed(0)}/лот)`}
+        </span>`).join('')}
+      </div>
+
+      <!-- Steps table -->
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;min-width:400px">
+          <thead>
+            <tr style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;border-bottom:2px solid var(--border)">
+              <th style="padding:3px 8px;text-align:left">Шаг</th>
+              <th style="padding:3px 8px;text-align:right">Ед.</th>
+              <th style="padding:3px 8px;text-align:right">ГО МХ</th>
+              <th style="padding:3px 8px;text-align:right">Маржа FX</th>
+              <th style="padding:3px 8px;text-align:right">Заморожено</th>
+            </tr>
+          </thead>
+          <tbody>${stepsHtml}</tbody>
+          <tfoot>
+            <tr style="font-size:11px;font-weight:700;border-top:2px solid var(--border)">
+              <td style="padding:3px 8px">Итого</td>
+              <td style="padding:3px 8px;text-align:right;font-family:monospace">${r.totalUnits.toFixed(2)}</td>
+              <td style="padding:3px 8px;text-align:right;font-family:monospace">${Math.round(r.totalGoMx).toLocaleString('ru')} ₽</td>
+              <td style="padding:3px 8px;text-align:right;font-family:monospace">$${r.totalFxUsd.toFixed(0)}</td>
+              <td style="padding:3px 8px;text-align:right;font-family:monospace;color:${lc}">${Math.round(r.totalFrozen).toLocaleString('ru')} ₽</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>`;
+  }).join('');
+
+  root.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+      <div>
+        <div style="font-size:18px;font-weight:800">Калькулятор позиционирования</div>
+        <div style="font-size:12px;color:var(--text2);margin-top:2px">
+          Курс: ${rate.toFixed(2)} ₽ · Баланс МХ из PDF · Плечо ×${leverage}
+        </div>
+      </div>
+      <button class="btn-sm" onclick="calcReset()" style="color:var(--neg)">🗑 Сбросить</button>
+    </div>
+    ${capitalHtml}
+    ${cardsHtml}`;
+}
+
+function calcUpdateState(safeTag, field, val) {
+  const state = (() => {
+    try { return JSON.parse(localStorage.getItem('calc_state_v1') || '{}'); } catch { return {}; }
+  })();
+  // Convert safeTag back: _ → /
+  state[`${safeTag.replace(/_/g, '/')}_${field}`] = val;
+  localStorage.setItem('calc_state_v1', JSON.stringify(state));
+  // Debounce re-render
+  clearTimeout(window._calcTimer);
+  window._calcTimer = setTimeout(renderCalc, 300);
+}
+
+function calcReset() {
+  if (!confirm('Сбросить все данные калькулятора?')) return;
+  localStorage.removeItem('calc_state_v1');
+  renderCalc();
+}
+</script>
+<script>
+// ─── PASSWORD GATE ───────────────────────────────────────────
+const GATE_PASSWORD_HASH = (() => {
+  // Simple hash of password - change this to set your password
+  // Default password: "bescen2026" - change via openGithubSettings()
+  return localStorage.getItem('journal_pw_hash') || 'bescen2026_default';
+})();
+
+function simpleHash(str) {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) {
+    h = (Math.imul(31, h) + str.charCodeAt(i)) | 0;
+  }
+  return h.toString(36);
+}
+
+function checkPassword() {
+  const val = document.getElementById('gate-input').value;
+  const storedHash = localStorage.getItem('journal_pw_hash');
+  const errEl = document.getElementById('gate-error');
+
+  // If no password set yet, accept default
+  if (!storedHash && val === 'bescen2026') {
+    unlockApp();
+    return;
+  }
+
+  if (storedHash && simpleHash(val) === storedHash) {
+    unlockApp();
+  } else {
+    errEl.textContent = 'Неверный пароль';
+    document.getElementById('gate-input').value = '';
+    setTimeout(() => errEl.textContent = '', 2000);
+  }
+}
+
+function unlockApp() {
+  sessionStorage.setItem('journal_unlocked', '1');
+  document.getElementById('password-gate').style.display = 'none';
+  document.getElementById('main-app').style.display = '';
+}
+
+function initGate() {
+  if (sessionStorage.getItem('journal_unlocked') === '1') {
+    unlockApp();
+  } else {
+    document.getElementById('password-gate').style.display = 'flex';
+    document.getElementById('main-app').style.display = 'none';
+    setTimeout(() => document.getElementById('gate-input')?.focus(), 100);
+  }
+}
+
+// ─── GITHUB SETTINGS ─────────────────────────────────────────
+function openGithubSettings() {
+  const token = localStorage.getItem('gh_token') || '';
+  const owner = localStorage.getItem('gh_owner') || 'iambescen';
+  const repo  = localStorage.getItem('gh_repo')  || 'trading-journal';
+  const pw    = '';
+
+  openModal('⚙️ Настройки', [
+    { label: 'GitHub Username',  key: 'owner', value: owner },
+    { label: 'Репозиторий',      key: 'repo',  value: repo  },
+    { label: 'Personal Access Token (repo scope)', key: 'token', value: token, type: 'password' },
+    { label: 'Новый пароль журнала (оставь пустым чтобы не менять)', key: 'pw', value: '', type: 'password' },
+  ], vals => {
+    if (vals.owner) localStorage.setItem('gh_owner', vals.owner.trim());
+    if (vals.repo)  localStorage.setItem('gh_repo',  vals.repo.trim());
+    if (vals.token) localStorage.setItem('gh_token', vals.token.trim());
+    if (vals.pw && vals.pw.trim()) {
+      localStorage.setItem('journal_pw_hash', simpleHash(vals.pw.trim()));
+      alert('Пароль обновлён. При следующем открытии используй новый пароль.');
+    }
+    alert('Настройки сохранены в браузере.');
+  });
+}
+
+// ─── AUTO-DEPLOY using stored token ──────────────────────────
+async function deployToGitHub() {
+  const token = localStorage.getItem('gh_token');
+  const owner = localStorage.getItem('gh_owner') || 'iambescen';
+  const repo  = localStorage.getItem('gh_repo')  || 'trading-journal';
+
+  if (!token) {
+    alert('Сначала укажи GitHub токен в ⚙️ настройках.');
+    return;
+  }
+  // Note: deploy from browser is read-only - this is for future use
+  alert('Деплой через браузер временно недоступен. Используй Claude для обновления файла.');
+}
+
+// Init on load
+window.addEventListener('load', initGate);
 </script>
