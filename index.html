@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781864884 -->
+<!-- v:1781865054 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8870,6 +8870,10 @@ function mxTable(rows, title, showRefresh) {
 function renderCalc() {
   const root = document.getElementById('calc-root');
   if (!root) return;
+  // Auto-fetch GO if cache seems empty
+  if (Object.keys(_goCache).length === 0) {
+    calcRefreshGo();
+  }
 
   const state = (() => { try { return JSON.parse(localStorage.getItem('calc_state_v1') || '{}'); } catch { return {}; } })();
 
@@ -9272,11 +9276,35 @@ window.addEventListener('load', initGate);
 // ── Calculator instruments helpers ──
 
 async function calcRefreshGo() {
-  const secids = ['SIM6','EUM6','CNYM6','UCNYM6','EDU6','USDRUBF','CNYRUBF','GDM6','SVM6'];
+  // Auto-detect current quarter (same logic as instruments table)
+  const now = new Date();
+  const m = now.getMonth() + 1;
+  const y2 = String(now.getFullYear()).slice(-2);
+  const nextY = String(now.getFullYear()+1).slice(-2);
+  let front, back;
+  if (m<=3){front='H';back='M';} else if(m<=6){front='M';back='U';}
+  else if(m<=9){front='U';back='Z';} else{front='Z';back='H';}
+  const expM = {H:3,M:6,U:9,Z:12};
+  if (now.getDate()>=18 && m===expM[front]) { const t=front; front=back; back=t; }
+
+  const secids = [
+    'SI'+front+y2, 'EU'+front+y2, 'CNY'+front+y2, 'UCNY'+front+y2,
+    'GD'+front+y2, 'SV'+front+y2,
+    'SI'+back+y2,  'EU'+back+y2,  'CNY'+back+y2,  'UCNY'+back+y2,
+    'GD'+back+y2,  'SV'+back+y2,
+    'ED'+back+y2,
+    'USDRUBF', 'CNYRUBF', 'EURRUBF'
+  ];
+
+  // Clear cache to force reload
+  secids.forEach(s => { delete _goCache[s]; });
+
+  let done = 0;
   for (const secid of secids) {
     fetchGO(secid).then(() => {
-      // Update displayed values after fetch
-      setTimeout(renderCalc, 200);
+      done++;
+      if (done === secids.length) renderCalc();
+      else if (done % 3 === 0) renderCalc();
     });
   }
 }
