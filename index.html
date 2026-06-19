@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781868340 -->
+<!-- v:1781868523 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8890,11 +8890,63 @@ const CALC_CONSTRUCTIONS = [
     tag: 'URF/CRF/USDCNH', label: 'USDRUBF/CNYRUBF/USDCNH',
     legs: [
       { name: 'USDRUBF', go: 11344, isMx: true,  ratio: 1,   goKey: 'USDRUBF' },
-      // CNYRUBF ratio = USDCNH × 1 лот USDRUBF
       { name: 'CNYRUBF', go: 882,   isMx: true,  ratio: 6.8, goKey: 'CNYRUBF', crPair: 'USDCNH', siLots: 1 },
       { name: 'USDCNH',  go: 0,     isMx: false, ratio: 0.01, marginPerLot: 995 },
     ],
     stepPct: 0.2, maxPct: 1.2,
+  },
+  // ── Вторые контракты ──
+  {
+    tag: 'SI2/CR2/USDCNH', label: 'Si2/CR2/USDCNH',
+    legs: [
+      { name: 'Si-12.26',  go: 12099, isMx: true,  ratio: 10,  goKey: 'Si2' },
+      { name: 'CNY-12.26', go: 1051,  isMx: true,  ratio: 68,  goKey: 'CNY2', crPair: 'USDCNH', siLots: 10 },
+      { name: 'USDCNH',    go: 0,     isMx: false, ratio: 0.1, marginPerLot: 995 },
+    ],
+    stepPct: 0.2, maxPct: 1.2,
+  },
+  {
+    tag: 'EU2/CR2/EURCNH', label: 'EU2/CR2/EURCNH',
+    legs: [
+      { name: 'Eu-12.26',  go: 14115, isMx: true,  ratio: 10,  goKey: 'Eu2' },
+      { name: 'CNY-12.26', go: 1051,  isMx: true,  ratio: 80,  goKey: 'CNY2', crPair: 'EURCNH', siLots: 10 },
+      { name: 'EURCNH',    go: 0,     isMx: false, ratio: 0.1, marginPerLot: 1149 },
+    ],
+    stepPct: 0.2, maxPct: 1.2,
+  },
+  {
+    tag: 'ED2/EURUSD', label: 'ED2/EURUSD',
+    legs: [
+      { name: 'ED-12.26', go: 5993, isMx: true,  ratio: 60,  goKey: 'ED2' },
+      { name: 'EURUSD',   go: 0,    isMx: false, ratio: 0.6, marginPerLot: 1149 },
+    ],
+    stepPct: 0.2, maxPct: 1.0,
+  },
+  // ── UC/UCNY ──
+  {
+    tag: 'UC2/USDCNH', label: 'UC2/USDCNH',
+    legs: [
+      { name: 'UCNY-12.26', go: 7261, isMx: true,  ratio: 100, goKey: 'UCNY2' },
+      { name: 'USDCNH',     go: 0,    isMx: false, ratio: 1.0, marginPerLot: 995 },
+    ],
+    stepPct: 0.2, maxPct: 1.2,
+  },
+  // ── Металлы ──
+  {
+    tag: 'GD2/XAUUSD', label: 'GD2/XAUUSD',
+    legs: [
+      { name: 'GD-12.26', go: 34078, isMx: true,  ratio: 1,    goKey: 'GD2' },
+      { name: 'XAUUSD',   go: 0,     isMx: false, ratio: 0.01, marginPerLot: 4635 },
+    ],
+    stepPct: 0.5, maxPct: 5.0,
+  },
+  {
+    tag: 'SV2/XAGUSD', label: 'SV2/XAGUSD',
+    legs: [
+      { name: 'SV-12.26', go: 15330, isMx: true,  ratio: 5,    goKey: 'SV2' },
+      { name: 'XAGUSD',   go: 0,     isMx: false, ratio: 0.05, marginPerLot: 3582 },
+    ],
+    stepPct: 0.5, maxPct: 5.0,
   },
 ];
 
@@ -9254,14 +9306,6 @@ function _renderCalcInner(root) {
       + '<th style="padding:3px 8px;text-align:right">Заморожено</th>'
       + '</tr></thead>'
       + '<tbody>' + stepsHtml + '</tbody>'
-      + '<tfoot><tr style="font-size:11px;font-weight:700;border-top:2px solid var(--border)">'
-      + '<td style="padding:3px 8px">Итого (макс)</td>'
-      + '<td style="padding:3px 8px;text-align:right">' + (maxFxUnits > 0 ? steps.reduce((s,st)=>s+st.fxUnits,0) + ' ед.' : '—') + '</td>'
-      + '<td style="padding:3px 8px;text-align:right">' + steps.reduce((s,st)=>s+st.fxLots,0).toFixed(2) + ' лот</td>'
-      + '<td style="padding:3px 8px;text-align:right">' + Math.round(steps.reduce((s,st)=>s+st.goMx,0)).toLocaleString('ru') + ' ₽</td>'
-      + '<td style="padding:3px 8px;text-align:right">$' + steps.reduce((s,st)=>s+st.fxMarg,0).toFixed(0) + '</td>'
-      + '<td style="padding:3px 8px;text-align:right;color:' + lc + '">' + Math.round(steps.reduce((s,st)=>s+st.frozen,0)).toLocaleString('ru') + ' ₽</td>'
-      + '</tr></tfoot>'
       + '</table></div>'
       + '</div>';
   }).join('');
