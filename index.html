@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781862919 -->
+<!-- v:1781863376 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8345,15 +8345,15 @@ updateDashboard();
 
 
   <!-- SHOWCASE -->
-  <div id="tab-showcase" class="tab-content">
+  <div id="tab-showcase" class="tab-content" style="padding:0 20px">
     <div id="showcase-root"></div>
   </div>
 
 
 
   <!-- CALCULATOR -->
-  <div id="tab-calc" class="tab-content">
-    <div id="calc-root" style="padding:0;max-width:1400px"></div>
+  <div id="tab-calc" class="tab-content" style="padding:0 20px">
+    <div id="calc-root" style="max-width:1400px"></div>
   </div>
 
 </div><!-- /main-app -->
@@ -8915,6 +8915,103 @@ function renderCalc() {
     return { steps, totalUnits, totalGoMx, totalFxUsd, totalFrozen, goPerUnit, fxPerUnit };
   }
 
+
+  // ── Instruments table ──
+  const MX_INSTRUMENTS = [
+    { secid: 'SIM6',    name: 'Si-6.26',    key: 'Si'      },
+    { secid: 'EUM6',    name: 'Eu-6.26',    key: 'Eu'      },
+    { secid: 'CNYM6',   name: 'CNY-6.26',   key: 'CNY'     },
+    { secid: 'UCNYM6',  name: 'UCNY-6.26',  key: 'UCNY'    },
+    { secid: 'EDU6',    name: 'ED-9.26',    key: 'ED'      },
+    { secid: 'USDRUBF', name: 'USDRUBF',    key: 'USDRUBF' },
+    { secid: 'CNYRUBF', name: 'CNYRUBF',    key: 'CNYRUBF' },
+    { secid: 'GDM6',    name: 'GD-6.26',    key: 'GD'      },
+    { secid: 'SVM6',    name: 'SV-6.26',    key: 'SV'      },
+  ];
+  const FX_INSTRUMENTS = [
+    { name: 'USDCNH', leverage: 100, lotSize: 100000 },
+    { name: 'EURCNH', leverage: 87,  lotSize: 100000 },
+    { name: 'EURUSD', leverage: 87,  lotSize: 100000 },
+    { name: 'USDJPY', leverage: 100, lotSize: 100000 },
+    { name: 'XAUUSD', leverage: 100, lotSize: 100  },
+    { name: 'XAGUSD', leverage: 100, lotSize: 5000 },
+  ];
+
+  // Load saved GO overrides
+  const goOverrides = (() => { try { return JSON.parse(localStorage.getItem('calc_go_v1') || '{}'); } catch { return {}; } })();
+  const fxOverrides = (() => { try { return JSON.parse(localStorage.getItem('calc_fx_v1') || '{}'); } catch { return {}; } })();
+
+  // Build MX rows
+  const mxRows = MX_INSTRUMENTS.map(ins => {
+    const goVal = goOverrides[ins.key] || _goCache[ins.secid]?.go || _goCache[ins.secid.replace('M6','M26')]?.go || '';
+    const stepVal = goOverrides[ins.key + '_step'] || _goCache[ins.secid]?.step || '';
+    return `<tr style="font-size:12px;border-bottom:1px solid var(--border)">
+      <td style="padding:5px 8px;font-weight:600;color:var(--text)">${ins.name}</td>
+      <td style="padding:5px 8px;text-align:right;font-family:monospace" id="go_${ins.key}">
+        ${goVal ? Math.round(goVal).toLocaleString('ru') + ' ₽' : '<span style="color:var(--text2)">загрузка...</span>'}
+      </td>
+      <td style="padding:5px 8px;text-align:right;font-family:monospace;color:var(--text2)">
+        ${stepVal ? stepVal + ' ₽' : '—'}
+      </td>
+      <td style="padding:5px 8px;text-align:center">
+        <button class="btn-sm" style="font-size:10px;padding:2px 6px" onclick="calcEditGo('${ins.key}','${ins.secid}')">✏️</button>
+      </td>
+    </tr>`;
+  }).join('');
+
+  // Build FX rows
+  const fxRows = FX_INSTRUMENTS.map(ins => {
+    const margin = fxOverrides[ins.name] || ins.leverage;
+    // margin per 0.1 lot at current rate (approx)
+    const marginPerUnit = ins.lotSize / ins.leverage;
+    return `<tr style="font-size:12px;border-bottom:1px solid var(--border)">
+      <td style="padding:5px 8px;font-weight:600;color:var(--text)">${ins.name}</td>
+      <td style="padding:5px 8px;text-align:right;font-family:monospace">×${margin}</td>
+      <td style="padding:5px 8px;text-align:right;font-family:monospace;color:var(--text2)">${ins.lotSize.toLocaleString('en')}</td>
+      <td style="padding:5px 8px;text-align:right;font-family:monospace">$${(ins.lotSize/ins.leverage).toFixed(0)}/лот</td>
+      <td style="padding:5px 8px;text-align:center">
+        <button class="btn-sm" style="font-size:10px;padding:2px 6px" onclick="calcEditFx('${ins.name}',${ins.leverage})">✏️</button>
+      </td>
+    </tr>`;
+  }).join('');
+
+  const instrumentsHtml = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+      <!-- MX -->
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
+        <div style="padding:8px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+          <span style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">МХ — Гарантийное обеспечение</span>
+          <button class="btn-sm" style="font-size:10px" onclick="calcRefreshGo()">↻ Обновить</button>
+        </div>
+        <table style="width:100%;border-collapse:collapse">
+          <thead><tr style="font-size:10px;color:var(--text2);background:var(--bg3)">
+            <th style="padding:4px 8px;text-align:left">Инструмент</th>
+            <th style="padding:4px 8px;text-align:right">ГО</th>
+            <th style="padding:4px 8px;text-align:right">Шаг цены</th>
+            <th style="padding:4px 8px;width:36px"></th>
+          </tr></thead>
+          <tbody>${mxRows}</tbody>
+        </table>
+      </div>
+      <!-- FX -->
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
+        <div style="padding:8px 12px;border-bottom:1px solid var(--border)">
+          <span style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">FX — Маржа</span>
+        </div>
+        <table style="width:100%;border-collapse:collapse">
+          <thead><tr style="font-size:10px;color:var(--text2);background:var(--bg3)">
+            <th style="padding:4px 8px;text-align:left">Инструмент</th>
+            <th style="padding:4px 8px;text-align:right">Плечо</th>
+            <th style="padding:4px 8px;text-align:right">Размер лота</th>
+            <th style="padding:4px 8px;text-align:right">Маржа/лот</th>
+            <th style="padding:4px 8px;width:36px"></th>
+          </tr></thead>
+          <tbody>${fxRows}</tbody>
+        </table>
+      </div>
+    </div>`;
+
+
   // Build constructions rows
   // (state already loaded above)
 
@@ -9060,6 +9157,7 @@ function renderCalc() {
       </div>
     </div>
 
+    ${instrumentsHtml}
     ${capitalHtml}
     ${cardsHtml}`;
 }
@@ -9171,4 +9269,37 @@ async function deployToGitHub() {
 
 // Init on load
 window.addEventListener('load', initGate);
+</script>
+<script>
+// ── Calculator instruments helpers ──
+
+async function calcRefreshGo() {
+  const secids = ['SIM6','EUM6','CNYM6','UCNYM6','EDU6','USDRUBF','CNYRUBF','GDM6','SVM6'];
+  for (const secid of secids) {
+    fetchGO(secid).then(() => {
+      // Update displayed values after fetch
+      setTimeout(renderCalc, 200);
+    });
+  }
+}
+
+function calcEditGo(key, secid) {
+  const overrides = (() => { try { return JSON.parse(localStorage.getItem('calc_go_v1') || '{}'); } catch { return {}; } })();
+  const cur = overrides[key] || _goCache[secid]?.go || '';
+  const val = prompt(`ГО для ${key} (₽):`, cur);
+  if (val === null) return;
+  overrides[key] = parseFloat(val) || 0;
+  localStorage.setItem('calc_go_v1', JSON.stringify(overrides));
+  renderCalc();
+}
+
+function calcEditFx(name, defaultLeverage) {
+  const overrides = (() => { try { return JSON.parse(localStorage.getItem('calc_fx_v1') || '{}'); } catch { return {}; } })();
+  const cur = overrides[name] || defaultLeverage;
+  const val = prompt(`Плечо для ${name}:`, cur);
+  if (val === null) return;
+  overrides[name] = parseFloat(val) || defaultLeverage;
+  localStorage.setItem('calc_fx_v1', JSON.stringify(overrides));
+  renderCalc();
+}
 </script>
