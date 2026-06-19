@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781867382 -->
+<!-- v:1781867593 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -9299,6 +9299,15 @@ function renderCalc() {
     ${instrumentsHtml}
     ${capitalHtml}
     ${cardsHtml}`;
+}
+
+function calcUpdateState(safeTag, field, val) {
+  const state = (() => { try { return JSON.parse(localStorage.getItem('calc_state_v1') || '{}'); } catch { return {}; } })();
+  const realTag = safeTag.replace(/_/g, '/');
+  state[safeTag + '_' + field] = val;
+  localStorage.setItem('calc_state_v1', JSON.stringify(state));
+  clearTimeout(window._calcTimer);
+  window._calcTimer = setTimeout(renderCalc, 300);
 }
 
 function calcSaveBal(key, val) {
