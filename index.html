@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781863573 -->
+<!-- v:1781863677 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -5138,7 +5138,7 @@ function calcFxMargin(leg) {
     // FX pairs (lot=100k): margin = lots*100k/leverage
     'EURUSD': [100000, 87,  0], 'EURCNH': [100000, 87,  0],
     'GBPUSD': [100000, 87,  0], 'AUDUSD': [100000, 87,  0], 'NZDUSD': [100000, 87, 0],
-    'USDCNH': [100000, 100, 0], 'USDJPY': [100000, 100, 0], 'USDCHF': [100000, 100, 0],
+    'USDCNH': [100000, 100, 0], 'USDCHF': [100000, 100, 0],
     'USDCAD': [100000, 100, 0], 'EURRUB': [100000, 87,  0],
     // Metals (lot=oz): margin = lots*lotSize*price/leverage
     'XAUUSD': [100,   100, 1],  // 100 Oz, $40.72/0.01lot @ 4088 → 100*0.01*4088/100=40.88 ✓
@@ -8489,7 +8489,7 @@ function showcaseInstr(instrument) {
   const i = (instrument||'').toUpperCase().replace(/[-_].*/,'');
   // Currency futures & FX
   const currency = ['SI','CR','CNY','UC','UCNY','EU','ED','USDRUBF','CNYRUBF','EURRUBF',
-                    'EURUSD','USDCNH','EURCNH','USDCAD','GBPUSD','AUDUSD','USDJPY'];
+                    'EURUSD','USDCNH','EURCNH','USDCAD','GBPUSD','AUDUSD'];
   if (currency.some(c => i.startsWith(c))) return '💱 Валюта';
   // Metals
   const metals = ['GD','SV','PT','PD','XAUUSD','XAGUSD','XPTUSD','XPDUSD'];
@@ -8957,7 +8957,6 @@ function renderCalc() {
     { name: 'USDCNH', leverage: 100, lotSize: 100000 },
     { name: 'EURCNH', leverage: 87,  lotSize: 100000 },
     { name: 'EURUSD', leverage: 87,  lotSize: 100000 },
-    { name: 'USDJPY', leverage: 100, lotSize: 100000 },
     { name: 'XAUUSD', leverage: 100, lotSize: 100  },
     { name: 'XAGUSD', leverage: 100, lotSize: 5000 },
   ];
