@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781866257 -->
+<!-- v:1781866669 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8800,12 +8800,54 @@ function renderShowcase() {
 
 // Construction definitions from Excel
 // [tag, legs: [{name, goPerLot, fxMarginPerUnit, lotRatio}], fxInstr, stepPct, maxSpreadPct]
+// ── Cross rates cache (from CBR) ──
+const _crossRates = {
+  USDCNH: 7.20,   // default fallback
+  EURCNH: 7.80,
+  EURUSD: 1.08,
+};
+
+async function fetchCrossRates() {
+  try {
+    const r = await fetch('https://www.cbr-xml-daily.ru/daily_json.js');
+    const d = await r.json();
+    const usd = d.Valute?.USD?.Value || 73;
+    const eur = d.Valute?.EUR?.Value || 80;
+    const cny = (d.Valute?.CNY?.Value || 10) / (d.Valute?.CNY?.Nominal || 10);
+    // Cross rates
+    _crossRates.USDCNH = usd / cny;
+    _crossRates.EURCNH = eur / cny;
+    _crossRates.EURUSD = eur / usd;
+    _crossRates.USDRUB = usd;
+    _crossRates.EURRUB = eur;
+    _crossRates.CNYRUB = cny;
+    console.log('[CrossRates] USDCNH:', _crossRates.USDCNH.toFixed(4),
+      'EURCNH:', _crossRates.EURCNH.toFixed(4),
+      'EURUSD:', _crossRates.EURUSD.toFixed(4));
+    return _crossRates;
+  } catch(e) {
+    console.warn('[CrossRates] fetch failed, using defaults', e);
+    return _crossRates;
+  }
+}
+
+// Fetch on load
+fetchCrossRates();
+
+// Helper: get dynamic ratio for CR leg based on current cross rate
+function getCRRatio(fxPair, siLots) {
+  // 1 Si/EU = 1000 USD/EUR → need USDCNH or EURCNH lots of CR (1 CR = 1000 CNY)
+  const rate = _crossRates[fxPair] || 7.20;
+  return Math.round(rate * siLots * 10) / 10;
+}
+
 const CALC_CONSTRUCTIONS = [
   {
     tag: 'SI1/CR1/USDCNH', label: 'Si/CR/USDCNH',
     legs: [
-      { name: 'Si-6.26',  go: 12078, isMx: true,  ratio: 10   },
-      { name: 'CNY-6.26', go: 1051,  isMx: true,  ratio: 68   },
+      { name: 'Si-9.26',  go: 12078, isMx: true,  ratio: 10,  goKey: 'Si1' },
+      // CR ratio = USDCNH × 10 лотов Si = динамически
+      { name: 'CNY-9.26', go: 1051,  isMx: true,  ratio: 68,  goKey: 'CNY1', crPair: 'USDCNH', siLots: 10 },
       { name: 'USDCNH',   go: 0,     isMx: false, ratio: 0.1, marginPerLot: 995 },
     ],
     stepPct: 0.2, maxPct: 1.2,
@@ -8813,8 +8855,9 @@ const CALC_CONSTRUCTIONS = [
   {
     tag: 'EU1/CR1/EURCNH', label: 'EU/CR/EURCNH',
     legs: [
-      { name: 'Eu-6.26',  go: 14115, isMx: true,  ratio: 10   },
-      { name: 'CNY-6.26', go: 1051,  isMx: true,  ratio: 80   },
+      { name: 'Eu-9.26',  go: 14115, isMx: true,  ratio: 10,  goKey: 'Eu1' },
+      // CR ratio = EURCNH × 10 лотов EU
+      { name: 'CNY-9.26', go: 1051,  isMx: true,  ratio: 80,  goKey: 'CNY1', crPair: 'EURCNH', siLots: 10 },
       { name: 'EURCNH',   go: 0,     isMx: false, ratio: 0.1, marginPerLot: 1149 },
     ],
     stepPct: 0.2, maxPct: 1.2,
@@ -8822,7 +8865,7 @@ const CALC_CONSTRUCTIONS = [
   {
     tag: 'UC1/USDCNH', label: 'UC/USDCNH',
     legs: [
-      { name: 'UCNY-6.26', go: 7261, isMx: true,  ratio: 100  },
+      { name: 'UCNY-9.26', go: 7261, isMx: true,  ratio: 100, goKey: 'UCNY1' },
       { name: 'USDCNH',    go: 0,    isMx: false, ratio: 1.0, marginPerLot: 995 },
     ],
     stepPct: 0.2, maxPct: 1.2,
@@ -8830,7 +8873,7 @@ const CALC_CONSTRUCTIONS = [
   {
     tag: 'ED1/EURUSD', label: 'ED/EURUSD',
     legs: [
-      { name: 'ED-9.26', go: 5993, isMx: true,  ratio: 60  },
+      { name: 'ED-9.26', go: 5993, isMx: true,  ratio: 60,  goKey: 'ED1' },
       { name: 'EURUSD',  go: 0,    isMx: false, ratio: 0.6, marginPerLot: 1149 },
     ],
     stepPct: 0.2, maxPct: 1.0,
@@ -8838,7 +8881,7 @@ const CALC_CONSTRUCTIONS = [
   {
     tag: 'GD1/XAUUSD', label: 'GD/XAUUSD',
     legs: [
-      { name: 'GD-6.26', go: 34078, isMx: true,  ratio: 1    },
+      { name: 'GD-9.26', go: 34078, isMx: true,  ratio: 1,   goKey: 'GD1' },
       { name: 'XAUUSD',  go: 0,     isMx: false, ratio: 0.01, marginPerLot: 4635 },
     ],
     stepPct: 0.5, maxPct: 5.0,
@@ -8846,8 +8889,9 @@ const CALC_CONSTRUCTIONS = [
   {
     tag: 'URF/CRF/USDCNH', label: 'USDRUBF/CNYRUBF/USDCNH',
     legs: [
-      { name: 'USDRUBF', go: 11344, isMx: true,  ratio: 1    },
-      { name: 'CNYRUBF', go: 882,   isMx: true,  ratio: 6.8  },
+      { name: 'USDRUBF', go: 11344, isMx: true,  ratio: 1,   goKey: 'USDRUBF' },
+      // CNYRUBF ratio = USDCNH × 1 лот USDRUBF
+      { name: 'CNYRUBF', go: 882,   isMx: true,  ratio: 6.8, goKey: 'CNYRUBF', crPair: 'USDCNH', siLots: 1 },
       { name: 'USDCNH',  go: 0,     isMx: false, ratio: 0.01, marginPerLot: 995 },
     ],
     stepPct: 0.2, maxPct: 1.2,
@@ -8917,8 +8961,20 @@ function renderCalc() {
 
   // Calculate for one construction
   function calcConstruction(con, units, spread, stepPct) {
-    const goPerUnit  = con.legs.filter(l=>l.isMx).reduce((s,l) => s + l.go * l.ratio, 0);
-    const fxPerUnit  = con.legs.filter(l=>!l.isMx).reduce((s,l) => s + (l.marginPerLot||0) * l.ratio, 0);
+    // Dynamic CR ratio based on current cross rates
+    function getDynRatio(leg) {
+      if (!leg.crPair) return leg.ratio; // not a CR leg
+      const rate = _crossRates[leg.crPair] || leg.ratio;
+      // leg.siLots = how many Si/EU lots this CR leg hedges
+      return Math.round(rate * (leg.siLots || 1) * 10) / 10;
+    }
+    // Dynamic GO from cache (use cached value if available, else leg.go)
+    function getDynGO(leg) {
+      if (leg.goKey && _goCache[leg.goKey]) return _goCache[leg.goKey].go;
+      return leg.go;
+    }
+    const goPerUnit = con.legs.filter(l=>l.isMx).reduce((s,l) => s + getDynGO(l) * getDynRatio(l), 0);
+    const fxPerUnit = con.legs.filter(l=>!l.isMx).reduce((s,l) => s + (l.marginPerLot||0) * l.ratio, 0);
     const fxPerUnitRub = fxPerUnit * rate;
 
     // Steps
@@ -9153,7 +9209,15 @@ function renderCalc() {
     </div>
 
     <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin-bottom:16px">
-      <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Текущие балансы</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <span style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">Текущие балансы</span>
+        <span style="font-size:11px;color:var(--text2)">
+          USDCNH: <b style="color:var(--text)">${_crossRates.USDCNH.toFixed(4)}</b>
+          · EURCNH: <b style="color:var(--text)">${_crossRates.EURCNH.toFixed(4)}</b>
+          · EURUSD: <b style="color:var(--text)">${_crossRates.EURUSD.toFixed(4)}</b>
+          <button class="btn-sm" style="margin-left:6px;font-size:10px" onclick="fetchCrossRates().then(renderCalc)">↻ курсы</button>
+        </span>
+      </div>
       <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end">
         <div>
           <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:4px">Баланс МХ (₽) <span style="color:${mxBalManual>0?'var(--blue)':'var(--text2)'}">${mxSource}</span></label>
