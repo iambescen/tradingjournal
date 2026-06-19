@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781867948 -->
+<!-- v:1781868043 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -9257,6 +9257,9 @@ function _renderCalcInner(root) {
       + '</div>';
   }).join('');
 
+
+  const mxSource = mxBalManual > 0 ? 'вручную' : (mxBalPdf > 0 ? 'из PDF' : 'не задан');
+  const fxSource = fxBalManual > 0 ? 'вручную' : (fxBalPdf > 0 ? 'из выгрузки' : 'не задан');
 
   root.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px;margin-top:0">
