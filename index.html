@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781868666 -->
+<!-- v:1781869029 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8991,9 +8991,32 @@ function calcConstruction(con, units, spread, stepPct) {
     // leg.siLots = how many Si/EU lots this CR leg hedges
     return Math.round(rate * (leg.siLots || 1) * 10) / 10;
   }
+  // Map goKey → MOEX secid (matching what calcRefreshGo fetches)
+  function goKeyToSecid(key) {
+    const now = new Date();
+    const m = now.getMonth() + 1;
+    const y = String(now.getFullYear()).slice(-1);
+    const expM = {H:3,M:6,U:9,Z:12};
+    const nextQ = {H:'M',M:'U',U:'Z',Z:'H'};
+    let raw;
+    if (m<=3) raw='H'; else if(m<=6) raw='M'; else if(m<=9) raw='U'; else raw='Z';
+    const front = (now.getDate()>=18 && m===expM[raw]) ? nextQ[raw] : raw;
+    const back  = nextQ[front];
+    const map = {
+      Si1:'Si'+front+y, Eu1:'Eu'+front+y, CNY1:'CR'+front+y, UCNY1:'UC'+front+y,
+      ED1:'ED'+front+y, GD1:'GD'+front+y, SV1:'SV'+front+y,
+      Si2:'Si'+back+y,  Eu2:'Eu'+back+y,  CNY2:'CR'+back+y,  UCNY2:'UC'+back+y,
+      ED2:'ED'+back+y,  GD2:'GD'+back+y,  SV2:'SV'+back+y,
+      USDRUBF:'USDRUBF', CNYRUBF:'CNYRUBF', EURRUBF:'EURRUBF',
+    };
+    return map[key] || key;
+  }
   // Dynamic GO from cache (use cached value if available, else leg.go)
   function getDynGO(leg) {
-    if (leg.goKey && _goCache[leg.goKey]) return _goCache[leg.goKey].go;
+    if (!leg.goKey) return leg.go;
+    const secid = goKeyToSecid(leg.goKey);
+    if (_goCache[secid]) return _goCache[secid].go;
+    if (_goCache[leg.goKey]) return _goCache[leg.goKey].go;
     return leg.go;
   }
   const goPerUnit = con.legs.filter(l=>l.isMx).reduce((s,l) => s + getDynGO(l) * getDynRatio(l), 0);
