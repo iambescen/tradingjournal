@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781870141 -->
+<!-- v:1781870318 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8849,7 +8849,12 @@ const CALC_GROUPS = [
   { label: 'ED / EURUSD',        tags: ['ED1/EURUSD',      'ED2/EURUSD']      },
   { label: 'GD / XAUUSD',        tags: ['GD1/XAUUSD',      'GD2/XAUUSD']      },
   { label: 'SV / XAGUSD',        tags: ['SV1/XAGUSD',      'SV2/XAGUSD']      },
-  { label: 'USDRUBF / CNYRUBF',  tags: ['URF/CRF/USDCNH']                     },
+  { label: 'USDRUBF / CNYRUBF',   tags: ['URF/CRF/USDCNH']                          },
+  { label: 'USDRUBF / Si',        tags: ['URF/SI1', 'URF/SI2']                      },
+  { label: 'CNYRUBF / CR',        tags: ['CRF/CR1', 'CRF/CR2']                      },
+  { label: 'EURRUBF / Eu',        tags: ['ERF/EU1', 'ERF/EU2']                      },
+  { label: 'GD / SV (2:1)',       tags: ['GD1/SV1/XAUUSD/XAGUSD', 'GD2/SV2/XAUUSD/XAGUSD'] },
+  { label: 'Платина / PL',        tags: ['PL1/XPTUSD', 'PL2/XPTUSD']               },
   { label: 'EURRUBF / CR / EURCNH', tags: ['ERF/CR1/EURCNH', 'ERF/CR2/EURCNH']  },
   { label: 'EURRUBF / CR / USDCNH', tags: ['ERF/CR1/USDCNH', 'ERF/CR2/USDCNH']  },
   { label: 'USDRUBF / CR / USDCNH', tags: ['URF/CR1/USDCNH', 'URF/CR2/USDCNH']  },
@@ -8869,7 +8874,17 @@ const CALC_LABELS = {
   'GD2/XAUUSD':      'GD2 / XAUUSD',
   'SV1/XAGUSD':      'SV1 / XAGUSD',
   'SV2/XAGUSD':      'SV2 / XAGUSD',
-  'URF/CRF/USDCNH':  'USDRUBF / CNYRUBF / USDCNH',
+  'URF/CRF/USDCNH':           'USDRUBF / CNYRUBF / USDCNH',
+  'URF/SI1':                  'USDRUBF / Si1',
+  'URF/SI2':                  'USDRUBF / Si2',
+  'CRF/CR1':                  'CNYRUBF / CR1',
+  'CRF/CR2':                  'CNYRUBF / CR2',
+  'ERF/EU1':                  'EURRUBF / EU1',
+  'ERF/EU2':                  'EURRUBF / EU2',
+  'GD1/SV1/XAUUSD/XAGUSD':   'GD1 : SV1 (2:1)',
+  'GD2/SV2/XAUUSD/XAGUSD':   'GD2 : SV2 (2:1)',
+  'PL1/XPTUSD':               'PL1 / XPTUSD',
+  'PL2/XPTUSD':               'PL2 / XPTUSD',
   'ERF/CR1/EURCNH':  'EURRUBF / CR1 / EURCNH',
   'ERF/CR2/EURCNH':  'EURRUBF / CR2 / EURCNH',
   'ERF/CR1/USDCNH':  'EURRUBF / CR1 / USDCNH',
@@ -8959,6 +8974,93 @@ const CALC_CONSTRUCTIONS = [
       { name: 'USDCNH',     go: 0,    isMx: false, ratio: 1.0, marginPerLot: 995 },
     ],
     stepPct: 0.2, maxPct: 1.2,
+  },
+  // ── Вечники МХ vs квартальные МХ (без FX) ──
+  {
+    tag: 'URF/SI1', label: 'USDRUBF / Si1',
+    legs: [
+      { name: 'USDRUBF', go: 11344, isMx: true, ratio: 1,  goKey: 'USDRUBF' },
+      { name: 'Si-9.26', go: 12078, isMx: true, ratio: 1,  goKey: 'Si1' },
+    ],
+    stepPct: 0.2, maxPct: 1.2, fxPair: null,
+  },
+  {
+    tag: 'URF/SI2', label: 'USDRUBF / Si2',
+    legs: [
+      { name: 'USDRUBF',  go: 11344, isMx: true, ratio: 1, goKey: 'USDRUBF' },
+      { name: 'Si-12.26', go: 12099, isMx: true, ratio: 1, goKey: 'Si2' },
+    ],
+    stepPct: 0.2, maxPct: 1.2, fxPair: null,
+  },
+  {
+    tag: 'CRF/CR1', label: 'CNYRUBF / CR1',
+    legs: [
+      { name: 'CNYRUBF',  go: 882,  isMx: true, ratio: 1,  goKey: 'CNYRUBF' },
+      { name: 'CNY-9.26', go: 1051, isMx: true, ratio: 1,  goKey: 'CNY1' },
+    ],
+    stepPct: 0.2, maxPct: 1.2, fxPair: null,
+  },
+  {
+    tag: 'CRF/CR2', label: 'CNYRUBF / CR2',
+    legs: [
+      { name: 'CNYRUBF',   go: 882,  isMx: true, ratio: 1, goKey: 'CNYRUBF' },
+      { name: 'CNY-12.26', go: 1051, isMx: true, ratio: 1, goKey: 'CNY2' },
+    ],
+    stepPct: 0.2, maxPct: 1.2, fxPair: null,
+  },
+  {
+    tag: 'ERF/EU1', label: 'EURRUBF / EU1',
+    legs: [
+      { name: 'EURRUBF', go: 12803, isMx: true, ratio: 1, goKey: 'EURRUBF' },
+      { name: 'Eu-9.26', go: 14115, isMx: true, ratio: 1, goKey: 'Eu1' },
+    ],
+    stepPct: 0.2, maxPct: 1.2, fxPair: null,
+  },
+  {
+    tag: 'ERF/EU2', label: 'EURRUBF / EU2',
+    legs: [
+      { name: 'EURRUBF',  go: 12803, isMx: true, ratio: 1, goKey: 'EURRUBF' },
+      { name: 'Eu-12.26', go: 14115, isMx: true, ratio: 1, goKey: 'Eu2' },
+    ],
+    stepPct: 0.2, maxPct: 1.2, fxPair: null,
+  },
+  // ── Золото/Серебро соотношение 2:1 (GD:SV = 2:5 лотов) ──
+  {
+    tag: 'GD1/SV1/XAUUSD/XAGUSD', label: 'GD1:SV1 + XAUUSD:XAGUSD (2:1)',
+    legs: [
+      { name: 'GD-9.26', go: 27844, isMx: true,  ratio: 2,    goKey: 'GD1' },
+      { name: 'SV-9.26', go: 11550, isMx: true,  ratio: 5,    goKey: 'SV1' },
+      { name: 'XAUUSD',  go: 0,     isMx: false, ratio: 0.02, marginPerLot: 4635 },
+      { name: 'XAGUSD',  go: 0,     isMx: false, ratio: 0.05, marginPerLot: 3582 },
+    ],
+    stepPct: 0.5, maxPct: 5.0,
+  },
+  {
+    tag: 'GD2/SV2/XAUUSD/XAGUSD', label: 'GD2:SV2 + XAUUSD:XAGUSD (2:1)',
+    legs: [
+      { name: 'GD-12.26', go: 27844, isMx: true,  ratio: 2,    goKey: 'GD2' },
+      { name: 'SV-12.26', go: 15330, isMx: true,  ratio: 5,    goKey: 'SV2' },
+      { name: 'XAUUSD',   go: 0,     isMx: false, ratio: 0.02, marginPerLot: 4635 },
+      { name: 'XAGUSD',   go: 0,     isMx: false, ratio: 0.05, marginPerLot: 3582 },
+    ],
+    stepPct: 0.5, maxPct: 5.0,
+  },
+  // ── Платина ──
+  {
+    tag: 'PL1/XPTUSD', label: 'PL1 / XPTUSD',
+    legs: [
+      { name: 'PL-9.26', go: 8000, isMx: true,  ratio: 1,    goKey: 'PL1' },
+      { name: 'XPTUSD',  go: 0,    isMx: false, ratio: 0.01, marginPerLot: 3000 },
+    ],
+    stepPct: 0.5, maxPct: 5.0,
+  },
+  {
+    tag: 'PL2/XPTUSD', label: 'PL2 / XPTUSD',
+    legs: [
+      { name: 'PL-12.26', go: 8000, isMx: true,  ratio: 1,    goKey: 'PL2' },
+      { name: 'XPTUSD',   go: 0,    isMx: false, ratio: 0.01, marginPerLot: 3000 },
+    ],
+    stepPct: 0.5, maxPct: 5.0,
   },
   // ── Вечники + квартальные CR ──
   {
@@ -9329,15 +9431,22 @@ function _renderCalcInner(root) {
       return s + go * lots;
     }, 0);
 
-    // How many 0.01 FX lots fit in FX capital
-    const maxFxUnits = fxBalUsd > 0 && fxMarginMin > 0 ? Math.floor(fxBalUsd / fxMarginMin) : 0;
-    // How many 0.01 FX lots MX capital can support (with leverage)
-    const maxMxUnits = availableMx > 0 && goPerFxMin > 0 ? Math.floor(availableMx / goPerFxMin) : 0;
-    // Binding constraint: minimum of both
-    const maxUnits = (maxFxUnits > 0 && maxMxUnits > 0) ? Math.min(maxFxUnits, maxMxUnits)
+    // MX-only constructions (no FX leg)
+    const mxOnly = !fxLeg;
+    // How many units fit in FX capital (only if FX leg exists)
+    const maxFxUnits = (!mxOnly && fxBalUsd > 0 && fxMarginMin > 0) ? Math.floor(fxBalUsd / fxMarginMin) : 0;
+    // How many units MX capital can support
+    // For MX-only: 1 unit = 1 lot of each MX leg, goPerFxMin = total GO per unit
+    const goPerUnit1 = mxOnly
+      ? con.legs.reduce((s,l) => s + ((l.goKey && _goCache[goKeyToSecid(l.goKey)]) ? _goCache[goKeyToSecid(l.goKey)].go : l.go) * l.ratio, 0)
+      : goPerFxMin;
+    const maxMxUnits = availableMx > 0 && goPerUnit1 > 0 ? Math.floor(availableMx / goPerUnit1) : 0;
+    // Binding constraint
+    const maxUnits = mxOnly ? maxMxUnits
+                   : (maxFxUnits > 0 && maxMxUnits > 0) ? Math.min(maxFxUnits, maxMxUnits)
                    : (maxFxUnits > 0 ? maxFxUnits : maxMxUnits);
-    const bindingLeg = (maxFxUnits > 0 && maxMxUnits > 0)
-      ? (maxFxUnits < maxMxUnits ? 'FX' : 'МХ') : '';
+    const bindingLeg = mxOnly ? 'МХ'
+                     : (maxFxUnits > 0 && maxMxUnits > 0) ? (maxFxUnits < maxMxUnits ? 'FX' : 'МХ') : '';
 
     // Build steps: from maxPct DOWN to 0, step size = stepPct
     const numSteps = maxPct > 0 && stepPct > 0 ? Math.round(maxPct / stepPct) : 6;
