@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781864384 -->
+<!-- v:1781864565 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -9019,24 +9019,24 @@ function renderCalc() {
   }).join('');
 
 
-  const instrumentsHtml = `
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px">
-      ${mxTable(mxRows1, 'МХ — контракты 1', true)}
-      ${mxTable(mxRows2, 'МХ — контракты 2', false)}
-      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
-        <div style="padding:8px 12px;border-bottom:1px solid var(--border)">
-          <span style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">FX — Маржа на 0.01 лот</span>
-        </div>
-        <table style="width:100%;border-collapse:collapse">
-          <thead><tr style="font-size:10px;color:var(--text2);background:var(--bg3)">
-            <th style="padding:4px 8px;text-align:left">Инструмент</th>
-            <th style="padding:4px 8px;text-align:right">Маржа ($)</th>
-            <th style="padding:4px 8px;width:32px"></th>
-          </tr></thead>
-          <tbody>${fxRows}</tbody>
-        </table>
-      </div>
-    </div>`;
+  const fxTable = '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">'
+    + '<div style="padding:8px 12px;border-bottom:1px solid var(--border)">'
+    + '<span style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">FX — Маржа на 0.01 лот</span>'
+    + '</div>'
+    + '<table style="width:100%;border-collapse:collapse">'
+    + '<thead><tr style="font-size:10px;color:var(--text2);background:var(--bg3)">'
+    + '<th style="padding:4px 8px;text-align:left">Инструмент</th>'
+    + '<th style="padding:4px 8px;text-align:right">Маржа ($)</th>'
+    + '<th style="padding:4px 8px;width:32px"></th>'
+    + '</tr></thead>'
+    + '<tbody>' + fxRows + '</tbody>'
+    + '</table></div>';
+
+  const instrumentsHtml = '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px">'
+    + mxTable(mxRows1, 'МХ — контракты 1', true)
+    + mxTable(mxRows2, 'МХ — контракты 2', false)
+    + fxTable
+    + '</div>';
 
 
   // Build constructions rows
