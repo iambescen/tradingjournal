@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781867826 -->
+<!-- v:1781867948 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8963,6 +8963,9 @@ function calcConstruction(con, units, spread, stepPct) {
 function renderCalc() {
   const root = document.getElementById('calc-root');
   if (!root) return;
+  try { _renderCalcInner(root); } catch(e) { root.innerHTML = '<div style="padding:20px;color:var(--red)">Ошибка калькулятора: ' + e.message + '<br><pre style="font-size:10px">' + e.stack + '</pre></div>'; console.error('renderCalc error:', e); }
+}
+function _renderCalcInner(root) {
   // Auto-fetch GO if cache seems empty
   if (Object.keys(_goCache).length === 0) {
     calcRefreshGo();
@@ -9136,15 +9139,15 @@ function renderCalc() {
       if (l.crPair) {
         // dynamic ratio
         const rate = _crossRates[l.crPair] || 7.2;
-        mxLotsPerFxMin[l.name] = Math.round(rate * (l.siLots || 1) * fxMinLot / (fxLeg?.ratio || 0.1) * 10) / 10;
+        mxLotsPerFxMin[l.name] = Math.round(rate * (l.siLots || 1) * fxMinLot / ((fxLeg ? fxLeg.ratio : 0.1) || 0.1) * 10) / 10;
       } else {
-        mxLotsPerFxMin[l.name] = Math.round(l.ratio * fxMinLot / (fxLeg?.ratio || 0.1) * 10) / 10;
+        mxLotsPerFxMin[l.name] = Math.round(l.ratio * fxMinLot / ((fxLeg ? fxLeg.ratio : 0.1) || 0.1) * 10) / 10;
       }
     });
 
     // GO per 0.01 FX lot
     const goPerFxMin = con.legs.filter(l => l.isMx).reduce((s, l) => {
-      const go = (l.goKey && _goCache[l.goKey]) ? _goCache[l.goKey].go : l.go;
+      const go = (l.goKey && _goCache && _goCache[l.goKey]) ? _goCache[l.goKey].go : l.go;
       const lots = mxLotsPerFxMin[l.name] || 0;
       return s + go * lots;
     }, 0);
@@ -9160,7 +9163,7 @@ function renderCalc() {
       const coeff = Math.pow(0.5, i); // 1, 0.5, 0.25, 0.125...
       const fxUnits = maxFxUnits > 0 ? Math.round(maxFxUnits * coeff) : coeff; // actual units or relative
       const fxLots  = fxUnits * fxMinLot;
-      const fxMarg  = fxLots * (fxLeg?.marginPerLot || 0);
+      const fxMarg  = fxLots * ((fxLeg ? fxLeg.marginPerLot : 0) || 0);
       const goMx    = fxUnits * goPerFxMin;
       // MX lots
       const mxLots  = {};
@@ -9183,7 +9186,7 @@ function renderCalc() {
 
     // Legs display
     const legsHtml = con.legs.map(l => {
-      const go = (l.goKey && _goCache[l.goKey]) ? _goCache[l.goKey].go : l.go;
+      const go = (l.goKey && _goCache && _goCache[l.goKey]) ? _goCache[l.goKey].go : l.go;
       const lots = l.isMx ? (mxLotsPerFxMin[l.name] || l.ratio) : fxMinLot;
       return '<span style="background:var(--bg3);border-radius:4px;padding:2px 8px;font-size:11px;color:var(--text2)">'
         + '<strong style="color:var(--text)">' + l.name + '</strong>'
@@ -9302,6 +9305,8 @@ function renderCalc() {
     ${capitalHtml}
     ${cardsHtml}`;
 }
+
+function _renderCalcInner_UNUSED() {}
 
 function calcUpdateState(safeTag, field, val) {
   const state = (() => { try { return JSON.parse(localStorage.getItem('calc_state_v1') || '{}'); } catch { return {}; } })();
