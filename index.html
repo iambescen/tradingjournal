@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781865054 -->
+<!-- v:1781865172 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8944,13 +8944,20 @@ function renderCalc() {
     const y2 = String(now.getFullYear()).slice(-2);
     const nextY = String(now.getFullYear()+1).slice(-2);
     const allCodes = {H:'3.',M:'6.',U:'9.',Z:'12.'};
-    let front, back;
-    if (m<=3){front='H';back='M';} else if(m<=6){front='M';back='U';}
-    else if(m<=9){front='U';back='Z';} else{front='Z';back='H';}
-    const expM = {H:3,M:6,U:9,Z:12};
-    if (now.getDate()>=18 && m===expM[front]) { const t=front; front=back; back=t; }
-    const fL = allCodes[front]+y2;
-    const bL = allCodes[back]+(back==='H' && front==='Z' ? nextY : y2);
+    // Determine front quarter: if today >= 18th of expiry month, roll to next
+    const expM = {H:3, M:6, U:9, Z:12};
+    const nextQ = {H:'M', M:'U', U:'Z', Z:'H'};
+    // Raw current quarter
+    let raw;
+    if (m<=3) raw='H'; else if(m<=6) raw='M'; else if(m<=9) raw='U'; else raw='Z';
+    // Roll if expired
+    const front = (now.getDate()>=18 && m===expM[raw]) ? nextQ[raw] : raw;
+    const back  = nextQ[front];
+    // Year for each contract
+    const frontY = (front==='H' && raw==='Z') ? nextY : y2;
+    const backY  = (back==='H') ? nextY : frontY;
+    const fL = allCodes[front]+frontY;
+    const bL = allCodes[back]+backY;
 
     const goOv = (function(){try{return JSON.parse(localStorage.getItem('calc_go_v1')||'{}');}catch(e){return{};}})();
     const fxOv = (function(){try{return JSON.parse(localStorage.getItem('calc_fx_v1')||'{}');}catch(e){return{};}})();
@@ -8985,22 +8992,22 @@ function renderCalc() {
         + '</tr></thead><tbody>'+rows+'</tbody></table></div>';
     }
 
-    const r1 = mxRow('Si1','SI'+front+y2,'Si-'+fL)
-      + mxRow('Eu1','EU'+front+y2,'Eu-'+fL)
-      + mxRow('CNY1','CNY'+front+y2,'CNY-'+fL)
-      + mxRow('UCNY1','UCNY'+front+y2,'UCNY-'+fL)
-      + mxRow('ED1','ED'+back+y2,'ED-'+bL)
+    const r1 = mxRow('Si1','SI'+front+frontY,'Si-'+fL)
+      + mxRow('Eu1','EU'+front+frontY,'Eu-'+fL)
+      + mxRow('CNY1','CNY'+front+frontY,'CNY-'+fL)
+      + mxRow('UCNY1','UCNY'+front+frontY,'UCNY-'+fL)
+      + mxRow('ED1','ED'+back+backY,'ED-'+bL)
       + mxRow('USDRUBF','USDRUBF','USDRUBF')
       + mxRow('CNYRUBF','CNYRUBF','CNYRUBF')
       + mxRow('EURRUBF','EURRUBF','EURRUBF')
-      + mxRow('GD1','GD'+front+y2,'GD-'+fL)
-      + mxRow('SV1','SV'+front+y2,'SV-'+fL);
-    const r2 = mxRow('Si2','SI'+back+y2,'Si-'+bL)
-      + mxRow('Eu2','EU'+back+y2,'Eu-'+bL)
-      + mxRow('CNY2','CNY'+back+y2,'CNY-'+bL)
-      + mxRow('UCNY2','UCNY'+back+y2,'UCNY-'+bL)
-      + mxRow('GD2','GD'+back+y2,'GD-'+bL)
-      + mxRow('SV2','SV'+back+y2,'SV-'+bL);
+      + mxRow('GD1','GD'+front+frontY,'GD-'+fL)
+      + mxRow('SV1','SV'+front+frontY,'SV-'+fL);
+    const r2 = mxRow('Si2','SI'+back+backY,'Si-'+bL)
+      + mxRow('Eu2','EU'+back+backY,'Eu-'+bL)
+      + mxRow('CNY2','CNY'+back+backY,'CNY-'+bL)
+      + mxRow('UCNY2','UCNY'+back+backY,'UCNY-'+bL)
+      + mxRow('GD2','GD'+back+backY,'GD-'+bL)
+      + mxRow('SV2','SV'+back+backY,'SV-'+bL);
     const rf = fxRow('USDCNH',9.95)+fxRow('EURCNH',11.49)+fxRow('EURUSD',11.49)
       + fxRow('XAUUSD',46.35)+fxRow('XAGUSD',35.82);
 
