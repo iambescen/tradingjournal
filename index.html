@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781870318 -->
+<!-- v:1781870508 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8854,7 +8854,14 @@ const CALC_GROUPS = [
   { label: 'CNYRUBF / CR',        tags: ['CRF/CR1', 'CRF/CR2']                      },
   { label: 'EURRUBF / Eu',        tags: ['ERF/EU1', 'ERF/EU2']                      },
   { label: 'GD / SV (2:1)',       tags: ['GD1/SV1/XAUUSD/XAGUSD', 'GD2/SV2/XAUUSD/XAGUSD'] },
-  { label: 'Платина / PL',        tags: ['PL1/XPTUSD', 'PL2/XPTUSD']               },
+    { label: 'Платина / PT',        tags: ['PT1/XPTUSD', 'PT2/XPTUSD']               },
+  { label: 'Палладий / PD',        tags: ['PD1/XPDUSD', 'PD2/XPDUSD']               },
+  { label: 'GD : SV',              tags: ['GD1/SV1/XAUUSD/XAGUSD', 'GD2/SV2/XAUUSD/XAGUSD'] },
+  { label: 'GD : PT',              tags: ['GD1/PT1/XAUUSD/XPTUSD', 'GD2/PT2/XAUUSD/XPTUSD'] },
+  { label: 'GD : PD',              tags: ['GD1/PD1/XAUUSD/XPDUSD', 'GD2/PD2/XAUUSD/XPDUSD'] },
+  { label: 'SV : PT',              tags: ['SV1/PT1/XAGUSD/XPTUSD', 'SV2/PT2/XAGUSD/XPTUSD'] },
+  { label: 'SV : PD',              tags: ['SV1/PD1/XAGUSD/XPDUSD', 'SV2/PD2/XAGUSD/XPDUSD'] },
+  { label: 'PT : PD',              tags: ['PT1/PD1/XPTUSD/XPDUSD', 'PT2/PD2/XPTUSD/XPDUSD'] },
   { label: 'EURRUBF / CR / EURCNH', tags: ['ERF/CR1/EURCNH', 'ERF/CR2/EURCNH']  },
   { label: 'EURRUBF / CR / USDCNH', tags: ['ERF/CR1/USDCNH', 'ERF/CR2/USDCNH']  },
   { label: 'USDRUBF / CR / USDCNH', tags: ['URF/CR1/USDCNH', 'URF/CR2/USDCNH']  },
@@ -9025,42 +9032,162 @@ const CALC_CONSTRUCTIONS = [
     stepPct: 0.2, maxPct: 1.2, fxPair: null,
   },
   // ── Золото/Серебро соотношение 2:1 (GD:SV = 2:5 лотов) ──
+
+
+  // ── Платина ──
   {
-    tag: 'GD1/SV1/XAUUSD/XAGUSD', label: 'GD1:SV1 + XAUUSD:XAGUSD (2:1)',
+    tag: 'PT1/XPTUSD', label: 'PT1 / XPTUSD',
+    legs: [
+      { name: 'PT-9.26', go: 8000, isMx: true,  ratio: 1,    goKey: 'PT1' },
+      { name: 'XPTUSD',  go: 0,    isMx: false, ratio: 0.01, marginPerLot: 3000 },
+    ],
+    stepPct: 0.5, maxPct: 5.0, riskCoeff: 0.1,
+  },
+  {
+    tag: 'PT2/XPTUSD', label: 'PT2 / XPTUSD',
+    legs: [
+      { name: 'PT-12.26', go: 8000, isMx: true,  ratio: 1,    goKey: 'PT2' },
+      { name: 'XPTUSD',   go: 0,    isMx: false, ratio: 0.01, marginPerLot: 3000 },
+    ],
+    stepPct: 0.5, maxPct: 5.0, riskCoeff: 0.1,
+  },
+  // ── Палладий ──
+  {
+    tag: 'PD1/XPDUSD', label: 'PD1 / XPDUSD',
+    legs: [
+      { name: 'PD-9.26', go: 9000, isMx: true,  ratio: 1,    goKey: 'PD1' },
+      { name: 'XPDUSD',  go: 0,    isMx: false, ratio: 0.01, marginPerLot: 2500 },
+    ],
+    stepPct: 0.5, maxPct: 5.0, riskCoeff: 0.1,
+  },
+  {
+    tag: 'PD2/XPDUSD', label: 'PD2 / XPDUSD',
+    legs: [
+      { name: 'PD-12.26', go: 9000, isMx: true,  ratio: 1,    goKey: 'PD2' },
+      { name: 'XPDUSD',   go: 0,    isMx: false, ratio: 0.01, marginPerLot: 2500 },
+    ],
+    stepPct: 0.5, maxPct: 5.0, riskCoeff: 0.1,
+  },
+  // ── Кросс-металлы (1:1 соотношение) ──
+  {
+    tag: 'GD1/SV1/XAUUSD/XAGUSD', label: 'GD1:SV1 (2:5)',
     legs: [
       { name: 'GD-9.26', go: 27844, isMx: true,  ratio: 2,    goKey: 'GD1' },
       { name: 'SV-9.26', go: 11550, isMx: true,  ratio: 5,    goKey: 'SV1' },
       { name: 'XAUUSD',  go: 0,     isMx: false, ratio: 0.02, marginPerLot: 4635 },
       { name: 'XAGUSD',  go: 0,     isMx: false, ratio: 0.05, marginPerLot: 3582 },
     ],
-    stepPct: 0.5, maxPct: 5.0,
+    stepPct: 0.5, maxPct: 5.0, riskCoeff: 0.1,
   },
   {
-    tag: 'GD2/SV2/XAUUSD/XAGUSD', label: 'GD2:SV2 + XAUUSD:XAGUSD (2:1)',
+    tag: 'GD2/SV2/XAUUSD/XAGUSD', label: 'GD2:SV2 (2:5)',
     legs: [
       { name: 'GD-12.26', go: 27844, isMx: true,  ratio: 2,    goKey: 'GD2' },
       { name: 'SV-12.26', go: 15330, isMx: true,  ratio: 5,    goKey: 'SV2' },
       { name: 'XAUUSD',   go: 0,     isMx: false, ratio: 0.02, marginPerLot: 4635 },
       { name: 'XAGUSD',   go: 0,     isMx: false, ratio: 0.05, marginPerLot: 3582 },
     ],
-    stepPct: 0.5, maxPct: 5.0,
+    stepPct: 0.5, maxPct: 5.0, riskCoeff: 0.1,
   },
-  // ── Платина ──
   {
-    tag: 'PL1/XPTUSD', label: 'PL1 / XPTUSD',
+    tag: 'GD1/PT1/XAUUSD/XPTUSD', label: 'GD1:PT1 (1:1)',
     legs: [
-      { name: 'PL-9.26', go: 8000, isMx: true,  ratio: 1,    goKey: 'PL1' },
+      { name: 'GD-9.26', go: 27844, isMx: true,  ratio: 1,    goKey: 'GD1' },
+      { name: 'PT-9.26', go: 8000,  isMx: true,  ratio: 1,    goKey: 'PT1' },
+      { name: 'XAUUSD',  go: 0,     isMx: false, ratio: 0.01, marginPerLot: 4635 },
+      { name: 'XPTUSD',  go: 0,     isMx: false, ratio: 0.01, marginPerLot: 3000 },
+    ],
+    stepPct: 0.5, maxPct: 5.0, riskCoeff: 0.1,
+  },
+  {
+    tag: 'GD2/PT2/XAUUSD/XPTUSD', label: 'GD2:PT2 (1:1)',
+    legs: [
+      { name: 'GD-12.26', go: 27844, isMx: true,  ratio: 1,    goKey: 'GD2' },
+      { name: 'PT-12.26', go: 8000,  isMx: true,  ratio: 1,    goKey: 'PT2' },
+      { name: 'XAUUSD',   go: 0,     isMx: false, ratio: 0.01, marginPerLot: 4635 },
+      { name: 'XPTUSD',   go: 0,     isMx: false, ratio: 0.01, marginPerLot: 3000 },
+    ],
+    stepPct: 0.5, maxPct: 5.0, riskCoeff: 0.1,
+  },
+  {
+    tag: 'GD1/PD1/XAUUSD/XPDUSD', label: 'GD1:PD1 (1:1)',
+    legs: [
+      { name: 'GD-9.26', go: 27844, isMx: true,  ratio: 1,    goKey: 'GD1' },
+      { name: 'PD-9.26', go: 9000,  isMx: true,  ratio: 1,    goKey: 'PD1' },
+      { name: 'XAUUSD',  go: 0,     isMx: false, ratio: 0.01, marginPerLot: 4635 },
+      { name: 'XPDUSD',  go: 0,     isMx: false, ratio: 0.01, marginPerLot: 2500 },
+    ],
+    stepPct: 0.5, maxPct: 5.0, riskCoeff: 0.1,
+  },
+  {
+    tag: 'GD2/PD2/XAUUSD/XPDUSD', label: 'GD2:PD2 (1:1)',
+    legs: [
+      { name: 'GD-12.26', go: 27844, isMx: true,  ratio: 1,    goKey: 'GD2' },
+      { name: 'PD-12.26', go: 9000,  isMx: true,  ratio: 1,    goKey: 'PD2' },
+      { name: 'XAUUSD',   go: 0,     isMx: false, ratio: 0.01, marginPerLot: 4635 },
+      { name: 'XPDUSD',   go: 0,     isMx: false, ratio: 0.01, marginPerLot: 2500 },
+    ],
+    stepPct: 0.5, maxPct: 5.0, riskCoeff: 0.1,
+  },
+  {
+    tag: 'SV1/PT1/XAGUSD/XPTUSD', label: 'SV1:PT1 (1:1)',
+    legs: [
+      { name: 'SV-9.26', go: 11550, isMx: true,  ratio: 1,    goKey: 'SV1' },
+      { name: 'PT-9.26', go: 8000,  isMx: true,  ratio: 1,    goKey: 'PT1' },
+      { name: 'XAGUSD',  go: 0,     isMx: false, ratio: 0.01, marginPerLot: 3582 },
+      { name: 'XPTUSD',  go: 0,     isMx: false, ratio: 0.01, marginPerLot: 3000 },
+    ],
+    stepPct: 0.5, maxPct: 5.0, riskCoeff: 0.1,
+  },
+  {
+    tag: 'SV2/PT2/XAGUSD/XPTUSD', label: 'SV2:PT2 (1:1)',
+    legs: [
+      { name: 'SV-12.26', go: 15330, isMx: true,  ratio: 1,    goKey: 'SV2' },
+      { name: 'PT-12.26', go: 8000,  isMx: true,  ratio: 1,    goKey: 'PT2' },
+      { name: 'XAGUSD',   go: 0,     isMx: false, ratio: 0.01, marginPerLot: 3582 },
+      { name: 'XPTUSD',   go: 0,     isMx: false, ratio: 0.01, marginPerLot: 3000 },
+    ],
+    stepPct: 0.5, maxPct: 5.0, riskCoeff: 0.1,
+  },
+  {
+    tag: 'SV1/PD1/XAGUSD/XPDUSD', label: 'SV1:PD1 (1:1)',
+    legs: [
+      { name: 'SV-9.26', go: 11550, isMx: true,  ratio: 1,    goKey: 'SV1' },
+      { name: 'PD-9.26', go: 9000,  isMx: true,  ratio: 1,    goKey: 'PD1' },
+      { name: 'XAGUSD',  go: 0,     isMx: false, ratio: 0.01, marginPerLot: 3582 },
+      { name: 'XPDUSD',  go: 0,     isMx: false, ratio: 0.01, marginPerLot: 2500 },
+    ],
+    stepPct: 0.5, maxPct: 5.0, riskCoeff: 0.1,
+  },
+  {
+    tag: 'SV2/PD2/XAGUSD/XPDUSD', label: 'SV2:PD2 (1:1)',
+    legs: [
+      { name: 'SV-12.26', go: 15330, isMx: true,  ratio: 1,    goKey: 'SV2' },
+      { name: 'PD-12.26', go: 9000,  isMx: true,  ratio: 1,    goKey: 'PD2' },
+      { name: 'XAGUSD',   go: 0,     isMx: false, ratio: 0.01, marginPerLot: 3582 },
+      { name: 'XPDUSD',   go: 0,     isMx: false, ratio: 0.01, marginPerLot: 2500 },
+    ],
+    stepPct: 0.5, maxPct: 5.0, riskCoeff: 0.1,
+  },
+  {
+    tag: 'PT1/PD1/XPTUSD/XPDUSD', label: 'PT1:PD1 (1:1)',
+    legs: [
+      { name: 'PT-9.26', go: 8000, isMx: true,  ratio: 1,    goKey: 'PT1' },
+      { name: 'PD-9.26', go: 9000, isMx: true,  ratio: 1,    goKey: 'PD1' },
       { name: 'XPTUSD',  go: 0,    isMx: false, ratio: 0.01, marginPerLot: 3000 },
+      { name: 'XPDUSD',  go: 0,    isMx: false, ratio: 0.01, marginPerLot: 2500 },
     ],
-    stepPct: 0.5, maxPct: 5.0,
+    stepPct: 0.5, maxPct: 5.0, riskCoeff: 0.1,
   },
   {
-    tag: 'PL2/XPTUSD', label: 'PL2 / XPTUSD',
+    tag: 'PT2/PD2/XPTUSD/XPDUSD', label: 'PT2:PD2 (1:1)',
     legs: [
-      { name: 'PL-12.26', go: 8000, isMx: true,  ratio: 1,    goKey: 'PL2' },
+      { name: 'PT-12.26', go: 8000, isMx: true,  ratio: 1,    goKey: 'PT2' },
+      { name: 'PD-12.26', go: 9000, isMx: true,  ratio: 1,    goKey: 'PD2' },
       { name: 'XPTUSD',   go: 0,    isMx: false, ratio: 0.01, marginPerLot: 3000 },
+      { name: 'XPDUSD',   go: 0,    isMx: false, ratio: 0.01, marginPerLot: 2500 },
     ],
-    stepPct: 0.5, maxPct: 5.0,
+    stepPct: 0.5, maxPct: 5.0, riskCoeff: 0.1,
   },
   // ── Вечники + квартальные CR ──
   {
@@ -9431,6 +9558,8 @@ function _renderCalcInner(root) {
       return s + go * lots;
     }, 0);
 
+    // Risk coefficient (for volatile metals — reduce position by 10x)
+    const riskCoeff = con.riskCoeff || 1.0;
     // MX-only constructions (no FX leg)
     const mxOnly = !fxLeg;
     // How many units fit in FX capital (only if FX leg exists)
@@ -9441,10 +9570,11 @@ function _renderCalcInner(root) {
       ? con.legs.reduce((s,l) => s + ((l.goKey && _goCache[goKeyToSecid(l.goKey)]) ? _goCache[goKeyToSecid(l.goKey)].go : l.go) * l.ratio, 0)
       : goPerFxMin;
     const maxMxUnits = availableMx > 0 && goPerUnit1 > 0 ? Math.floor(availableMx / goPerUnit1) : 0;
-    // Binding constraint
-    const maxUnits = mxOnly ? maxMxUnits
-                   : (maxFxUnits > 0 && maxMxUnits > 0) ? Math.min(maxFxUnits, maxMxUnits)
-                   : (maxFxUnits > 0 ? maxFxUnits : maxMxUnits);
+    // Binding constraint + risk coefficient
+    const maxUnitsRaw = mxOnly ? maxMxUnits
+                      : (maxFxUnits > 0 && maxMxUnits > 0) ? Math.min(maxFxUnits, maxMxUnits)
+                      : (maxFxUnits > 0 ? maxFxUnits : maxMxUnits);
+    const maxUnits = Math.floor(maxUnitsRaw * riskCoeff);
     const bindingLeg = mxOnly ? 'МХ'
                      : (maxFxUnits > 0 && maxMxUnits > 0) ? (maxFxUnits < maxMxUnits ? 'FX' : 'МХ') : '';
 
@@ -9517,6 +9647,7 @@ function _renderCalcInner(root) {
       + '<label style="font-size:11px;color:var(--text2)">Макс: <input type="number" step="0.1" value="' + maxPct + '" style="width:55px;font-size:11px;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:3px;padding:1px 4px" data-tag="' + safeTag + '" data-field="max" onchange="calcUpdateState(this.dataset.tag,this.dataset.field,this.value)"> %</label>'
       + '</div>'
       + '<span style="margin-left:auto;font-size:11px;font-weight:600;color:' + lc + '">'
+      + (riskCoeff < 1 ? '<span style="color:var(--amber)">×' + riskCoeff + ' </span>' : '')
       + 'МХ ' + loadPctMx.toFixed(0) + '% · FX ' + loadPctFx.toFixed(0) + '%'
       + (bindingLeg ? ' · ограничение: <b>' + bindingLeg + '</b>' : '')
       + '</span>'
