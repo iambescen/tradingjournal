@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781866105 -->
+<!-- v:1781866257 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -9295,26 +9295,22 @@ window.addEventListener('load', initGate);
 // ── Calculator instruments helpers ──
 
 async function calcRefreshGo() {
-  // Auto-detect current quarter (same logic as instruments table)
   const now = new Date();
   const m = now.getMonth() + 1;
-  const y2 = String(now.getFullYear()).slice(-2);
-  const nextY = String(now.getFullYear()+1).slice(-2);
-  let front, back;
-  if (m<=3){front='H';back='M';} else if(m<=6){front='M';back='U';}
-  else if(m<=9){front='U';back='Z';} else{front='Z';back='H';}
-  const expM = {H:3,M:6,U:9,Z:12};
-  if (now.getDate()>=18 && m===expM[front]) { const t=front; front=back; back=t; }
+  const y = String(now.getFullYear()).slice(-1); // '6'
+  const expM = {H:3, M:6, U:9, Z:12};
+  const nextQ = {H:'M', M:'U', U:'Z', Z:'H'};
+  let raw;
+  if (m<=3) raw='H'; else if(m<=6) raw='M'; else if(m<=9) raw='U'; else raw='Z';
+  const front = (now.getDate()>=18 && m===expM[raw]) ? nextQ[raw] : raw;
+  const back  = nextQ[front];
 
-  // Use short year suffix (SIZ6, not SIZ26)
-  const fy2 = y2.slice(-1); // '6'
-  const by2 = y2.slice(-1); // '6' (same year for both quarters in 2026)
   const secids = [
-    'Si'+front+fy2, 'Eu'+front+fy2, 'CR'+front+fy2, 'UC'+front+fy2,
-    'GD'+front+fy2, 'SV'+front+fy2,
-    'Si'+back+by2,  'Eu'+back+by2,  'CR'+back+by2,  'UC'+back+by2,
-    'GD'+back+by2,  'SV'+back+by2,
-    'ED'+front+fy2, 'ED'+back+by2,
+    'Si'+front+y, 'Eu'+front+y, 'CR'+front+y, 'UC'+front+y,
+    'GD'+front+y, 'SV'+front+y,
+    'Si'+back+y,  'Eu'+back+y,  'CR'+back+y,  'UC'+back+y,
+    'GD'+back+y,  'SV'+back+y,
+    'ED'+front+y, 'ED'+back+y,
     'USDRUBF', 'CNYRUBF', 'EURRUBF'
   ];
 
