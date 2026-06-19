@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781872841 -->
+<!-- v:1781873961 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -2697,18 +2697,20 @@ function renderUnifiedTable() {
     const fxComm  = fxT.reduce((s,t) => s + (t.commission    || 0), 0);
     const fxNet   = fxT.reduce((s,t) => s + (t.net_pnl_usd   || 0), 0);
 
+    // deposit/withdrawal = capital flow, NOT P&L — excluded from dayTotalRub
+    const capitalTypes = new Set(['deposit', 'withdrawal', 'rebalance', 'rebalance_rev']);
     const manRub = man.reduce((s,m) => {
       if (m.currency !== 'RUB') return s;
+      if (capitalTypes.has(m.type)) return s; // skip capital movements
       const amt = Math.abs(parseFloat(m.amount) || 0);
-      if (commissionTypes.has(m.type) || m.type==='withdrawal') return s - amt;
-      if (m.type === 'deposit') return s + amt;
+      if (commissionTypes.has(m.type)) return s - amt;
       return s;
     }, 0);
     const manUsd = man.reduce((s,m) => {
       if (m.currency === 'RUB') return s;
+      if (capitalTypes.has(m.type)) return s; // skip capital movements
       const amt = Math.abs(parseFloat(m.amount) || 0);
-      if (commissionTypes.has(m.type) || m.type==='withdrawal') return s - amt;
-      if (m.type === 'deposit') return s + amt;
+      if (commissionTypes.has(m.type)) return s - amt;
       return s;
     }, 0);
 
@@ -9394,18 +9396,36 @@ function _renderCalcInner(root) {
   const state = (() => { try { return JSON.parse(localStorage.getItem('calc_state_v1') || '{}'); } catch { return {}; } })();
 
   // MX balance: manual override → last PDF → 0
+  // MX balance: from reports first, then from manual deposit entries
   const mxBalPdf = store.mx.length
     ? store.mx.slice().sort((a,b) => normDate(b.date).localeCompare(normDate(a.date)))[0].balance_end || 0
     : 0;
+  // If no MX report — use last manual deposit/withdrawal to estimate balance
+  const mxDeposits = (store.manual || [])
+    .filter(m => m.account === 'MX' || m.account === 'both')
+    .filter(m => m.type === 'deposit' || m.type === 'withdrawal')
+    .sort((a,b) => (b.date||'').localeCompare(a.date||''));
+  const mxDepositBal = mxDeposits.length ? mxDeposits.reduce((s,m) => {
+    const amt = Math.abs(parseFloat(m.amount)||0);
+    return s + (m.type === 'deposit' ? amt : -amt);
+  }, 0) : 0;
   const mxBalManual = parseFloat(state['_mxBal'] || '0') || 0;
-  const mxBal = mxBalManual > 0 ? mxBalManual : mxBalPdf;
+  const mxBal = mxBalManual > 0 ? mxBalManual : (mxBalPdf > 0 ? mxBalPdf : mxDepositBal);
 
   // FX balance: manual override → last FX trade balance → 0
   const fxBalPdf = store.fx.length
     ? (store.fx[store.fx.length - 1].balance || 0)
     : 0;
   const fxBalManual = parseFloat(state['_fxBal'] || '0') || 0;
-  const fxBalUsd = fxBalManual > 0 ? fxBalManual : fxBalPdf;
+  // FX fallback: manual deposit entries
+  const fxDeposits = (store.manual || [])
+    .filter(m => m.account === 'FX' || m.account === 'both')
+    .filter(m => m.type === 'deposit' || m.type === 'withdrawal');
+  const fxDepositBal = fxDeposits.reduce((s,m) => {
+    const amt = Math.abs(parseFloat(m.amount)||0);
+    return s + (m.type === 'deposit' ? amt : -amt);
+  }, 0);
+  const fxBalUsd = fxBalManual > 0 ? fxBalManual : (fxBalPdf > 0 ? fxBalPdf : fxDepositBal);
 
   const rate = currentRate?.value || 85;
   const leverage = 7; // ×7 leverage from MX balance
@@ -9816,8 +9836,8 @@ function _renderCalcInner(root) {
     + '</tbody></table></details>' : '')
     + '</div>';
 
-  const mxSource = mxBalManual > 0 ? 'вручную' : (mxBalPdf > 0 ? 'из PDF' : 'не задан');
-  const fxSource = fxBalManual > 0 ? 'вручную' : (fxBalPdf > 0 ? 'из выгрузки' : 'не задан');
+  const mxSource = mxBalManual > 0 ? 'вручную' : (mxBalPdf > 0 ? 'из PDF' : (mxDepositBal > 0 ? 'из пополнений' : 'не задан'));
+  const fxSource = fxBalManual > 0 ? 'вручную' : (fxBalPdf > 0 ? 'из выгрузки' : (fxDepositBal > 0 ? 'из пополнений' : 'не задан'));
 
   root.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px;margin-top:0">
