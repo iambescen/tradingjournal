@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781858937 -->
+<!-- v:1781859048 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8859,8 +8859,12 @@ function renderCalc() {
   const mxBalManual = parseFloat(state['_mxBal'] || '0') || 0;
   const mxBal = mxBalManual > 0 ? mxBalManual : mxBalPdf;
 
-  // FX balance: manual input only (in USD)
-  const fxBalUsd = parseFloat(state['_fxBal'] || '0') || 0;
+  // FX balance: manual override → last FX trade balance → 0
+  const fxBalPdf = store.fx.length
+    ? (store.fx[store.fx.length - 1].balance || 0)
+    : 0;
+  const fxBalManual = parseFloat(state['_fxBal'] || '0') || 0;
+  const fxBalUsd = fxBalManual > 0 ? fxBalManual : fxBalPdf;
 
   const rate = currentRate?.value || 85;
   const leverage = 7; // ×7 leverage from MX balance
@@ -9038,7 +9042,7 @@ function renderCalc() {
 
 
   const mxSource = mxBalManual > 0 ? 'вручную' : (mxBalPdf > 0 ? 'из PDF' : 'не задан');
-  const fxSource = fxBalUsd > 0 ? 'вручную' : 'не задан';
+  const fxSource = fxBalManual > 0 ? 'вручную' : (fxBalPdf > 0 ? 'из выгрузки' : 'не задан');
 
   root.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px">
@@ -9063,7 +9067,7 @@ function renderCalc() {
         <div>
           <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:4px">Баланс FX (USDT) <span style="color:${fxBalUsd>0?'var(--blue)':'var(--text2)'}">${fxSource}</span></label>
           <input type="number" step="100" value="${fxBalUsd > 0 ? fxBalUsd : ''}"
-            placeholder="введи вручную"
+            placeholder="${fxBalPdf > 0 ? fxBalPdf.toFixed(2) + ' (выгрузка)' : 'введи вручную'}"
             style="width:180px;font-size:13px;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:6px 10px"
             oninput="calcSaveBal('_fxBal',this.value)"
             onchange="calcSaveBal('_fxBal',this.value)">
