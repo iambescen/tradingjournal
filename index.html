@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781868151 -->
+<!-- v:1781868340 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -9152,8 +9152,15 @@ function _renderCalcInner(root) {
       return s + go * lots;
     }, 0);
 
-    // How many 0.01 FX lots fit in full FX capital
+    // How many 0.01 FX lots fit in FX capital
     const maxFxUnits = fxBalUsd > 0 && fxMarginMin > 0 ? Math.floor(fxBalUsd / fxMarginMin) : 0;
+    // How many 0.01 FX lots MX capital can support (with leverage)
+    const maxMxUnits = availableMx > 0 && goPerFxMin > 0 ? Math.floor(availableMx / goPerFxMin) : 0;
+    // Binding constraint: minimum of both
+    const maxUnits = (maxFxUnits > 0 && maxMxUnits > 0) ? Math.min(maxFxUnits, maxMxUnits)
+                   : (maxFxUnits > 0 ? maxFxUnits : maxMxUnits);
+    const bindingLeg = (maxFxUnits > 0 && maxMxUnits > 0)
+      ? (maxFxUnits < maxMxUnits ? 'FX' : 'МХ') : '';
 
     // Build steps: from maxPct DOWN to 0, step size = stepPct
     const numSteps = maxPct > 0 && stepPct > 0 ? Math.round(maxPct / stepPct) : 6;
@@ -9161,7 +9168,7 @@ function _renderCalcInner(root) {
     for (let i = 0; i < numSteps; i++) {
       const spreadLevel = maxPct - i * stepPct; // e.g. 1.2, 1.0, 0.8...
       const coeff = Math.pow(0.5, i); // 1, 0.5, 0.25, 0.125...
-      const fxUnits = maxFxUnits > 0 ? Math.round(maxFxUnits * coeff) : coeff; // actual units or relative
+      const fxUnits = maxUnits > 0 ? Math.round(maxUnits * coeff) : coeff; // limited by binding leg
       const fxLots  = fxUnits * fxMinLot;
       const fxMarg  = fxLots * ((fxLeg ? fxLeg.marginPerLot : 0) || 0);
       const goMx    = fxUnits * goPerFxMin;
@@ -9202,7 +9209,7 @@ function _renderCalcInner(root) {
         + '<td style="padding:4px 8px;font-weight:' + (isMax?'700':'400') + ';color:var(--text)">'
         + st.spreadLevel.toFixed(1) + '%' + (isMax ? ' ★' : '') + '</td>'
         + '<td style="padding:4px 8px;text-align:right;font-family:monospace">'
-        + (maxFxUnits > 0 ? st.fxUnits + ' ед.' : 'x' + st.coeff) + '</td>'
+        + (maxUnits > 0 ? st.fxUnits + ' ед.' : 'x' + st.coeff) + '</td>'
         + '<td style="padding:4px 8px;text-align:right;font-family:monospace">'
         + st.fxLots.toFixed(2) + ' лот</td>'
         + '<td style="padding:4px 8px;text-align:right;font-family:monospace">'
@@ -9224,6 +9231,7 @@ function _renderCalcInner(root) {
       + '</div>'
       + '<span style="margin-left:auto;font-size:11px;font-weight:600;color:' + lc + '">'
       + 'МХ ' + loadPctMx.toFixed(0) + '% · FX ' + loadPctFx.toFixed(0) + '%'
+      + (bindingLeg ? ' · ограничение: <b>' + bindingLeg + '</b>' : '')
       + '</span>'
       + '</div>'
       // Min lot info
@@ -9232,7 +9240,8 @@ function _renderCalcInner(root) {
       + '<div style="font-size:11px;color:var(--text2);margin-bottom:8px">'
       + 'На 0.01 FX лот: ГО ' + Math.round(goPerFxMin).toLocaleString('ru') + ' ₽'
       + ' + Маржа $' + fxMarginMin.toFixed(2)
-      + (maxFxUnits > 0 ? ' · Максимум ед: <strong style="color:var(--text)">' + maxFxUnits + '</strong>' : '')
+      + (maxUnits > 0 ? ' · Макс ед: <strong style="color:var(--text)">' + maxUnits + '</strong>'
+        + (bindingLeg ? ' <span style="color:var(--amber)">(' + bindingLeg + ')</span>' : '') : '')
       + '</div>'
       // Steps table
       + '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:500px">'
