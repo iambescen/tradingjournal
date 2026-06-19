@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781863376 -->
+<!-- v:1781863573 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8917,16 +8917,41 @@ function renderCalc() {
 
 
   // ── Instruments table ──
+  // Auto-detect current quarter secid suffix
+  // MOEX month codes: H=3, M=6, U=9, Z=12
+  function getCurrentQuarter() {
+    const now = new Date();
+    const m = now.getMonth() + 1; // 1-12
+    const y = String(now.getFullYear()).slice(-2);
+    // Expiry: 3rd Thu of Mar/Jun/Sep/Dec
+    // After expiry, roll to next quarter
+    if (m <= 3)  return { code: 'H', label: '3.' + y, next: 'M', nextLabel: '6.' + y };
+    if (m <= 6)  return { code: 'M', label: '6.' + y, next: 'U', nextLabel: '9.' + y };
+    if (m <= 9)  return { code: 'U', label: '9.' + y, next: 'Z', nextLabel: '12.' + y };
+                 return { code: 'Z', label: '12.' + y, next: 'H', nextLabel: '3.' + String(now.getFullYear()+1).slice(-2) };
+  }
+  const q = getCurrentQuarter();
+  // Today is 19 Jun — M6 expired yesterday, so use U6 as front
+  // Simple rule: if today >= 18th of expiry month, use next quarter
+  const now2 = new Date();
+  const expMonth = { H:3, M:6, U:9, Z:12 }[q.code];
+  const useNext = now2.getMonth()+1 === expMonth && now2.getDate() >= 18;
+  const front = useNext ? q.next : q.code;
+  const frontLabel = useNext ? q.nextLabel : q.label;
+  const back  = useNext ? q.code : q.next;  // for ED which trades U6
+  const backLabel = useNext ? q.label : q.nextLabel;
+  const y2 = String(now2.getFullYear()).slice(-2);
+
   const MX_INSTRUMENTS = [
-    { secid: 'SIM6',    name: 'Si-6.26',    key: 'Si'      },
-    { secid: 'EUM6',    name: 'Eu-6.26',    key: 'Eu'      },
-    { secid: 'CNYM6',   name: 'CNY-6.26',   key: 'CNY'     },
-    { secid: 'UCNYM6',  name: 'UCNY-6.26',  key: 'UCNY'    },
-    { secid: 'EDU6',    name: 'ED-9.26',    key: 'ED'      },
-    { secid: 'USDRUBF', name: 'USDRUBF',    key: 'USDRUBF' },
-    { secid: 'CNYRUBF', name: 'CNYRUBF',    key: 'CNYRUBF' },
-    { secid: 'GDM6',    name: 'GD-6.26',    key: 'GD'      },
-    { secid: 'SVM6',    name: 'SV-6.26',    key: 'SV'      },
+    { secid: 'SI'+front+y2,   name: 'Si-'+frontLabel,   key: 'Si'      },
+    { secid: 'EU'+front+y2,   name: 'Eu-'+frontLabel,   key: 'Eu'      },
+    { secid: 'CNY'+front+y2,  name: 'CNY-'+frontLabel,  key: 'CNY'     },
+    { secid: 'UCNY'+front+y2, name: 'UCNY-'+frontLabel, key: 'UCNY'    },
+    { secid: 'ED'+back+y2,    name: 'ED-'+backLabel,    key: 'ED'      },
+    { secid: 'USDRUBF',       name: 'USDRUBF',          key: 'USDRUBF' },
+    { secid: 'CNYRUBF',       name: 'CNYRUBF',          key: 'CNYRUBF' },
+    { secid: 'GD'+front+y2,   name: 'GD-'+frontLabel,   key: 'GD'      },
+    { secid: 'SV'+front+y2,   name: 'SV-'+frontLabel,   key: 'SV'      },
   ];
   const FX_INSTRUMENTS = [
     { name: 'USDCNH', leverage: 100, lotSize: 100000 },
