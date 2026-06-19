@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781874921 -->
+<!-- v:1781875368 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -3788,6 +3788,33 @@ async function calcEstimatedPnl(g) {
   const rate = currentRate?.value || 85;
   let mxPnl = 0, fxPnl = 0, hasMx = false, hasFx = false;
 
+  // PRIORITY: use margin_rub from MX rows directly (already calculated by broker)
+  // This is the most accurate source — no need to recalculate
+  const mxRowsWithMargin = g.rows.filter(r => r.platform === 'MX' && r.margin_rub != null && Math.abs(r.margin_rub) > 0);
+  if (mxRowsWithMargin.length > 0) {
+    mxPnl = mxRowsWithMargin.reduce((s,r) => s + (r.margin_rub || 0), 0);
+    hasMx = true;
+  }
+
+  // For FX: use net_pnl_usd if available
+  const fxRowsWithPnl = g.rows.filter(r => r.platform === 'FX' && r.net_pnl_usd != null);
+  if (fxRowsWithPnl.length > 0) {
+    const fxPnlUsd = fxRowsWithPnl.reduce((s,r) => s + (r.net_pnl_usd || 0), 0);
+    fxPnl = fxPnlUsd * rate;
+    hasFx = true;
+  }
+
+  // If we have margin_rub or net_pnl_usd — return immediately, no estimation needed
+  if (hasMx || hasFx) {
+    return {
+      mxPnl,
+      fxPnlRub: fxPnl,
+      total: mxPnl + fxPnl,
+      estimated: false // real data from broker
+    };
+  }
+
+  // Fallback: estimate from prices (less accurate)
   // Group by instrument
   const instrMap = {};
   for (const r of g.rows) {
