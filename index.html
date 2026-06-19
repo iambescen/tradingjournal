@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781869578 -->
+<!-- v:1781869701 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8852,6 +8852,23 @@ const CALC_GROUPS = [
   { label: 'USDRUBF / CNYRUBF',  tags: ['URF/CRF/USDCNH']                     },
 ];
 
+// Labels for each construction card header
+const CALC_LABELS = {
+  'SI1/CR1/USDCNH':  'Si1 / CR1 / USDCNH',
+  'SI2/CR2/USDCNH':  'Si2 / CR2 / USDCNH',
+  'EU1/CR1/EURCNH':  'EU1 / CR1 / EURCNH',
+  'EU2/CR2/EURCNH':  'EU2 / CR2 / EURCNH',
+  'UC1/USDCNH':      'UC1 / USDCNH',
+  'UC2/USDCNH':      'UC2 / USDCNH',
+  'ED1/EURUSD':      'ED1 / EURUSD',
+  'ED2/EURUSD':      'ED2 / EURUSD',
+  'GD1/XAUUSD':      'GD1 / XAUUSD',
+  'GD2/XAUUSD':      'GD2 / XAUUSD',
+  'SV1/XAGUSD':      'SV1 / XAGUSD',
+  'SV2/XAGUSD':      'SV2 / XAGUSD',
+  'URF/CRF/USDCNH':  'USDRUBF / CNYRUBF / USDCNH',
+};
+
 const CALC_CONSTRUCTIONS = [
   {
     tag: 'SI1/CR1/USDCNH', label: 'Si/CR/USDCNH',
@@ -9309,10 +9326,11 @@ function _renderCalcInner(root) {
         + '</tr>';
     }).join('');
 
-    return '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:12px">'
+    const cardLabel = CALC_LABELS[con.tag] || con.label;
+    return '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:0">'
       // Header
       + '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">'
-      + '<span style="font-size:14px;font-weight:800;color:var(--blue)">' + con.label + '</span>'
+      + '<span style="font-size:14px;font-weight:800;color:var(--blue)">' + cardLabel + '</span>'
       + '<div style="display:flex;gap:6px;margin-left:4px">'
       + '<label style="font-size:11px;color:var(--text2)">Шаг: <input type="number" step="0.1" value="' + stepPct + '" style="width:55px;font-size:11px;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:3px;padding:1px 4px" data-tag="' + safeTag + '" data-field="step" onchange="calcUpdateState(this.dataset.tag,this.dataset.field,this.value)"> %</label>'
       + '<label style="font-size:11px;color:var(--text2)">Макс: <input type="number" step="0.1" value="' + maxPct + '" style="width:55px;font-size:11px;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:3px;padding:1px 4px" data-tag="' + safeTag + '" data-field="max" onchange="calcUpdateState(this.dataset.tag,this.dataset.field,this.value)"> %</label>'
