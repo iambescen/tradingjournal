@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781870726 -->
+<!-- v:1781871243 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -9706,7 +9706,11 @@ function _renderCalcInner(root) {
         <div style="font-size:18px;font-weight:800">Калькулятор позиционирования</div>
         <div style="font-size:12px;color:var(--text2);margin-top:2px">Курс: ${rate.toFixed(2)} ₽ · Плечо ×${leverage}</div>
       </div>
-      <button class="btn-sm" onclick="calcReset()" style="color:var(--neg)">🗑 Сбросить</button>
+      <div style="display:flex;gap:6px">
+        <button class="btn-sm" onclick="calcSaveToGithub()" style="color:var(--blue)">☁ Сохранить</button>
+        <button class="btn-sm" onclick="calcLoadFromGithub()" style="color:var(--blue)">⬇ Загрузить</button>
+        <button class="btn-sm" onclick="calcReset()" style="color:var(--neg)">🗑 Сбросить</button>
+      </div>
     </div>
 
     <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin-bottom:16px">
@@ -9765,6 +9769,69 @@ function calcSaveBal(key, val) {
   localStorage.setItem('calc_state_v1', JSON.stringify(state));
   clearTimeout(window._calcTimer);
   window._calcTimer = setTimeout(renderCalc, 400);
+}
+
+
+// ── GitHub backup for calculator state ──
+async function calcSaveToGithub() {
+  const token = prompt('GitHub токен (или оставь пустым если уже сохранён):',
+    localStorage.getItem('_gh_token') || '');
+  if (token === null) return;
+  if (token) localStorage.setItem('_gh_token', token);
+  const tok = localStorage.getItem('_gh_token');
+  if (!tok) return alert('Токен не задан');
+
+  const data = {
+    calc_state:   localStorage.getItem('calc_state_v1'),
+    calc_go:      localStorage.getItem('calc_go_v1'),
+    calc_fx:      localStorage.getItem('calc_fx_v1'),
+    journal:      localStorage.getItem('trading_journal_v1'),
+    saved_at:     new Date().toISOString(),
+  };
+
+  try {
+    const owner = 'iambescen', repo = 'tradingjournal', path = 'backup/journal_data.json';
+    // Get current SHA if exists
+    let sha = '';
+    try {
+      const r = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}`,
+        { headers: { Authorization: 'token ' + tok } });
+      if (r.ok) { const d = await r.json(); sha = d.sha; }
+    } catch(e) {}
+
+    const body = { message: 'backup ' + new Date().toISOString().slice(0,16),
+      content: btoa(unescape(encodeURIComponent(JSON.stringify(data, null, 2)))) };
+    if (sha) body.sha = sha;
+
+    const resp = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}`,
+      { method: 'PUT', headers: { Authorization: 'token ' + tok, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body) });
+    if (resp.ok) alert('✅ Сохранено на GitHub!');
+    else { const e = await resp.json(); alert('❌ Ошибка: ' + (e.message || resp.status)); }
+  } catch(e) { alert('❌ ' + e.message); }
+}
+
+async function calcLoadFromGithub() {
+  const tok = localStorage.getItem('_gh_token');
+  if (!tok) { alert('Сначала сохрани — токен не задан'); return; }
+  if (!confirm('Загрузить данные с GitHub? Текущие данные будут перезаписаны.')) return;
+
+  try {
+    const owner = 'iambescen', repo = 'tradingjournal', path = 'backup/journal_data.json';
+    const r = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}`,
+      { headers: { Authorization: 'token ' + tok } });
+    if (!r.ok) { alert('❌ Файл не найден'); return; }
+    const meta = await r.json();
+    const data = JSON.parse(decodeURIComponent(escape(atob(meta.content.replace(/\n/g, '')))));
+
+    if (data.calc_state)  localStorage.setItem('calc_state_v1', data.calc_state);
+    if (data.calc_go)     localStorage.setItem('calc_go_v1', data.calc_go);
+    if (data.calc_fx)     localStorage.setItem('calc_fx_v1', data.calc_fx);
+    if (data.journal)     localStorage.setItem('trading_journal_v1', data.journal);
+
+    alert('✅ Загружено! Сохранено: ' + (data.saved_at || 'неизвестно'));
+    location.reload();
+  } catch(e) { alert('❌ ' + e.message); }
 }
 
 
