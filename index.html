@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781867593 -->
+<!-- v:1781867826 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8919,6 +8919,47 @@ function mxTable(rows, title, showRefresh) {
 }
 
 
+
+function calcConstruction(con, units, spread, stepPct) {
+  // Dynamic CR ratio based on current cross rates
+  function getDynRatio(leg) {
+    if (!leg.crPair) return leg.ratio; // not a CR leg
+    const rate = _crossRates[leg.crPair] || leg.ratio;
+    // leg.siLots = how many Si/EU lots this CR leg hedges
+    return Math.round(rate * (leg.siLots || 1) * 10) / 10;
+  }
+  // Dynamic GO from cache (use cached value if available, else leg.go)
+  function getDynGO(leg) {
+    if (leg.goKey && _goCache[leg.goKey]) return _goCache[leg.goKey].go;
+    return leg.go;
+  }
+  const goPerUnit = con.legs.filter(l=>l.isMx).reduce((s,l) => s + getDynGO(l) * getDynRatio(l), 0);
+  const fxPerUnit = con.legs.filter(l=>!l.isMx).reduce((s,l) => s + (l.marginPerLot||0) * l.ratio, 0);
+  const fxPerUnitRub = fxPerUnit * rate;
+
+  // Steps
+  const steps = STEP_COEFFS.map((coeff, i) => {
+    const u = units * coeff;
+    const spreadAtStep = Math.abs(spread) + stepPct * i;
+    return {
+      i, coeff,
+      units: u,
+      spreadPct: spreadAtStep,
+      goMx: goPerUnit * u,
+      fxMarginUsd: fxPerUnit * u,
+      fxMarginRub: fxPerUnitRub * u,
+      totalFrozen: goPerUnit * u + fxPerUnitRub * u,
+    };
+  });
+
+  const totalUnits = steps.reduce((s, st) => s + st.units, 0);
+  const totalGoMx   = steps.reduce((s, st) => s + st.goMx, 0);
+  const totalFxUsd  = steps.reduce((s, st) => s + st.fxMarginUsd, 0);
+  const totalFrozen = steps.reduce((s, st) => s + st.totalFrozen, 0);
+
+  return { steps, totalUnits, totalGoMx, totalFxUsd, totalFrozen, goPerUnit, fxPerUnit };
+}
+
 function renderCalc() {
   const root = document.getElementById('calc-root');
   if (!root) return;
@@ -8960,45 +9001,6 @@ function renderCalc() {
   }
 
   // Calculate for one construction
-  function calcConstruction(con, units, spread, stepPct) {
-    // Dynamic CR ratio based on current cross rates
-    function getDynRatio(leg) {
-      if (!leg.crPair) return leg.ratio; // not a CR leg
-      const rate = _crossRates[leg.crPair] || leg.ratio;
-      // leg.siLots = how many Si/EU lots this CR leg hedges
-      return Math.round(rate * (leg.siLots || 1) * 10) / 10;
-    }
-    // Dynamic GO from cache (use cached value if available, else leg.go)
-    function getDynGO(leg) {
-      if (leg.goKey && _goCache[leg.goKey]) return _goCache[leg.goKey].go;
-      return leg.go;
-    }
-    const goPerUnit = con.legs.filter(l=>l.isMx).reduce((s,l) => s + getDynGO(l) * getDynRatio(l), 0);
-    const fxPerUnit = con.legs.filter(l=>!l.isMx).reduce((s,l) => s + (l.marginPerLot||0) * l.ratio, 0);
-    const fxPerUnitRub = fxPerUnit * rate;
-
-    // Steps
-    const steps = STEP_COEFFS.map((coeff, i) => {
-      const u = units * coeff;
-      const spreadAtStep = Math.abs(spread) + stepPct * i;
-      return {
-        i, coeff,
-        units: u,
-        spreadPct: spreadAtStep,
-        goMx: goPerUnit * u,
-        fxMarginUsd: fxPerUnit * u,
-        fxMarginRub: fxPerUnitRub * u,
-        totalFrozen: goPerUnit * u + fxPerUnitRub * u,
-      };
-    });
-
-    const totalUnits = steps.reduce((s, st) => s + st.units, 0);
-    const totalGoMx   = steps.reduce((s, st) => s + st.goMx, 0);
-    const totalFxUsd  = steps.reduce((s, st) => s + st.fxMarginUsd, 0);
-    const totalFrozen = steps.reduce((s, st) => s + st.totalFrozen, 0);
-
-    return { steps, totalUnits, totalGoMx, totalFxUsd, totalFrozen, goPerUnit, fxPerUnit };
-  }
 
 
   // ── Instruments table ──
