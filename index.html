@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781859274 -->
+<!-- v:1781861754 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -81,7 +81,7 @@
   .main-content { }
 
   /* Theme toggle */
-  .theme-toggle { background: var(--bg2); border: 1px solid var(--border); border-radius: 20px; padding: 5px 12px; cursor: pointer; font-size: 13px; color: var(--text2); display: flex; align-items: center; gap: 6px; transition: all 0.15s; user-select: none; }
+  .theme-toggle { background: var(--bg2); border: 1px solid var(--border); border-radius: 50%; width: 32px; height: 32px; cursor: pointer; font-size: 16px; color: var(--text2); display: flex; align-items: center; justify-content: center; transition: all 0.15s; user-select: none; padding: 0; }
   .theme-toggle:hover { color: var(--text); border-color: var(--blue); }
 
   /* Dashboard */
@@ -339,7 +339,7 @@
     <h1>Торговый журнал</h1>
     <div class="header-right">
       <button class="btn-sm" onclick="openGithubSettings()" title="Настройки" style="opacity:.5">⚙️</button>
-      <button class="theme-toggle" onclick="toggleTheme()" id="theme-btn">☀️ Светлая</button>
+      <button class="theme-toggle" onclick="toggleTheme()" id="theme-btn">🌙</button>
     </div>
   </div>
 
@@ -389,7 +389,7 @@
   </div>
 
   <!-- Dashboard -->
-  <div class="dashboard">
+  <div class="dashboard" id="main-dashboard">
     <div class="card">
       <div class="label"><span class="dot dot-mx"></span>MX</div>
       <div class="value rub" id="dash-mx-balance">— р.</div>
@@ -646,7 +646,7 @@
 
   <!-- CALCULATOR -->
   <div id="tab-calc" class="tab-content">
-    <div id="calc-root" style="padding:16px 20px;max-width:1400px"></div>
+    <div id="calc-root" style="padding:0;max-width:1400px"></div>
   </div>
 
 <!-- Edit Modal -->
@@ -8305,6 +8305,9 @@ function switchTab(name, e) {
   // Rate bar only on funds + constructions
   const rateBar = document.getElementById('rate-bar');
   if (rateBar) rateBar.style.display = ['funds','constructions'].includes(name) ? '' : 'none';
+  // Dashboard cards only on overview
+  const dash = document.getElementById('main-dashboard');
+  if (dash) dash.style.display = name === 'overview' ? '' : 'none';
   if (name === 'overview') renderOverviewTab();
   if (name === 'feed')     renderFeedTab();
   if (name === 'constructions') renderPositionsTab();
@@ -8332,9 +8335,11 @@ if (cached) {
 }
 fetchRate(); // async, updates bar when done
 autoFetchAllRates(); // фоновая подгрузка исторических курсов для всех дат
-// Hide rate bar on initial load (journal tab is default)
+// Hide rate bar and dashboard on initial load (journal tab is default)
 const _rb = document.getElementById('rate-bar');
 if (_rb) _rb.style.display = 'none';
+const _db = document.getElementById('main-dashboard');
+if (_db) _db.style.display = 'none';
 
 
 renderMXTable();
