@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781857561 -->
+<!-- v:1781857719 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -9058,7 +9058,7 @@ function calcReset() {
 const GATE_PASSWORD_HASH = (() => {
   // Simple hash of password - change this to set your password
   // Default password: "bescen2026" - change via openGithubSettings()
-  return localStorage.getItem('journal_pw_hash') || 'bescen2026_default';
+  return localStorage.getItem('journal_pw_hash') || 'x17o';
 })();
 
 function simpleHash(str) {
@@ -9075,7 +9075,7 @@ function checkPassword() {
   const errEl = document.getElementById('gate-error');
 
   // If no password set yet, accept default
-  if (!storedHash && val === 'bescen2026') {
+  if (!storedHash && val === '2457') {
     unlockApp();
     return;
   }
