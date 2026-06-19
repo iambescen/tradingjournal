@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781871709 -->
+<!-- v:1781871997 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -9700,41 +9700,57 @@ function _renderCalcInner(root) {
   // ── Open positions dashboard ──
   let openGoMx = 0, openFxUsd = 0;
   const openDetails = [];
+  const FX_DEFAULTS = {USDCNH:9.95,EURCNH:11.49,EURUSD:11.49,XAUUSD:46.35,XAGUSD:35.82,XPTUSD:30,XPDUSD:25};
+  const fxOvRates = (() => { try { return JSON.parse(localStorage.getItem('calc_fx_v1')||'{}'); } catch{return{};} })();
+
+  function getGoForBase(baseQ) {
+    // baseQ is like SI1, CNY1, EU2, etc — try goKeyToSecid then _goCache
+    const secid = goKeyToSecid(baseQ) || baseQ;
+    if (_goCache[secid]) return _goCache[secid].go;
+    if (_goCache[baseQ]) return _goCache[baseQ].go;
+    // fallback: search by prefix
+    const prefix = baseQ.replace(/[12]$/, '').toUpperCase();
+    for (const [k, v] of Object.entries(_goCache)) {
+      if (k.toUpperCase().startsWith(prefix)) return v.go;
+    }
+    return 0;
+  }
+
   try {
     const { constructions } = detectConstructions();
     const openCons = constructions.filter(c => c.status === 'open');
     for (const con of openCons) {
-      // MX GO
-      let conGoMx = 0;
-      for (const t of con.mxEntry || []) {
-        const base = (t._baseQ || '').toUpperCase();
-        // Find matching goKey from cache
-        let go = 0;
-        // Try direct secid lookup
-        for (const [k, v] of Object.entries(_goCache)) {
-          if (k.toUpperCase().startsWith(base.slice(0,2))) { go = v.go; break; }
-        }
-        const vol = Math.abs(t.volume || 0);
-        conGoMx += go * vol;
+      // MX GO: sum over open MX legs (entry - exit = net volume still open)
+      const netVol = {};
+      for (const t of [...(con.mxEntry||[]), ...(con.mxExit||[])]) {
+        const b = t._baseQ || '';
+        const sign = (t._mxType === 'close') ? -1 : 1;
+        netVol[b] = (netVol[b] || 0) + sign * Math.abs(t.volume || 0);
       }
-      // FX margin
+      let conGoMx = 0;
+      for (const [base, vol] of Object.entries(netVol)) {
+        if (Math.abs(vol) < 0.001) continue;
+        const go = getGoForBase(base);
+        conGoMx += go * Math.abs(vol);
+      }
+
+      // FX margin: open FX legs only
       let conFxUsd = 0;
       for (const t of con.fxTrades || []) {
-        if (t._dt_close) continue; // closed FX leg
-        const instr = (t.instrument || '').toUpperCase().replace('/', '');
-        const fxOv = (() => { try { return JSON.parse(localStorage.getItem('calc_fx_v1')||'{}'); } catch{return{};} })();
-        const FX_DEFAULTS = {USDCNH:9.95,EURCNH:11.49,EURUSD:11.49,XAUUSD:46.35,XAGUSD:35.82,XPTUSD:30,XPDUSD:25};
-        const marginPer001 = parseFloat(fxOv[instr] || FX_DEFAULTS[instr] || 0);
+        if (t._dt_close) continue;
+        const instr = (t.instrument || '').toUpperCase().replace(/[^A-Z]/g,'');
+        const marginPer001 = parseFloat(fxOvRates[instr] || FX_DEFAULTS[instr] || 0);
         const lots = Math.abs(parseFloat(t.lots || t.volume || 0));
         conFxUsd += lots / 0.01 * marginPer001;
       }
+
       openGoMx  += conGoMx;
       openFxUsd += conFxUsd;
       if (conGoMx > 0 || conFxUsd > 0) {
         openDetails.push({ tag: con.tag, level: con.level, goMx: conGoMx, fxUsd: conFxUsd });
       }
     }
-  } catch(e) { /* detectConstructions may fail if no data */ }
+  } catch(e) { console.warn('openPosDash error:', e); }
 
   const freeGoMx  = availableMx - openGoMx;
   const freeFxUsd = fxBalUsd - openFxUsd;
