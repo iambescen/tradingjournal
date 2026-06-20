@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781934767 -->
+<!-- v:1781935044 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -3063,7 +3063,7 @@ function updateDashboard() {
     document.getElementById('dash-period').textContent = '';
   }
 
-  document.getElementById('last-updated').textContent = 'Обновлено: ' + new Date().toLocaleTimeString('ru-RU');
+  const _lu = document.getElementById('last-updated'); if (_lu) _lu.textContent = 'Обновлено: ' + new Date().toLocaleTimeString('ru-RU');
 }
 
 // ══════════════════════════════════════════════════
@@ -3866,6 +3866,8 @@ async function calcEstimatedPnl(g) {
       const exitRows = sorted.filter(r => isEntryBuy
         ? (r.direction==='Sell'||r.direction==='S')
         : (r.direction==='Buy'||r.direction==='L'));
+      // Note: accurate P&L requires PDF report (margin_rub from broker)
+      // Price-based estimation is approximate
       if (!entryRows.length || !exitRows.length) continue;
 
       const eVol = entryRows.reduce((s,r)=>s+(r.volume||0),0);
@@ -3884,37 +3886,30 @@ async function calcEstimatedPnl(g) {
         if (info?.step) stepPrice = info.step;
       }
 
-      // pnl = (exitPrice - entryPrice) * vol * sign / minStep * stepPrice
-      // but prices are already in rubles per contract, so:
-      // pnl_rub = (xAvg - eAvg) * sign * vol * stepPrice / minStep
-      // For most futures: minStep = 1 price unit → pnl = diff * vol * stepPrice
-      // Actually: margin_rub from PDF = diff_pts * stepPrice * vol
-      // diff_pts = (xAvg - eAvg) / minPriceChange
-      // For simplicity: pnl ≈ (xAvg - eAvg) * sign * vol
-      // This works when price is already in RUB (SI, EU) but not for USDRUBF
-      // Use stepPrice to normalize:
+      // Known tick sizes (min price change) and step values (RUB per tick per lot)
+      // Source: MOEX specification
+      const TICK_TABLE = {
+        'SI':      { tick: 1,      stepRub: 1      }, // Si: шаг 1 руб, стоимость 1 руб
+        'EU':      { tick: 1,      stepRub: 1      }, // Eu: шаг 1 руб, стоимость 1 руб
+        'CR':      { tick: 0.001,  stepRub: 1      }, // CR: шаг 0.001 юань, стоимость 1 руб
+        'UC':      { tick: 0.0001, stepRub: 1      }, // UC: шаг 0.0001, стоимость 1 руб
+        'GD':      { tick: 0.1,    stepRub: 1      }, // GD: шаг 0.1 руб/г, стоимость 1 руб
+        'SV':      { tick: 0.1,    stepRub: 1      }, // SV: шаг 0.1 руб/г, стоимость 1 руб
+        'ED':      { tick: 0.0001, stepRub: 10     }, // ED: шаг 0.0001, стоимость 10 руб
+        'PT':      { tick: 0.1,    stepRub: 1      },
+        'PD':      { tick: 0.1,    stepRub: 1      },
+        'USDRUBF': { tick: 0.0025, stepRub: 1      }, // USDRUBF: шаг 0.0025 руб, стоимость 1 руб
+        'CNYRUBF': { tick: 0.001,  stepRub: 1      }, // CNYRUBF: шаг 0.001 юань, стоимость 1 руб
+        'EURRUBF': { tick: 0.0025, stepRub: 1      }, // EURRUBF: шаг 0.0025 руб, стоимость 1 руб
+        'EURRUBF': { tick: 0.0025, stepRub: 1      },
+      };
+      const instrBase = ig.instrument.toUpperCase().replace(/[-_].*/,'').replace(/[UZ][0-9]+$/,'');
+      const tickInfo = TICK_TABLE[instrBase] || { tick: 1, stepRub: stepPrice || 1 };
+      const tick = tickInfo.tick;
+      const stepRub = _goCache[buildSecid(ig.instrument)]?.step || tickInfo.stepRub;
+
       const priceDiff = (xAvg - eAvg) * sign;
-      // For RUB-denominated futures (SI, EU, CR): price is in RUB/unit
-      // pnl = priceDiff * vol (already in RUB)
-      // For USD-denominated (ED, USDRUBF): price is in USD or rate
-      // We'll use a simple heuristic: if price < 1000, likely non-RUB → convert
-      const avgPrice = (eAvg + xAvg) / 2;
-      let pnlRub;
-      if (avgPrice < 200) {
-        // Price in non-RUB units (USDRUBF ~71, UCNY ~6.8, CNY ~10.5, ED ~1.15)
-        // Step size in RUB is given by stepPrice
-        // Find min price change (tick)
-        const tick = ig.instrument.toUpperCase().startsWith('ED') ? 0.0001
-                   : ig.instrument.toUpperCase().startsWith('UC') ? 0.0001
-                   : ig.instrument.toUpperCase().replace(/[-_].*/,'') === 'CNYRUBF' ? 0.0001
-                   : 0.001;
-        pnlRub = (priceDiff / tick) * stepPrice * vol;
-      } else {
-        // Price in RUB (SI ~75000, EU ~86000, CR ~10000... wait CR is ~10.5)
-        // Actually CR is yuan price ~10-11
-        const tick2 = avgPrice > 1000 ? 1 : 0.001;
-        pnlRub = (priceDiff / tick2) * stepPrice * vol;
-      }
+      const pnlRub = (priceDiff / tick) * stepRub * vol;
 
       mxPnl += pnlRub;
       hasMx = true;
