@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781948531 -->
+<!-- v:1781948686 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8453,98 +8453,115 @@ function _drawOverviewCharts(mxDays,fxDays,allDates,mxByDate,fxByDate,cumMx,cumF
         borderRadius:2, barPercentage:.7,
       });
     }
-    _overviewChart('ch-daily-pnl', {
-      type:'bar', data:{ datasets },
-      options:{ ..._ovDefaults(), plugins:{..._ovDefaults().plugins,
-        tooltip:{callbacks:{label:c=>' '+fmtRub(c.parsed.y)}}}}
-    });
+    // Add $ datasets alongside ₽
+    const datasetsUsd = datasets.map(ds => ({
+      ...ds,
+      label: ds.label + ' $',
+      data: ds.data.map(p => ({x:p.x, y:+(p.y/rate0).toFixed(2)})),
+      backgroundColor: Array.isArray(ds.backgroundColor)
+        ? ds.backgroundColor.map(c=>c.replace(/[\d.]+\)$/,'0.35)'))
+        : (ds.backgroundColor||'transparent').replace(/[\d.]+\)$/,'0.35)'),
+      yAxisID: 'y2',
+      hidden: true, // hidden by default, user can toggle
+    }));
+    const _dualOpts = {
+      ..._ovDefaults(),
+      plugins:{..._ovDefaults().plugins, tooltip:{callbacks:{label:c=>
+        c.datasetIndex<datasets.length?' '+fmtRub(c.parsed.y):' $'+c.parsed.y.toFixed(2)}}},
+      scales:{
+        x:_ovDefaults().scales.x,
+        y:{..._ovDefaults().scales.y, position:'left', ticks:{..._ovDefaults().scales.y.ticks,callback:v=>fmtRubShort(v)}},
+        y2:{type:'linear',position:'right',grid:{drawOnChartArea:false},ticks:{color:_ovColors.text2,font:{size:10},callback:v=>'$'+v.toFixed(0)}}
+      }
+    };
+    datasets.forEach(ds => ds.yAxisID='y');
+    _overviewChart('ch-daily-pnl', { type:'bar', data:{ datasets:[...datasets,...datasetsUsd] }, options:_dualOpts });
   }
 
   // 5. Cumulative P&L
   {
     const datasets = [];
-    if (hasMx) datasets.push({
-      label:'МХ накоп.', data:cumMx, borderColor:_ovColors.mx, backgroundColor:'transparent',
-      tension:.3, pointRadius:0, borderWidth:2 });
-    if (hasFx && cumFx.some(p=>p.y!==0)) datasets.push({
-      label:'FX накоп.', data:cumFx, borderColor:_ovColors.fx, backgroundColor:'transparent',
-      tension:.3, pointRadius:0, borderWidth:2 });
-    if (hasMx && hasFx) datasets.push({
-      label:'МХ+FX', data:cumComb, borderColor:_ovColors.comb, backgroundColor:_ovColors.combFill,
-      fill:true, tension:.3, pointRadius:0, borderWidth:2.5 });
-    _overviewChart('ch-cum-pnl', {
-      type:'line', data:{ datasets },
-      options:{ ..._ovDefaults(), plugins:{..._ovDefaults().plugins,
-        tooltip:{callbacks:{label:c=>' '+fmtRub(c.parsed.y)}}}}
+    if (hasMx) datasets.push({ label:'МХ ₽', data:cumMx, borderColor:_ovColors.mx, backgroundColor:'transparent', tension:.3, pointRadius:0, borderWidth:2, yAxisID:'y' });
+    if (hasFx && cumFx.some(p=>p.y!==0)) datasets.push({ label:'FX ₽', data:cumFx, borderColor:_ovColors.fx, backgroundColor:'transparent', tension:.3, pointRadius:0, borderWidth:2, yAxisID:'y' });
+    if (hasMx && hasFx) datasets.push({ label:'МХ+FX ₽', data:cumComb, borderColor:_ovColors.comb, backgroundColor:_ovColors.combFill, fill:true, tension:.3, pointRadius:0, borderWidth:2.5, yAxisID:'y' });
+    // $ versions (hidden by default)
+    if (hasMx) datasets.push({ label:'МХ $', data:cumMx.map(p=>({x:p.x,y:+(p.y/rate0).toFixed(0)})), borderColor:_ovColors.mx, backgroundColor:'transparent', tension:.3, pointRadius:0, borderWidth:1.5, borderDash:[3,3], yAxisID:'y2', hidden:true });
+    if (hasFx && cumFx.some(p=>p.y!==0)) datasets.push({ label:'FX $', data:cumFx.map(p=>({x:p.x,y:+(p.y/rate0).toFixed(0)})), borderColor:_ovColors.fx, backgroundColor:'transparent', tension:.3, pointRadius:0, borderWidth:1.5, borderDash:[3,3], yAxisID:'y2', hidden:true });
+    if (hasMx && hasFx) datasets.push({ label:'МХ+FX $', data:cumComb.map(p=>({x:p.x,y:+(p.y/rate0).toFixed(0)})), borderColor:_ovColors.comb, backgroundColor:'transparent', tension:.3, pointRadius:0, borderWidth:2, borderDash:[3,3], yAxisID:'y2', hidden:true });
+    _overviewChart('ch-cum-pnl', { type:'line', data:{ datasets },
+      options:{ ..._ovDefaults(),
+        plugins:{..._ovDefaults().plugins, tooltip:{callbacks:{label:c=>c.dataset.yAxisID==='y'?' ₽'+fmtRubShort(c.parsed.y):' $'+c.parsed.y}}},
+        scales:{ x:_ovDefaults().scales.x,
+          y:{..._ovDefaults().scales.y,position:'left',ticks:{..._ovDefaults().scales.y.ticks,callback:v=>fmtRubShort(v)}},
+          y2:{type:'linear',position:'right',grid:{drawOnChartArea:false},ticks:{color:_ovColors.text2,font:{size:10},callback:v=>'$'+v}} }}
     });
   }
 
-  // 6. Commission/swap/funding/rollover chart
+  // 6. Комиссии · Своп · Фандинг · Перенос
   {
-    const datasets = [];
-    if (hasMx) datasets.push({
-      label:'Комиссия МХ', data:allDates.map(dt=>({x:dt,y:-(mxByDate[dt]?.comm??0)})),
-      backgroundColor:'rgba(251,146,60,.75)', borderRadius:2, stack:'costs' });
+    const mkDs = (label,data,color,stack) => ({label,data,backgroundColor:color,borderRadius:2,stack,yAxisID:'y'});
+    const mkDsUsd = (label,data,color,stack) => ({label:label+' $',data:data.map(p=>({x:p.x,y:+(p.y/rate0).toFixed(2)})),backgroundColor:color.replace(/[\d.]+\)$/,'0.3)'),borderRadius:2,stack:stack+'_usd',yAxisID:'y2',hidden:true});
+    const commDs = [];
+    if (hasMx) {
+      const d1 = allDates.map(dt=>({x:dt,y:-(mxByDate[dt]?.comm??0)}));
+      commDs.push(mkDs('Ком. МХ ₽',d1,'rgba(251,146,60,.75)','c'));
+      commDs.push(mkDsUsd('Ком. МХ',d1,'rgba(251,146,60,.4)','c'));
+    }
     if (hasFx) {
-      datasets.push({ label:'Комиссия FX', data:allDates.map(dt=>{
-        const d=fxByDate[dt]; return {x:dt,y:d?.rate?-d.commUsd*d.rate:0};
-      }), backgroundColor:'rgba(167,139,250,.75)', borderRadius:2, stack:'costs' });
-      datasets.push({ label:'Своп FX', data:allDates.map(dt=>{
-        const d=fxByDate[dt]; if(!d?.rate) return {x:dt,y:0};
-        return {x:dt,y:d.swapUsd*d.rate};
-      }), backgroundColor:'rgba(251,191,36,.6)', borderRadius:2, stack:'costs' });
+      const d2 = allDates.map(dt=>{const d=fxByDate[dt];return{x:dt,y:d?.rate?-d.commUsd*d.rate:0};});
+      const d3 = allDates.map(dt=>{const d=fxByDate[dt];if(!d?.rate)return{x:dt,y:0};return{x:dt,y:d.swapUsd*d.rate};});
+      commDs.push(mkDs('Ком. FX ₽',d2,'rgba(167,139,250,.75)','c'));
+      commDs.push(mkDs('Своп FX ₽',d3,'rgba(251,191,36,.6)','c'));
+      commDs.push(mkDsUsd('Ком. FX',d2,'rgba(167,139,250,.4)','c'));
+      commDs.push(mkDsUsd('Своп FX',d3,'rgba(251,191,36,.3)','c'));
     }
     if (hasMx) {
-      datasets.push({ label:'Фандинг МХ', data:mxDays.map(d=>({x:d.date,y:d.funding||0})),
-        backgroundColor:'rgba(52,211,153,.6)', borderRadius:2, stack:'costs' });
-      datasets.push({ label:'Перенос МХ', data:mxDays.map(d=>({x:d.date,y:d.rollover||0})),
-        backgroundColor:'rgba(96,165,250,.6)', borderRadius:2, stack:'costs' });
+      const d4 = mxDays.map(d=>({x:d.date,y:d.funding||0}));
+      const d5 = mxDays.map(d=>({x:d.date,y:d.rollover||0}));
+      commDs.push(mkDs('Фандинг ₽',d4,'rgba(52,211,153,.6)','c'));
+      commDs.push(mkDs('Перенос ₽',d5,'rgba(96,165,250,.6)','c'));
+      commDs.push(mkDsUsd('Фандинг',d4,'rgba(52,211,153,.3)','c'));
+      commDs.push(mkDsUsd('Перенос',d5,'rgba(96,165,250,.3)','c'));
     }
-    _overviewChart('ch-comm', {
-      type:'bar', data:{ datasets },
-      options:{ ..._ovDefaults(), plugins:{..._ovDefaults().plugins,
-        tooltip:{callbacks:{label:c=>' '+fmtRub(c.parsed.y)}}}}
+    _overviewChart('ch-comm', { type:'bar', data:{ datasets:commDs },
+      options:{ ..._ovDefaults(),
+        plugins:{..._ovDefaults().plugins,tooltip:{callbacks:{label:c=>c.dataset.yAxisID==='y'?' ₽'+fmtRubShort(c.parsed.y):' $'+c.parsed.y.toFixed(2)}}},
+        scales:{ x:_ovDefaults().scales.x,
+          y:{..._ovDefaults().scales.y,position:'left',ticks:{..._ovDefaults().scales.y.ticks,callback:v=>fmtRubShort(v)}},
+          y2:{type:'linear',position:'right',grid:{drawOnChartArea:false},ticks:{color:_ovColors.text2,font:{size:10},callback:v=>'$'+v}} }}
     });
   }
 
-  // 7. Instrument P&L breakdown (horizontal bar)
+  // 7. P&L по инструментам МХ (₽ и $)
   if (instrSorted.length) {
-    _overviewChart('ch-instr', {
-      type:'bar',
-      data:{
-        labels: instrSorted.map(([n])=>n),
-        datasets:[{ label:'P&L по инструменту',
-          data: instrSorted.map(([,v])=>v),
-          backgroundColor: instrSorted.map(([,v])=>v>=0?'rgba(52,211,153,.75)':'rgba(248,113,113,.75)'),
-          borderRadius:3 }]
-      },
+    _overviewChart('ch-instr', { type:'bar',
+      data:{ labels:instrSorted.map(([n])=>n), datasets:[
+        { label:'₽', data:instrSorted.map(([,v])=>v), backgroundColor:instrSorted.map(([,v])=>v>=0?'rgba(52,211,153,.75)':'rgba(248,113,113,.75)'), borderRadius:3, yAxisID:'y' },
+        { label:'$', data:instrSorted.map(([,v])=>+(v/rate0).toFixed(2)), backgroundColor:instrSorted.map(([,v])=>v>=0?'rgba(52,211,153,.35)':'rgba(248,113,113,.35)'), borderRadius:3, yAxisID:'y2', hidden:true },
+      ]},
       options:{ ..._ovDefaults(), indexAxis:'y',
-        plugins:{..._ovDefaults().plugins, legend:{display:false},
-          tooltip:{callbacks:{label:c=>' '+fmtRub(c.parsed.x)}}},
+        plugins:{..._ovDefaults().plugins, tooltip:{callbacks:{label:c=>c.dataset.yAxisID==='y'?' ₽'+fmtRubShort(c.parsed.x):' $'+c.parsed.x.toFixed(2)}}},
         scales:{
-          x:{ ..._ovDefaults().scales.x, ticks:{..._ovDefaults().scales.x.ticks,callback:v=>fmtRubShort(v)} },
-          y:{ ticks:{ color:_ovColors.text2, font:{size:10} }, grid:{display:false} }
+          x:{..._ovDefaults().scales.x,ticks:{..._ovDefaults().scales.x.ticks,callback:v=>fmtRubShort(v)}},
+          y:{ticks:{color:_ovColors.text2,font:{size:10}},grid:{display:false}},
+          y2:{type:'linear',position:'right',grid:{drawOnChartArea:false},ticks:{color:_ovColors.text2,font:{size:10},callback:v=>'$'+v}}
         }}
     });
   }
 
-  // FX instrument P&L chart
+  // 8. P&L по инструментам FX (₽ и $)
   if (fxInstrSorted.length) {
-    _overviewChart('ch-instr-fx', {
-      type:'bar',
-      data:{
-        labels: fxInstrSorted.map(([n])=>n),
-        datasets:[{ label:'P&L FX по инструменту',
-          data: fxInstrSorted.map(([,v])=>v),
-          backgroundColor: fxInstrSorted.map(([,v])=>v>=0?'rgba(167,139,250,.75)':'rgba(251,146,60,.75)'),
-          borderRadius:3 }]
-      },
+    _overviewChart('ch-instr-fx', { type:'bar',
+      data:{ labels:fxInstrSorted.map(([n])=>n), datasets:[
+        { label:'₽', data:fxInstrSorted.map(([,v])=>v), backgroundColor:fxInstrSorted.map(([,v])=>v>=0?'rgba(167,139,250,.75)':'rgba(251,146,60,.75)'), borderRadius:3, yAxisID:'y' },
+        { label:'$', data:fxInstrSorted.map(([,v])=>+(v/rate0).toFixed(2)), backgroundColor:fxInstrSorted.map(([,v])=>v>=0?'rgba(167,139,250,.35)':'rgba(251,146,60,.35)'), borderRadius:3, yAxisID:'y2', hidden:true },
+      ]},
       options:{ ..._ovDefaults(), indexAxis:'y',
-        plugins:{..._ovDefaults().plugins, legend:{display:false},
-          tooltip:{callbacks:{label:c=>' '+fmtRub(c.parsed.x)}}},
+        plugins:{..._ovDefaults().plugins, tooltip:{callbacks:{label:c=>c.dataset.yAxisID==='y'?' ₽'+fmtRubShort(c.parsed.x):' $'+c.parsed.x.toFixed(2)}}},
         scales:{
-          x:{ ..._ovDefaults().scales.x, ticks:{..._ovDefaults().scales.x.ticks,callback:v=>fmtRubShort(v)} },
-          y:{ ticks:{ color:_ovColors.text2, font:{size:10} }, grid:{display:false} }
+          x:{..._ovDefaults().scales.x,ticks:{..._ovDefaults().scales.x.ticks,callback:v=>fmtRubShort(v)}},
+          y:{ticks:{color:_ovColors.text2,font:{size:10}},grid:{display:false}},
+          y2:{type:'linear',position:'right',grid:{drawOnChartArea:false},ticks:{color:_ovColors.text2,font:{size:10},callback:v=>'$'+v}}
         }}
     });
   }
