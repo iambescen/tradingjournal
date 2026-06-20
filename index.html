@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781875688 -->
+<!-- v:1781934767 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -3853,11 +3853,13 @@ async function calcEstimatedPnl(g) {
 
   for (const ig of Object.values(instrMap)) {
     const sorted = [...ig.rows].sort((a,b) => a.time.localeCompare(b.time));
+    // First trade determines entry direction (could be Sell for shorts)
     const entryDir = sorted[0]?.direction || '';
     const isEntryBuy = entryDir === 'Buy' || entryDir === 'L';
     const sign = isEntryBuy ? 1 : -1;
 
     if (ig.platform === 'MX') {
+      // Entry = same direction as first trade; Exit = opposite
       const entryRows = sorted.filter(r => isEntryBuy
         ? (r.direction==='Buy'||r.direction==='L')
         : (r.direction==='Sell'||r.direction==='S'));
@@ -4117,10 +4119,15 @@ function renderLjDashboard() {
                : netStatus==='partial'? `<span style="color:var(--amber)">◑</span>`
                :                        `<span style="color:var(--text2)">◌</span>`;
 
-      const entryRows = ig.platform==='FX' ? ig.rows : buys.length ? buys : ig.rows;
+      // Entry = first direction seen (could be Buy or Sell — short positions start with Sell)
+      const firstDir = ig.rows.slice().sort((a,b)=>a.time.localeCompare(b.time))[0]?.direction || '';
+      const isShort = firstDir === 'Sell' || firstDir === 'S';
+      const entryRows = ig.platform==='FX' ? ig.rows
+        : isShort ? (sells.length ? sells : ig.rows)
+        : (buys.length ? buys : ig.rows);
       const eVol = entryRows.reduce((s,r)=>s+(r.volume||0),0);
       const eAvg = entryRows.reduce((s,r)=>s+(r.price||0)*(r.volume||0),0)/(eVol||1);
-      const eDir = entryRows[0]?.direction||ig.rows[0]?.direction||'';
+      const eDir = firstDir || ig.rows[0]?.direction || '';
 
       let exitStr = '';
       if (ig.platform==='FX') {
