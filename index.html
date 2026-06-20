@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781941010 -->
+<!-- v:1781941075 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8276,26 +8276,21 @@ function renderOverviewTab(force) {
       ${hasMx?statCard('Фандинг МХ',mxTotalFunding,mxTotalFunding/rate0,'финансирование',mxTotalFunding>=0?'var(--green)':'var(--red)'):''}
     </div>
     <!-- BALANCE CHARTS -->
+    <!-- CHARTS: 2 per row -->
     <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-bottom:14px" class="charts-grid">
       ${hasMx?chartBox('ch-mx-bal','Баланс МХ (руб)'):''}
       ${hasFx?chartBox('ch-fx-bal','Баланс FX (USD и руб)'):''}
     </div>
-    ${(hasMx&&hasFx)?`<div style="margin-bottom:14px">${chartBox('ch-comb-bal','Совокупный баланс МХ + FX (руб)',160)}</div>`:''}
-
-    <!-- P&L CHARTS -->
-    <!-- P&L CHARTS -->
-    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-bottom:14px" class="charts-grid">
-      ${chartBox('ch-daily-pnl','P&L по дням (совокупный МХ+FX)')}
+    <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-bottom:14px" class="charts-grid">
+      ${chartBox('ch-daily-pnl','P&L по дням (МХ+FX)')}
+      ${chartBox('ch-cum-pnl','Накопленный P&L')}
     </div>
-
-    <!-- BOTTOM CHARTS -->
-    <!-- BOTTOM CHARTS -->
-    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-bottom:14px" class="charts-grid">
+    <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-bottom:14px" class="charts-grid">
       ${chartBox('ch-comm','Комиссии · Своп · Фандинг · Перенос')}
+      ${instrSorted.length?chartBox('ch-instr','P&L по инструментам МХ',instrSorted.length*22+60):''}
     </div>
 
-`;
-
+  `;
   _overviewRendered = true;
   // renderCapitalBlock removed — unreliable P&L from positions system
   setTimeout(() => renderOvConstructions(), 80);
