@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781948903 -->
+<!-- v:1781949523 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8538,37 +8538,39 @@ function _drawOverviewCharts(mxDays,fxDays,allDates,mxByDate,fxByDate,cumMx,cumF
   }
 
   // 7. P&L по инструментам МХ (₽ и $)
+  // For horizontal bar: values on X axis — use xAxisID
+  const _instrOpts = (sorted, colors) => ({
+    type:'bar',
+    data:{ labels: sorted.map(([n])=>n), datasets:[
+      { label:'₽', data: sorted.map(([,v])=>v),
+        backgroundColor: sorted.map(([,v])=>v>=0?colors[0]:colors[1]),
+        borderRadius:3, xAxisID:'x' },
+      { label:'$', data: sorted.map(([,v])=>+(v/rate0).toFixed(2)),
+        backgroundColor: sorted.map(([,v])=>v>=0?colors[2]:colors[3]),
+        borderRadius:3, xAxisID:'x2', hidden:true },
+    ]},
+    options:{ ..._ovDefaults(), indexAxis:'y',
+      plugins:{..._ovDefaults().plugins,
+        tooltip:{callbacks:{label:c=>c.dataset.xAxisID==='x'?' ₽'+fmtRubShort(c.parsed.x):' $'+c.parsed.x.toFixed(2)}}},
+      scales:{
+        x:{ type:'linear', position:'bottom', ticks:{color:_ovColors.text2,font:{size:10},callback:v=>fmtRubShort(v)}, grid:{color:_ovColors.grid} },
+        x2:{ type:'linear', position:'top', grid:{drawOnChartArea:false}, ticks:{color:_ovColors.text2,font:{size:10},callback:v=>'$'+v}, display:true },
+        y:{ ticks:{color:_ovColors.text2,font:{size:10}}, grid:{display:false} }
+      }}
+  });
   if (instrSorted.length) {
-    _overviewChart('ch-instr', { type:'bar',
-      data:{ labels:instrSorted.map(([n])=>n), datasets:[
-        { label:'₽', data:instrSorted.map(([,v])=>v), backgroundColor:instrSorted.map(([,v])=>v>=0?'rgba(52,211,153,.75)':'rgba(248,113,113,.75)'), borderRadius:3, yAxisID:'y' },
-        { label:'$', data:instrSorted.map(([,v])=>+(v/rate0).toFixed(2)), backgroundColor:instrSorted.map(([,v])=>v>=0?'rgba(52,211,153,.35)':'rgba(248,113,113,.35)'), borderRadius:3, yAxisID:'y2', hidden:true },
-      ]},
-      options:{ ..._ovDefaults(), indexAxis:'y',
-        plugins:{..._ovDefaults().plugins, tooltip:{callbacks:{label:c=>c.dataset.yAxisID==='y'?' ₽'+fmtRubShort(c.parsed.x):' $'+c.parsed.x.toFixed(2)}}},
-        scales:{
-          x:{..._ovDefaults().scales.x,ticks:{..._ovDefaults().scales.x.ticks,callback:v=>fmtRubShort(v)}},
-          y:{ticks:{color:_ovColors.text2,font:{size:10}},grid:{display:false}},
-          y2:{type:'linear',position:'right',grid:{drawOnChartArea:false},ticks:{color:_ovColors.text2,font:{size:10},callback:v=>'$'+v}}
-        }}
-    });
+    _overviewChart('ch-instr', _instrOpts(instrSorted, [
+      'rgba(52,211,153,.75)','rgba(248,113,113,.75)',
+      'rgba(52,211,153,.35)','rgba(248,113,113,.35)'
+    ]));
   }
 
   // 8. P&L по инструментам FX (₽ и $)
   if (fxInstrSorted.length) {
-    _overviewChart('ch-instr-fx', { type:'bar',
-      data:{ labels:fxInstrSorted.map(([n])=>n), datasets:[
-        { label:'₽', data:fxInstrSorted.map(([,v])=>v), backgroundColor:fxInstrSorted.map(([,v])=>v>=0?'rgba(167,139,250,.75)':'rgba(251,146,60,.75)'), borderRadius:3, yAxisID:'y' },
-        { label:'$', data:fxInstrSorted.map(([,v])=>+(v/rate0).toFixed(2)), backgroundColor:fxInstrSorted.map(([,v])=>v>=0?'rgba(167,139,250,.35)':'rgba(251,146,60,.35)'), borderRadius:3, yAxisID:'y2', hidden:true },
-      ]},
-      options:{ ..._ovDefaults(), indexAxis:'y',
-        plugins:{..._ovDefaults().plugins, tooltip:{callbacks:{label:c=>c.dataset.yAxisID==='y'?' ₽'+fmtRubShort(c.parsed.x):' $'+c.parsed.x.toFixed(2)}}},
-        scales:{
-          x:{..._ovDefaults().scales.x,ticks:{..._ovDefaults().scales.x.ticks,callback:v=>fmtRubShort(v)}},
-          y:{ticks:{color:_ovColors.text2,font:{size:10}},grid:{display:false}},
-          y2:{type:'linear',position:'right',grid:{drawOnChartArea:false},ticks:{color:_ovColors.text2,font:{size:10},callback:v=>'$'+v}}
-        }}
-    });
+    _overviewChart('ch-instr-fx', _instrOpts(fxInstrSorted, [
+      'rgba(167,139,250,.75)','rgba(251,146,60,.75)',
+      'rgba(167,139,250,.35)','rgba(251,146,60,.35)'
+    ]));
   }
 }
 
