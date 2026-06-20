@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781939237 -->
+<!-- v:1781939396 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8272,11 +8272,7 @@ function renderOverviewTab(force) {
       ${chartBox('ch-comm','Комиссии · Своп · Фандинг · Перенос')}
     </div>
 
-    <!-- CAPITAL EFFICIENCY -->
-    <div id="capital-block" style="margin-top:4px"></div>
-
-    <!-- CONSTRUCTIONS ANALYTICS -->
-    <div id="ov-constructions-block" style="margin-top:8px"></div>`;
+`;
 
   _overviewRendered = true;
   // renderCapitalBlock removed — unreliable P&L from positions system
@@ -8570,8 +8566,7 @@ updateDashboard();
 <script>
 // ── Overview: Constructions Analytics ──
 async function renderOvConstructions() {
-  const el = document.getElementById('ov-constructions-block');
-  if (!el) return;
+  return; // removed from overview
   ljInit();
 
   const tagged = store.lj.rows.filter(r => r.tag);
