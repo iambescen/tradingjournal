@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781947816 -->
+<!-- v:1781947912 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -1093,13 +1093,13 @@ const DEFAULT_CONSTRUCTIONS = [
   { tag:'EUP',       cluster:'EURUSD',  mxBases:'EURRUBF,USDRUBF',  fxInstr:'EURUSD',  description:'EURRUB.P / USDRUB.P + EURUSD' },
 
   // ── Только MOEX ──
-  { tag:'UPSI1',     cluster:'MOEX',    mxBases:'USDRUBF,SI1',      fxInstr:'—',       description:'USDRUB.P / SI1!' },
-  { tag:'UPSI2',     cluster:'MOEX',    mxBases:'USDRUBF,SI2',      fxInstr:'—',       description:'USDRUB.P / SI2!' },
-  { tag:'CPCR1',     cluster:'MOEX',    mxBases:'CNYRUBF,CNY1',     fxInstr:'—',       description:'CNYRUB.P / CR1!' },
-  { tag:'CPCR2',     cluster:'MOEX',    mxBases:'CNYRUBF,CNY2',     fxInstr:'—',       description:'CNYRUB.P / CR2!' },
-  { tag:'EPEU1',     cluster:'MOEX',    mxBases:'EURRUBF,EU1',      fxInstr:'—',       description:'EURRUB.P / EU1!' },
-  { tag:'EPEU2',     cluster:'MOEX',    mxBases:'EURRUBF,EU2',      fxInstr:'—',       description:'EURRUB.P / EU2!' },
-  { tag:'UCEP',      cluster:'MOEX',    mxBases:'USDRUBF,CNYRUBF,EURRUBF', fxInstr:'—', description:'USD/CNY/EUR треугольник вечников' },
+  { tag:'UPSI1',     cluster:'Moex',    mxBases:'USDRUBF,SI1',      fxInstr:'—',       description:'USDRUB.P / SI1!' },
+  { tag:'UPSI2',     cluster:'Moex',    mxBases:'USDRUBF,SI2',      fxInstr:'—',       description:'USDRUB.P / SI2!' },
+  { tag:'CPCR1',     cluster:'Moex',    mxBases:'CNYRUBF,CNY1',     fxInstr:'—',       description:'CNYRUB.P / CR1!' },
+  { tag:'CPCR2',     cluster:'Moex',    mxBases:'CNYRUBF,CNY2',     fxInstr:'—',       description:'CNYRUB.P / CR2!' },
+  { tag:'EPEU1',     cluster:'Moex',    mxBases:'EURRUBF,EU1',      fxInstr:'—',       description:'EURRUB.P / EU1!' },
+  { tag:'EPEU2',     cluster:'Moex',    mxBases:'EURRUBF,EU2',      fxInstr:'—',       description:'EURRUB.P / EU2!' },
+  { tag:'UCEP',      cluster:'Moex',    mxBases:'USDRUBF,CNYRUBF,EURRUBF', fxInstr:'—', description:'USD/CNY/EUR треугольник вечников' },
 
   // ── Металлы — золото ──
   { tag:'GD1',       cluster:'XAUUSD',  mxBases:'GD1',              fxInstr:'XAUUSD',  description:'GD1! + XAUUSD' },
@@ -6095,7 +6095,7 @@ function renderConstructionsTab() {
 
   const clusterColors = {
     'USDCNH':'#1e6b9e','EURCNH':'#7b3f9e','EURUSD':'#2e7d52',
-    'MOEX':'#5c5c5c','XAUUSD':'#b8860b','XAGUSD':'#708090',
+    'Moex':'#5c5c5c','XAUUSD':'#b8860b','XAGUSD':'#708090',
     'XPTUSD':'#4a6fa5','XPDUSD':'#8b4513','Сырьё':'#6b4c2a','Крипто':'#e65c00',
   };
 
@@ -8255,7 +8255,7 @@ function renderOverviewTab(force) {
     <!-- STAT CARDS ROW 1: Ключевые результаты -->
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
       ${(hasMx&&hasFx)?statCard('Общий P&L',combinedPnlRub,combinedPnlRub/rate0,'МХ + FX',combinedPnlRub>=0?'var(--green)':'var(--red)'):''}
-      ${hasMx?statCard('P&L МХ',mxTotalPnl,mxTotalPnl/rate0,'MOEX',mxTotalPnl>=0?'var(--green)':'var(--red)'):''}
+      ${hasMx?statCard('P&L МХ',mxTotalPnl,mxTotalPnl/rate0,'Moex',mxTotalPnl>=0?'var(--green)':'var(--red)'):''}
       ${hasFx?statCard('P&L FX',fxTotalPnlRub||0,fxTotalPnlUsd,'Forex',fxTotalPnlUsd>=0?'var(--green)':'var(--red)'):''}
       ${(hasMx||hasFx)?statCard('Средний день',combinedAvgDay,combinedAvgDay/rate0,allDaysCount+' торг. дней',combinedAvgDay>=0?'var(--green)':'var(--red)'):''}
     </div>
@@ -8264,7 +8264,7 @@ function renderOverviewTab(force) {
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px">
       ${(hasMx||hasFx)&&combinedBestDay>0?statCard('Лучший день',combinedBestDay,combinedBestDay/rate0,'МХ + FX','var(--green)'):''}
       ${(hasMx||hasFx)&&combinedWorstDay<0?statCard('Худший день',combinedWorstDay,combinedWorstDay/rate0,'МХ + FX','var(--red)'):''}
-      ${(hasMx||hasFx)?statCard('Комиссии всего',-Math.abs(totalCommRub),-Math.abs(totalCommRub)/rate0,'МХ + FX','var(--red)'):''}
+      ${(hasMx||hasFx)?statCard('Комиссии',-Math.abs(totalCommRub),-Math.abs(totalCommRub)/rate0,'МХ + FX','var(--red)'):''}
       ${fxTotalSwap!==0?statCard('Своп FX',totalSwapRub,fxTotalSwap,'Forex swap',fxTotalSwap>=0?'var(--green)':'var(--red)'):''}
       ${hasMx?statCard('Payout',mxTotalPayout,mxTotalPayout/rate0,'MX',mxTotalPayout>=0?'var(--green)':'var(--red)'):''}
       ${hasMx?statCard('Перенос',mxTotalRollover,mxTotalRollover/rate0,'MX',mxTotalRollover>=0?'var(--green)':'var(--red)'):''}
