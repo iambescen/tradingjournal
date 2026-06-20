@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781938736 -->
+<!-- v:1781939237 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8235,7 +8235,7 @@ function renderOverviewTab(force) {
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
       ${(hasMx&&hasFx)?statCard('P&L совокупный',fmtRub(combinedPnlRub),'МХ + FX в рублях',combinedPnlRub>=0?'var(--green)':'var(--red)'):''}
       ${(hasMx&&hasFx)?statCard('P&L совокупный $','$'+(combinedPnlRub/rate0).toFixed(2),'МХ + FX в USDT',(combinedPnlRub/rate0)>=0?'var(--green)':'var(--red)'):''}
-      ${hasMx?statCard('P&L МХ',fmtRub(mxTotalPnl),'≈ $'+(mxTotalPnl/rate0).toFixed(2),mxTotalPnl>=0?'var(--green)':'var(--red)'):''}
+      ${hasMx?statCard('P&L МХ',fmtRub(mxTotalPnl),'$'+(mxTotalPnl/rate0).toFixed(2),mxTotalPnl>=0?'var(--green)':'var(--red)'):''}
       ${hasFx?statCard('P&L FX',`${fxTotalPnlUsd>=0?'+':''}$${fxTotalPnlUsd.toFixed(2)}`,fxTotalPnlRub?fmtRub(fxTotalPnlRub):'',fxTotalPnlUsd>=0?'var(--green)':'var(--red)'):''}
       ${(hasMx||hasFx)?statCard('Средний день',fmtRub(combinedAvgDay),`${allDaysCount} торговых дней`,combinedAvgDay>=0?'var(--green)':'var(--red)'):''}
     </div>
@@ -8248,9 +8248,9 @@ function renderOverviewTab(force) {
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px">
       ${(hasMx||hasFx)?statCard('Комиссии всего',fmtRub(-Math.abs(totalCommRub)),'МХ + FX в рублях','var(--red)'):''}
       ${fxTotalSwap!==0?statCard('Своп FX','$'+fxTotalSwap.toFixed(2),fmtRub(totalSwapRub),fxTotalSwap>=0?'var(--green)':'var(--red)'):''}
-      ${mxTotalPayout!==0?statCard('Payout МХ',fmtRub(mxTotalPayout),'выплата проп-фирмы',mxTotalPayout>=0?'var(--green)':'var(--red)'):''}
-      ${mxTotalRollover!==0?statCard('Перенос МХ',fmtRub(mxTotalRollover),'плата за перенос',mxTotalRollover>=0?'var(--green)':'var(--red)'):''}
-      ${mxTotalFunding!==0?statCard('Фандинг МХ',fmtRub(mxTotalFunding),'финансирование',mxTotalFunding>=0?'var(--green)':'var(--red)'):''}
+      ${hasMx?statCard('Payout МХ',fmtRub(mxTotalPayout),'выплата проп-фирмы',mxTotalPayout>=0?'var(--green)':'var(--red)'):''}
+      ${hasMx?statCard('Перенос МХ',fmtRub(mxTotalRollover),'плата за перенос позиций',mxTotalRollover>=0?'var(--green)':'var(--red)'):''}
+      ${hasMx?statCard('Фандинг МХ',fmtRub(mxTotalFunding),'финансирование',mxTotalFunding>=0?'var(--green)':'var(--red)'):''}
     </div>
     <!-- BALANCE CHARTS -->
     <!-- BALANCE CHARTS -->
