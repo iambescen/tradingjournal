@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781936604 -->
+<!-- v:1781936713 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -1021,6 +1021,18 @@ function saveStore() {
 
 
 let store = loadStore();
+
+// Migrate FX close_date: strip time component if present
+if (store.fx) {
+  store.fx.forEach(t => {
+    if (t.close_date && t.close_date.length > 10) {
+      t.close_date = normDate(t.close_date).substring(0, 10);
+    }
+    if (t.close_time && !t.close_date) {
+      t.close_date = normDate(t.close_time).substring(0, 10);
+    }
+  });
+}
 
 // Версия схемы конструкций. Увеличить при изменении DEFAULT_CONSTRUCTIONS.
 const CONSTRUCTIONS_VERSION = 2;
@@ -2623,8 +2635,8 @@ function toggleUnifiedDay(date) {
 // Асинхронная обёртка: сначала тянет недостающие курсы, потом рендерит
 async function renderUnifiedTableAsync() {
   const dateSet = new Set();
-  store.mx.forEach(r => { const d = normDate(r.date); if (d) dateSet.add(d); });
-  store.fx.forEach(t => { const d = normDate(t.close_date); if (d) dateSet.add(d); });
+  store.mx.forEach(r => { const d = (normDate(r.date)||'').substring(0,10); if (d.length===10) dateSet.add(d); });
+  store.fx.forEach(t => { const d = (normDate(t.close_date||t.close_time||'')||'').substring(0,10); if (d.length===10) dateSet.add(d); });
   const fetched = await fetchHistoricalRates([...dateSet]);
   renderUnifiedTable();
 }
@@ -2652,11 +2664,11 @@ function renderUnifiedTable() {
   if (!wrap) return;
 
   const dateSet = new Set();
-  store.mx.forEach(r => { const d = normDate(r.date); if (d) dateSet.add(d); });
-  store.fx.forEach(t => { const d = normDate(t.close_date); if (d) dateSet.add(d); });
-  store.manual.forEach(m => { const d = normDate(m.date); if (d) dateSet.add(d); });
+  store.mx.forEach(r => { const d = (normDate(r.date)||'').substring(0,10); if (d.length===10) dateSet.add(d); });
+  store.fx.forEach(t => { const d = (normDate(t.close_date||t.close_time||'')||'').substring(0,10); if (d.length===10) dateSet.add(d); });
+  store.manual.forEach(m => { const d = (normDate(m.date)||'').substring(0,10); if (d.length===10) dateSet.add(d); });
 
-  const dates = Array.from(dateSet).filter(Boolean).sort().reverse();
+  const dates = Array.from(dateSet).filter(d => d && d.length===10 && !isNaN(new Date(d))).sort().reverse();
 
   if (!dates.length) {
     document.getElementById('unified-count').textContent = '—';
