@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781947250 -->
+<!-- v:1781947451 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8277,8 +8277,17 @@ function renderOverviewTab(force) {
   // renderCapitalBlock removed — unreliable P&L from positions system
   setTimeout(() => renderOvConstructions(), 80);
 
-  // Draw charts (Chart.js loaded in <head>)
-  setTimeout(() => _drawOverviewCharts(mxDays,fxDays,allDates,mxByDate,fxByDate,cumMx,cumFx,cumComb,instrSorted), 50);
+  // Draw charts after DOM settles
+  const _args = [mxDays,fxDays,allDates,mxByDate,fxByDate,cumMx,cumFx,cumComb,instrSorted];
+  const _tryDraw = (attempt) => {
+    const canvas = document.getElementById('ch-mx-bal') || document.getElementById('ch-fx-bal') || document.getElementById('ch-daily-pnl');
+    if (canvas && typeof Chart !== 'undefined') {
+      _drawOverviewCharts(..._args);
+    } else if (attempt < 10) {
+      setTimeout(() => _tryDraw(attempt + 1), 100);
+    }
+  };
+  setTimeout(() => _tryDraw(0), 100);
 }
 
 function _overviewChart(id, cfg) {
@@ -8316,6 +8325,7 @@ function _ovDefaults() {
 }
 
 function _drawOverviewCharts(mxDays,fxDays,allDates,mxByDate,fxByDate,cumMx,cumFx,cumComb,instrSorted) {
+  const rate0 = currentRate?.value || 85;
   const fmtRubShort = v => {
     const a = Math.abs(v);
     if (a>=1000000) return (v/1000000).toFixed(1)+'М р.';
