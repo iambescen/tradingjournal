@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781935388 -->
+<!-- v:1781935687 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -3904,11 +3904,28 @@ async function calcEstimatedPnl(g) {
       const tick = tickInfo.tick;
       const stepRub = _goCache[buildSecid(ig.instrument)]?.step || tickInfo.stepRub;
 
-      const priceDiff = (xAvg - eAvg) * sign;
-      const pnlRub = (priceDiff / tick) * stepRub * vol;
+      // FIFO P&L calculation
+      // Match entries to exits in order, computing P&L per matched lot
+      const entryQueue = entryRows.flatMap(r => {
+        const lots = r.volume || 0;
+        return Array(Math.round(lots)).fill(r.price || 0);
+      });
+      const exitList = exitRows.flatMap(r => {
+        const lots = r.volume || 0;
+        return Array(Math.round(lots)).fill(r.price || 0);
+      });
 
-      mxPnl += pnlRub;
-      hasMx = true;
+      let instrPnl = 0;
+      const matchCount = Math.min(entryQueue.length, exitList.length);
+      for (let i = 0; i < matchCount; i++) {
+        const diff = (exitList[i] - entryQueue[i]) * sign;
+        instrPnl += (diff / tick) * stepRub;
+      }
+
+      if (matchCount > 0) {
+        mxPnl += instrPnl;
+        hasMx = true;
+      }
 
     } else { // FX
       const entryRows = ig.rows;
