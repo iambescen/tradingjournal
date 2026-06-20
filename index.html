@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781935687 -->
+<!-- v:1781936380 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -2536,22 +2536,31 @@ function editManualEntry(i) {
 function normDate(str) {
   if (!str) return '';
   const s = String(str).trim().replace(/\s.*$/, ''); // strip time part
+  // YYYY-MM-DD (ISO) — most common from cTrader
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.substring(0, 10);
   // DD.MM.YYYY
   if (/^\d{2}\.\d{2}\.\d{4}$/.test(s)) {
     const [d, m, y] = s.split('.');
     return `${y}-${m}-${d}`;
   }
-  // DD/MM/YYYY (cTrader RU export)
-  if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) {
-    const [d, m, y] = s.split('/');
-    return `${y}-${m}-${d}`;
-  }
-  // MM/DD/YYYY
+  // MM/DD/YYYY or DD/MM/YYYY — detect by value
+  // If first part > 12, it must be DD (day); if second part > 12, first must be MM
   if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(s)) {
-    const [m, d, y] = s.split('/');
-    return `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
+    const parts = s.split('/');
+    const a = parseInt(parts[0], 10);
+    const b = parseInt(parts[1], 10);
+    const y = parts[2];
+    // If a > 12 → definitely DD/MM/YYYY
+    // If b > 12 → definitely MM/DD/YYYY
+    // If both ≤ 12 → ambiguous, assume MM/DD/YYYY (cTrader EN export)
+    if (a > 12) {
+      // DD/MM/YYYY
+      return `${y}-${parts[1].padStart(2,'0')}-${parts[0].padStart(2,'0')}`;
+    } else {
+      // MM/DD/YYYY (default for cTrader)
+      return `${y}-${parts[0].padStart(2,'0')}-${parts[1].padStart(2,'0')}`;
+    }
   }
-  // YYYY-MM-DD or YYYY/MM/DD — return first 10 chars
   return s.substring(0, 10);
 }
 
