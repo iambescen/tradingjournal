@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781947912 -->
+<!-- v:1781948164 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8271,10 +8271,12 @@ function renderOverviewTab(force) {
       ${hasMx?statCard('Фандинг',mxTotalFunding,mxTotalFunding/rate0,'MX',mxTotalFunding>=0?'var(--green)':'var(--red)'):''}
     </div>
     <!-- BALANCE CHARTS -->
-    <!-- CHARTS: 2 per row -->
     <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-bottom:14px" class="charts-grid">
-      ${hasMx?chartBox('ch-mx-bal','Баланс МХ (руб)'):''}
+      ${hasMx?chartBox('ch-mx-bal','Баланс МХ (₽ и $)'):''}
       ${hasFx?chartBox('ch-fx-bal','Баланс FX ($ и ₽)'):''}
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-bottom:14px" class="charts-grid">
+      ${(hasMx&&hasFx)?chartBox('ch-comb-bal','Баланс МХ + FX (₽ и $)'):''}
     </div>
     <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-bottom:14px" class="charts-grid">
       ${chartBox('ch-daily-pnl','P&L по дням (МХ+FX)')}
@@ -8285,16 +8287,15 @@ function renderOverviewTab(force) {
       ${instrSorted.length?chartBox('ch-instr','P&L по инструментам МХ',instrSorted.length*22+60):''}
     </div>
     <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-bottom:14px" class="charts-grid">
-      ${hasFx?chartBox('ch-instr-fx','P&L по инструментам FX',200):''}
+      ${chartBox('ch-instr-fx','P&L по инструментам FX',220)}
     </div>
-`;
 
-  _overviewRendered = true;
+  `;
   // renderCapitalBlock removed — unreliable P&L from positions system
   setTimeout(() => renderOvConstructions(), 80);
 
   // Draw charts after DOM settles
-  const _args = [mxDays,fxDays,allDates,mxByDate,fxByDate,cumMx,cumFx,cumComb,instrSorted];
+  const _args = [mxDays,fxDays,allDates,mxByDate,fxByDate,cumMx,cumFx,cumComb,instrSorted,fxInstrSorted];
   const _tryDraw = (attempt) => {
     const canvas = document.getElementById('ch-mx-bal') || document.getElementById('ch-fx-bal') || document.getElementById('ch-daily-pnl');
     if (canvas && typeof Chart !== 'undefined') {
@@ -8340,7 +8341,7 @@ function _ovDefaults() {
   };
 }
 
-function _drawOverviewCharts(mxDays,fxDays,allDates,mxByDate,fxByDate,cumMx,cumFx,cumComb,instrSorted) {
+function _drawOverviewCharts(mxDays,fxDays,allDates,mxByDate,fxByDate,cumMx,cumFx,cumComb,instrSorted,fxInstrSorted=[]) {
   const rate0 = currentRate?.value || 85;
   const fmtRubShort = v => {
     const a = Math.abs(v);
@@ -8380,7 +8381,7 @@ function _drawOverviewCharts(mxDays,fxDays,allDates,mxByDate,fxByDate,cumMx,cumF
         { label:'Баланс FX $', data:fxWithBal.map(d=>({x:d.date,y:d.balUsd})),
           borderColor:_ovColors.fx, backgroundColor:'transparent', tension:.3,
           pointRadius:fxWithBal.length>60?0:3, borderWidth:2, yAxisID:'y' },
-        { label:'Баланс FX руб', data:fxWithBal.filter(d=>d.balRub).map(d=>({x:d.date,y:d.balRub})),
+        { label:'Баланс FX ₽', data:fxWithBal.filter(d=>d.balRub).map(d=>({x:d.date,y:d.balRub})),
           borderColor:_ovColors.fxRub, backgroundColor:'transparent', tension:.3,
           pointRadius:fxWithBal.length>60?0:3, borderWidth:2, borderDash:[4,3], yAxisID:'y2' },
       ]},
