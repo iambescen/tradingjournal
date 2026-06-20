@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781947451 -->
+<!-- v:1781947816 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8181,6 +8181,19 @@ function renderOverviewTab(force) {
   }
   const instrSorted = Object.entries(instrPnl).sort((a,b)=>b[1]-a[1]);
 
+  // Instrument P&L from FX
+  const fxInstrPnl = {};
+  for (const t of store.fx) {
+    const dt = normDate(t.close_date || '');
+    const ms = dt ? parseDate(dt) : 0;
+    if (ms < periodFrom || ms > periodTo) continue;
+    const sym = (t.instrument || t.symbol || '').replace(/[_.].*/, '').toUpperCase();
+    if (!sym) continue;
+    const pnl = (t.net_pnl_usd ?? t.pnl ?? 0) * (currentRate?.value || 85);
+    fxInstrPnl[sym] = (fxInstrPnl[sym] || 0) + pnl;
+  }
+  const fxInstrSorted = Object.entries(fxInstrPnl).sort((a,b)=>b[1]-a[1]);
+
   // Дополнительные метрики
   const mxMaxDD = (() => {
     if (!hasMx) return 0;
@@ -8261,7 +8274,7 @@ function renderOverviewTab(force) {
     <!-- CHARTS: 2 per row -->
     <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-bottom:14px" class="charts-grid">
       ${hasMx?chartBox('ch-mx-bal','Баланс МХ (руб)'):''}
-      ${hasFx?chartBox('ch-fx-bal','Баланс FX (USD и руб)'):''}
+      ${hasFx?chartBox('ch-fx-bal','Баланс FX ($ и ₽)'):''}
     </div>
     <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-bottom:14px" class="charts-grid">
       ${chartBox('ch-daily-pnl','P&L по дням (МХ+FX)')}
@@ -8270,6 +8283,9 @@ function renderOverviewTab(force) {
     <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-bottom:14px" class="charts-grid">
       ${chartBox('ch-comm','Комиссии · Своп · Фандинг · Перенос')}
       ${instrSorted.length?chartBox('ch-instr','P&L по инструментам МХ',instrSorted.length*22+60):''}
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-bottom:14px" class="charts-grid">
+      ${hasFx?chartBox('ch-instr-fx','P&L по инструментам FX',200):''}
     </div>
 `;
 
@@ -8499,6 +8515,27 @@ function _drawOverviewCharts(mxDays,fxDays,allDates,mxByDate,fxByDate,cumMx,cumF
         datasets:[{ label:'P&L по инструменту',
           data: instrSorted.map(([,v])=>v),
           backgroundColor: instrSorted.map(([,v])=>v>=0?'rgba(52,211,153,.75)':'rgba(248,113,113,.75)'),
+          borderRadius:3 }]
+      },
+      options:{ ..._ovDefaults(), indexAxis:'y',
+        plugins:{..._ovDefaults().plugins, legend:{display:false},
+          tooltip:{callbacks:{label:c=>' '+fmtRub(c.parsed.x)}}},
+        scales:{
+          x:{ ..._ovDefaults().scales.x, ticks:{..._ovDefaults().scales.x.ticks,callback:v=>fmtRubShort(v)} },
+          y:{ ticks:{ color:_ovColors.text2, font:{size:10} }, grid:{display:false} }
+        }}
+    });
+  }
+
+  // FX instrument P&L chart
+  if (fxInstrSorted.length) {
+    _overviewChart('ch-instr-fx', {
+      type:'bar',
+      data:{
+        labels: fxInstrSorted.map(([n])=>n),
+        datasets:[{ label:'P&L FX по инструменту',
+          data: fxInstrSorted.map(([,v])=>v),
+          backgroundColor: fxInstrSorted.map(([,v])=>v>=0?'rgba(167,139,250,.75)':'rgba(251,146,60,.75)'),
           borderRadius:3 }]
       },
       options:{ ..._ovDefaults(), indexAxis:'y',
