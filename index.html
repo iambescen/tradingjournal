@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781937016 -->
+<!-- v:1781937477 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8152,6 +8152,9 @@ function renderOverviewTab(force) {
   })();
   const mxAvgDay   = hasMx ? mxTotalPnl / mxDays.length : 0;
   const mxWinRate  = hasMx ? Math.round(mxWinDays / mxDays.length * 100) : 0;
+  // Combined average day (MX + FX)
+  const allDaysCount = Math.max(mxDays.length, fxDays.length) || 1;
+  const combinedAvgDay = combinedPnlRub / allDaysCount;
   const commRatio  = hasMx && mxTotalPnl !== 0 ? Math.abs(mxTotalComm / mxTotalPnl * 100) : null;
 
   // ── HTML structure ──
@@ -8195,7 +8198,7 @@ function renderOverviewTab(force) {
       ${(hasMx&&hasFx)?statCard('P&L совокупный',fmtRub(combinedPnlRub),'МХ + FX в рублях',combinedPnlRub>=0?'var(--green)':'var(--red)'):''}
       ${hasMx?statCard('P&L МХ',fmtRub(mxTotalPnl),`${mxWinRate}% дней в плюс`,mxTotalPnl>=0?'var(--green)':'var(--red)'):''}
       ${hasFx?statCard('P&L FX',`${fxTotalPnlUsd>=0?'+':''}$${fxTotalPnlUsd.toFixed(2)}`,fxTotalPnlRub?fmtRub(fxTotalPnlRub):'',fxTotalPnlUsd>=0?'var(--green)':'var(--red)'):''}
-      ${hasMx?statCard('Средний день',fmtRub(mxAvgDay),`${mxDays.length} торговых дней`,mxAvgDay>=0?'var(--green)':'var(--red)'):''}
+      ${(hasMx||hasFx)?statCard('Средний день',fmtRub(combinedAvgDay),`${allDaysCount} торговых дней`,combinedAvgDay>=0?'var(--green)':'var(--red)'):''}
     </div>
     <!-- STAT CARDS ROW 2: Детали -->
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px">
@@ -8236,7 +8239,7 @@ function renderOverviewTab(force) {
     <div id="ov-constructions-block" style="margin-top:8px"></div>`;
 
   _overviewRendered = true;
-  setTimeout(() => renderCapitalBlock(mxDays, fxDays), 50);
+  // renderCapitalBlock removed — unreliable P&L from positions system
   setTimeout(() => renderOvConstructions(), 80);
 
   // Load Chart.js and draw
