@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781935044 -->
+<!-- v:1781935388 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -3788,28 +3788,24 @@ async function calcEstimatedPnl(g) {
   const rate = currentRate?.value || 85;
   let mxPnl = 0, fxPnl = 0, hasMx = false, hasFx = false;
 
-  // PRIORITY: match MX rows to store.mx trades by date+instrument+price+volume
-  // store.mx[i].trades[] contains margin_rub from PDF — most accurate source
+  // PRIORITY: find matching day in store.mx and sum margin_rub from CLOSING trades only
+  // margin_rub != 0 only on closing trades (exit position) — that's the real P&L
   const mxRows = g.rows.filter(r => r.platform === 'MX');
   if (mxRows.length > 0) {
-    for (const row of mxRows) {
-      // Find matching day in store.mx
-      const rowDate = row.date; // "DD.MM.YYYY"
-      for (const day of store.mx) {
-        const dayDate = day.date; // may be "DD.MM.YYYY" or "YYYY-MM-DD"
-        const dayDateNorm = normDate(dayDate);
-        const rowDateNorm = normDate(rowDate);
-        if (dayDateNorm !== rowDateNorm) continue;
-        // Find matching trade by instrument + direction + price
-        for (const t of (day.trades || [])) {
-          const instrMatch = (t.instrument||'').toLowerCase().includes((row.instrument||'').split('-')[0].toLowerCase())
-                          || (row.instrument||'').toLowerCase().includes((t.instrument||'').split('-')[0].toLowerCase());
-          const priceMatch = Math.abs((t.price||0) - (row.price||0)) < 1;
-          const volMatch   = Math.abs((t.volume||0) - (row.volume||0)) < 0.001;
-          if (instrMatch && priceMatch && volMatch && t.margin_rub) {
-            mxPnl += t.margin_rub;
-            hasMx = true;
-          }
+    // Get unique instruments in this construction
+    const instrSet = new Set(mxRows.map(r => (r.instrument||'').toUpperCase().replace(/[-_].*/,'')));
+    // Get unique dates
+    const dateSet  = new Set(mxRows.map(r => normDate(r.date)));
+
+    for (const day of store.mx) {
+      if (!dateSet.has(normDate(day.date))) continue;
+      // Sum all closing trades (margin_rub != 0) for matching instruments
+      for (const t of (day.trades || [])) {
+        if (!t.margin_rub || Math.abs(t.margin_rub) < 0.001) continue;
+        const tBase = (t.instrument||'').toUpperCase().replace(/[-_].*/,'');
+        if (instrSet.has(tBase)) {
+          mxPnl += t.margin_rub;
+          hasMx = true;
         }
       }
     }
