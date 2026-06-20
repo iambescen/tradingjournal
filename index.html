@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781948164 -->
+<!-- v:1781948531 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8275,7 +8275,7 @@ function renderOverviewTab(force) {
       ${hasMx?chartBox('ch-mx-bal','Баланс МХ (₽ и $)'):''}
       ${hasFx?chartBox('ch-fx-bal','Баланс FX ($ и ₽)'):''}
     </div>
-    <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-bottom:14px" class="charts-grid">
+    <div style="display:grid;grid-template-columns:1fr;gap:14px;margin-bottom:14px" class="charts-grid">
       ${(hasMx&&hasFx)?chartBox('ch-comb-bal','Баланс МХ + FX (₽ и $)'):''}
     </div>
     <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-bottom:14px" class="charts-grid">
@@ -8286,7 +8286,7 @@ function renderOverviewTab(force) {
       ${chartBox('ch-comm','Комиссии · Своп · Фандинг · Перенос')}
       ${instrSorted.length?chartBox('ch-instr','P&L по инструментам МХ',instrSorted.length*22+60):''}
     </div>
-    <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-bottom:14px" class="charts-grid">
+    <div style="display:grid;grid-template-columns:1fr;gap:14px;margin-bottom:14px" class="charts-grid">
       ${chartBox('ch-instr-fx','P&L по инструментам FX',220)}
     </div>
 
