@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781949523 -->
+<!-- v:1781950145 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -317,6 +317,100 @@
 #password-gate .gate-error {
   color:var(--red);font-size:12px;margin-top:6px;min-height:16px;
 }
+
+  /* ═══════════════════════════════════════════
+     RESPONSIVE / MOBILE STYLES
+     Breakpoints: 768px (tablet), 480px (phone)
+     ═══════════════════════════════════════════ */
+
+  /* Tablet: 481–768px */
+  @media (max-width: 768px) {
+    .app { padding: 16px 12px; }
+
+    /* Header */
+    .header { flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+    .header h1 { font-size: 18px; }
+    .header-right { gap: 8px; }
+    .rate-display { font-size: 13px; }
+
+    /* Nav tabs — horizontal scroll */
+    .nav { display: flex; overflow-x: auto; gap: 0; -webkit-overflow-scrolling: touch;
+           scrollbar-width: none; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+    .nav::-webkit-scrollbar { display: none; }
+    .nav-btn { white-space: nowrap; flex-shrink: 0; font-size: 13px; padding: 8px 14px; }
+
+    /* Overview stat cards — 2 cols on tablet */
+    .app > div[style*="grid-template-columns:repeat(4"] {
+      grid-template-columns: repeat(2, 1fr) !important;
+    }
+
+    /* Charts grid — 1 per row on tablet */
+    .charts-grid { grid-template-columns: 1fr !important; }
+
+    /* Dashboard top cards */
+    .dashboard { grid-template-columns: 1fr !important; }
+
+    /* Manual form */
+    .manual-form { flex-direction: column; }
+    .manual-form input, .manual-form select { width: 100%; box-sizing: border-box; }
+
+    /* Tables — horizontal scroll */
+    .section-body { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    table { min-width: 480px; }
+
+    /* Journal cards */
+    .expand-inner { padding: 8px 10px; }
+
+    /* Modal */
+    .modal { width: 95vw; padding: 16px; }
+  }
+
+  /* Phone: ≤480px */
+  @media (max-width: 480px) {
+    .app { padding: 10px 8px; }
+
+    /* Header compact */
+    .header { margin-bottom: 10px; }
+    .header h1 { font-size: 15px; }
+    .theme-toggle { width: 28px; height: 28px; font-size: 13px; }
+    .rate-display { font-size: 12px; }
+
+    /* Nav */
+    .nav-btn { font-size: 12px; padding: 7px 10px; }
+
+    /* Stat cards — 1 col on phone */
+    .app > div[style*="grid-template-columns:repeat(4"] {
+      grid-template-columns: 1fr !important;
+    }
+
+    /* Period buttons */
+    div[style*="display:flex"][style*="gap:8px"] > button {
+      font-size: 11px; padding: 4px 8px;
+    }
+
+    /* Top balance cards */
+    #overview-container .card,
+    div[id*="dash-"] { padding: 12px 14px; }
+    #dash-mx-val, #dash-fx-val, #dash-total-pnl { font-size: 20px; }
+
+    /* Calc table */
+    .calc-instruments { grid-template-columns: 1fr !important; }
+
+    /* Table font */
+    table { font-size: 11px; min-width: 360px; }
+    .unified-row td, .day-header-row td { padding: 6px 8px; }
+
+    /* Cards in journal */
+    .construction-card { padding: 10px 12px; }
+  }
+
+  /* Ensure calc grid responsive */
+  @media (max-width: 900px) {
+    div[style*="grid-template-columns:repeat(3,1fr)"] {
+      grid-template-columns: 1fr !important;
+    }
+  }
+
 </style>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 </head>
