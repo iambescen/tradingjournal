@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781938636 -->
+<!-- v:1781938736 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8541,6 +8541,7 @@ renderFXTable();
 renderFXFiles();
 renderManualTable();
 renderUnifiedTableAsync(); // async: подтягивает исторические курсы ЦБ РФ, потом рендерит
+setTimeout(() => renderOverviewTab(true), 100); // render overview on startup
 renderJournalTab();
 renderConstructionsTab();
 renderPositionsTab();
