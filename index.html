@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781940880 -->
+<!-- v:1781941010 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8222,7 +8222,7 @@ function renderOverviewTab(force) {
                   + `<span style="color:var(--text2);font-size:13px">${usdStr}</span>`;
       }
     }
-    return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:12px 16px;min-width:0">
+    return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:12px 16px;min-width:180px;flex:1 1 180px;max-width:280px">
       <div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">${label}</div>
       <div style="font-size:15px;font-weight:700;font-family:monospace;display:flex;align-items:baseline;gap:2px;flex-wrap:wrap">${mainHtml}</div>
       ${sub?`<div style="font-size:10px;color:var(--text2);margin-top:2px">${sub}</div>`:''}
@@ -8265,13 +8265,13 @@ function renderOverviewTab(force) {
       ${(hasMx||hasFx)?statCard('Средний день',combinedAvgDay,combinedAvgDay/rate0,allDaysCount+' торг. дней',combinedAvgDay>=0?'var(--green)':'var(--red)'):''}
     </div>
     <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:10px">
-      ${(hasMx||hasFx)&&combinedBestDay>0?statCard('Лучший день',combinedBestDay,combinedBestDay/rate0,'МХ + FX','var(--green)'):''}
+    <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:10px">
       ${(hasMx||hasFx)&&combinedWorstDay<0?statCard('Худший день',combinedWorstDay,combinedWorstDay/rate0,'МХ + FX','var(--red)'):''}
       ${(hasMx||hasFx)?statCard('Комиссии',-Math.abs(totalCommRub),-Math.abs(totalCommRub)/rate0,'МХ + FX','var(--red)'):''}
       ${fxTotalSwap!==0?statCard('Своп FX',totalSwapRub,fxTotalSwap,'Forex swap',fxTotalSwap>=0?'var(--green)':'var(--red)'):''}
     </div>
     <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:20px">
-      ${hasMx?statCard('Payout МХ',mxTotalPayout,mxTotalPayout/rate0,'выплата проп-фирмы',mxTotalPayout>=0?'var(--green)':'var(--red)'):''}
+    <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:20px">
       ${hasMx?statCard('Перенос МХ',mxTotalRollover,mxTotalRollover/rate0,'плата за перенос',mxTotalRollover>=0?'var(--green)':'var(--red)'):''}
       ${hasMx?statCard('Фандинг МХ',mxTotalFunding,mxTotalFunding/rate0,'финансирование',mxTotalFunding>=0?'var(--green)':'var(--red)'):''}
     </div>
