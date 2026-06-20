@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781940464 -->
+<!-- v:1781940880 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8257,32 +8257,29 @@ function renderOverviewTab(force) {
       <span class="dim" style="font-size:11px;margin-left:auto">${mxDays.length} дней МХ · ${fxDays.length} дней FX</span>
     </div>
 
-    <!-- STAT CARDS ROW 1: Ключевые результаты -->
-    <!-- STAT CARDS ROW 1: Ключевые результаты -->
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:10px">
+    <!-- STAT CARDS -->
+    <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:10px">
+      ${(hasMx&&hasFx)?statCard('P&L совокупный',combinedPnlRub,combinedPnlRub/rate0,'МХ + FX',combinedPnlRub>=0?'var(--green)':'var(--red)'):''}
       ${hasMx?statCard('P&L МХ',mxTotalPnl,mxTotalPnl/rate0,'Фьючерсы MOEX',mxTotalPnl>=0?'var(--green)':'var(--red)'):''}
       ${hasFx?statCard('P&L FX',fxTotalPnlRub||0,fxTotalPnlUsd,'Forex',fxTotalPnlUsd>=0?'var(--green)':'var(--red)'):''}
       ${(hasMx||hasFx)?statCard('Средний день',combinedAvgDay,combinedAvgDay/rate0,allDaysCount+' торг. дней',combinedAvgDay>=0?'var(--green)':'var(--red)'):''}
     </div>
-    <!-- STAT CARDS ROW 2: Риски -->
-    <!-- STAT CARDS ROW 2: Риски -->
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-bottom:10px">
+    <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:10px">
+      ${(hasMx||hasFx)&&combinedBestDay>0?statCard('Лучший день',combinedBestDay,combinedBestDay/rate0,'МХ + FX','var(--green)'):''}
       ${(hasMx||hasFx)&&combinedWorstDay<0?statCard('Худший день',combinedWorstDay,combinedWorstDay/rate0,'МХ + FX','var(--red)'):''}
-    </div>
-    <!-- STAT CARDS ROW 3: Затраты -->
-    <!-- STAT CARDS ROW 3: Затраты -->
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-bottom:20px">
+      ${(hasMx||hasFx)?statCard('Комиссии',-Math.abs(totalCommRub),-Math.abs(totalCommRub)/rate0,'МХ + FX','var(--red)'):''}
       ${fxTotalSwap!==0?statCard('Своп FX',totalSwapRub,fxTotalSwap,'Forex swap',fxTotalSwap>=0?'var(--green)':'var(--red)'):''}
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:20px">
       ${hasMx?statCard('Payout МХ',mxTotalPayout,mxTotalPayout/rate0,'выплата проп-фирмы',mxTotalPayout>=0?'var(--green)':'var(--red)'):''}
       ${hasMx?statCard('Перенос МХ',mxTotalRollover,mxTotalRollover/rate0,'плата за перенос',mxTotalRollover>=0?'var(--green)':'var(--red)'):''}
       ${hasMx?statCard('Фандинг МХ',mxTotalFunding,mxTotalFunding/rate0,'финансирование',mxTotalFunding>=0?'var(--green)':'var(--red)'):''}
     </div>
     <!-- BALANCE CHARTS -->
-    <!-- BALANCE CHARTS -->
-    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-bottom:14px;container-type:inline-size">
+    <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-bottom:14px" class="charts-grid">
+      ${hasMx?chartBox('ch-mx-bal','Баланс МХ (руб)'):''}
       ${hasFx?chartBox('ch-fx-bal','Баланс FX (USD и руб)'):''}
     </div>
-
     ${(hasMx&&hasFx)?`<div style="margin-bottom:14px">${chartBox('ch-comb-bal','Совокупный баланс МХ + FX (руб)',160)}</div>`:''}
 
     <!-- P&L CHARTS -->
