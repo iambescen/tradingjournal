@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781937766 -->
+<!-- v:1781938317 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8033,11 +8033,14 @@ function renderOverviewTab(force) {
 
   const mxDays = store.mx
     .map(r => ({
-      date:   r.date,
-      ms:     parseDate(r.date),
-      bal:    r.balance_end || 0,
-      pnl:    r.equity      || 0,
-      comm:   r.commission  || 0,
+      date:     r.date,
+      ms:       parseDate(r.date),
+      bal:      r.balance_end || 0,
+      pnl:      r.equity      || 0,
+      comm:     r.commission  || 0,
+      funding:  r.funding     || 0,
+      rollover: r.rollover    || 0,
+      payout:   r.payout      || 0,
     }))
     .filter(d => (d.bal > 0 || d.pnl !== 0) && d.ms >= periodFrom && d.ms <= periodTo)
     .sort((a,b) => a.ms - b.ms);
@@ -8229,7 +8232,7 @@ function renderOverviewTab(force) {
     <!-- STAT CARDS ROW 1: Ключевые результаты -->
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
       ${(hasMx&&hasFx)?statCard('P&L совокупный',fmtRub(combinedPnlRub),'МХ + FX в рублях',combinedPnlRub>=0?'var(--green)':'var(--red)'):''}
-      ${hasMx?statCard('P&L МХ',fmtRub(mxTotalPnl),`${mxWinRate}% дней в плюс`,mxTotalPnl>=0?'var(--green)':'var(--red)'):''}
+      ${hasMx?statCard('P&L МХ',fmtRub(mxTotalPnl),mxTotalComm?'комиссии: '+fmtRub(mxTotalComm):'',mxTotalPnl>=0?'var(--green)':'var(--red)'):''}
       ${hasFx?statCard('P&L FX',`${fxTotalPnlUsd>=0?'+':''}$${fxTotalPnlUsd.toFixed(2)}`,fxTotalPnlRub?fmtRub(fxTotalPnlRub):'',fxTotalPnlUsd>=0?'var(--green)':'var(--red)'):''}
       ${(hasMx||hasFx)?statCard('Средний день',fmtRub(combinedAvgDay),`${allDaysCount} торговых дней`,combinedAvgDay>=0?'var(--green)':'var(--red)'):''}
     </div>
@@ -8248,23 +8251,23 @@ function renderOverviewTab(force) {
       ${mxTotalFunding!==0?statCard('Фандинг МХ',fmtRub(mxTotalFunding),'финансирование',mxTotalFunding>=0?'var(--green)':'var(--red)'):''}
     </div>
     <!-- BALANCE CHARTS -->
-    <div style="display:grid;grid-template-columns:${hasMx&&hasFx?'1fr 1fr':'1fr'};gap:14px;margin-bottom:14px">
-      ${hasMx?chartBox('ch-mx-bal','Баланс МХ (руб)'):''}
+    <!-- BALANCE CHARTS -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;margin-bottom:14px">
       ${hasFx?chartBox('ch-fx-bal','Баланс FX (USD и руб)'):''}
     </div>
 
     ${(hasMx&&hasFx)?`<div style="margin-bottom:14px">${chartBox('ch-comb-bal','Совокупный баланс МХ + FX (руб)',160)}</div>`:''}
 
     <!-- P&L CHARTS -->
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
-      ${chartBox('ch-daily-pnl','P&L по дням')}
-      ${chartBox('ch-cum-pnl','Накопленный P&L')}
+    <!-- P&L CHARTS -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;margin-bottom:14px">
+      ${chartBox('ch-daily-pnl','P&L по дням (совокупный МХ+FX)')}
     </div>
 
     <!-- BOTTOM CHARTS -->
-    <div style="display:grid;grid-template-columns:${instrSorted.length?'1fr 1fr':'1fr'};gap:14px;margin-bottom:14px">
-      ${chartBox('ch-comm','Комиссии и свопы по дням')}
-      ${instrSorted.length?chartBox('ch-instr','P&L по инструментам МХ',instrSorted.length*22+40):''}
+    <!-- BOTTOM CHARTS -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;margin-bottom:14px">
+      ${chartBox('ch-comm','Комиссии · Своп · Фандинг · Перенос')}
     </div>
 
     <!-- CAPITAL EFFICIENCY -->
@@ -8381,19 +8384,33 @@ function _drawOverviewCharts(mxDays,fxDays,allDates,mxByDate,fxByDate,cumMx,cumF
     });
   }
 
-  // 4. Daily P&L bars
+  // 4. Daily P&L bars — combined МХ+FX per day
   {
+    const combDailyData = allDates.map(dt => {
+      const mx = mxByDate[dt]?.pnl ?? 0;
+      const fx = fxByDate[dt]?.pnlRub ?? 0;
+      return { x: dt, y: mx + fx };
+    });
     const datasets = [];
-    if (hasMx) datasets.push({
-      label:'МХ P&L', data:allDates.map(dt=>({x:dt,y:mxByDate[dt]?.pnl??0})),
-      backgroundColor: allDates.map(dt=>(mxByDate[dt]?.pnl??0)>=0?'rgba(59,130,246,.7)':'rgba(248,113,113,.7)'),
-      borderRadius:2, barPercentage:.6,
-    });
-    if (hasFx) datasets.push({
-      label:'FX P&L', data:allDates.map(dt=>({x:dt,y:fxByDate[dt]?.pnlRub??0})),
-      backgroundColor: allDates.map(dt=>(fxByDate[dt]?.pnlRub??0)>=0?'rgba(167,139,250,.7)':'rgba(251,146,60,.7)'),
-      borderRadius:2, barPercentage:.6,
-    });
+    if (hasMx && hasFx) {
+      // Combined bar
+      datasets.push({
+        label:'МХ+FX P&L', data: combDailyData,
+        backgroundColor: combDailyData.map(d=>d.y>=0?'rgba(52,211,153,.75)':'rgba(248,113,113,.75)'),
+        borderRadius:2, barPercentage:.7,
+      });
+    } else {
+      if (hasMx) datasets.push({
+        label:'МХ P&L', data:allDates.map(dt=>({x:dt,y:mxByDate[dt]?.pnl??0})),
+        backgroundColor: allDates.map(dt=>(mxByDate[dt]?.pnl??0)>=0?'rgba(59,130,246,.7)':'rgba(248,113,113,.7)'),
+        borderRadius:2, barPercentage:.7,
+      });
+      if (hasFx) datasets.push({
+        label:'FX P&L', data:allDates.map(dt=>({x:dt,y:fxByDate[dt]?.pnlRub??0})),
+        backgroundColor: allDates.map(dt=>(fxByDate[dt]?.pnlRub??0)>=0?'rgba(167,139,250,.7)':'rgba(251,146,60,.7)'),
+        borderRadius:2, barPercentage:.7,
+      });
+    }
     _overviewChart('ch-daily-pnl', {
       type:'bar', data:{ datasets },
       options:{ ..._ovDefaults(), plugins:{..._ovDefaults().plugins,
@@ -8420,20 +8437,26 @@ function _drawOverviewCharts(mxDays,fxDays,allDates,mxByDate,fxByDate,cumMx,cumF
     });
   }
 
-  // 6. Commission/swap drag
+  // 6. Commission/swap/funding/rollover chart
   {
     const datasets = [];
     if (hasMx) datasets.push({
       label:'Комиссия МХ', data:allDates.map(dt=>({x:dt,y:-(mxByDate[dt]?.comm??0)})),
-      backgroundColor:'rgba(251,146,60,.75)', borderRadius:2, stack:'mx' });
+      backgroundColor:'rgba(251,146,60,.75)', borderRadius:2, stack:'costs' });
     if (hasFx) {
-      datasets.push({ label:'Комиссия FX (руб)', data:allDates.map(dt=>{
+      datasets.push({ label:'Комиссия FX', data:allDates.map(dt=>{
         const d=fxByDate[dt]; return {x:dt,y:d?.rate?-d.commUsd*d.rate:0};
-      }), backgroundColor:'rgba(167,139,250,.75)', borderRadius:2, stack:'fx' });
-      datasets.push({ label:'Своп FX (руб)', data:allDates.map(dt=>{
+      }), backgroundColor:'rgba(167,139,250,.75)', borderRadius:2, stack:'costs' });
+      datasets.push({ label:'Своп FX', data:allDates.map(dt=>{
         const d=fxByDate[dt]; if(!d?.rate) return {x:dt,y:0};
-        return {x:dt,y:d.swapUsd>=0?d.swapUsd*d.rate:d.swapUsd*d.rate};
-      }), backgroundColor:'rgba(251,191,36,.6)', borderRadius:2, stack:'fx' });
+        return {x:dt,y:d.swapUsd*d.rate};
+      }), backgroundColor:'rgba(251,191,36,.6)', borderRadius:2, stack:'costs' });
+    }
+    if (hasMx) {
+      datasets.push({ label:'Фандинг МХ', data:mxDays.map(d=>({x:d.date,y:d.funding||0})),
+        backgroundColor:'rgba(52,211,153,.6)', borderRadius:2, stack:'costs' });
+      datasets.push({ label:'Перенос МХ', data:mxDays.map(d=>({x:d.date,y:d.rollover||0})),
+        backgroundColor:'rgba(96,165,250,.6)', borderRadius:2, stack:'costs' });
     }
     _overviewChart('ch-comm', {
       type:'bar', data:{ datasets },
