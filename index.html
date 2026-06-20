@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781936713 -->
+<!-- v:1781937016 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -2668,7 +2668,7 @@ function renderUnifiedTable() {
   store.fx.forEach(t => { const d = (normDate(t.close_date||t.close_time||'')||'').substring(0,10); if (d.length===10) dateSet.add(d); });
   store.manual.forEach(m => { const d = (normDate(m.date)||'').substring(0,10); if (d.length===10) dateSet.add(d); });
 
-  const dates = Array.from(dateSet).filter(d => d && d.length===10 && !isNaN(new Date(d))).sort().reverse();
+  const dates = Array.from(dateSet).filter(d => d && d.length===10).sort().reverse();
 
   if (!dates.length) {
     document.getElementById('unified-count').textContent = '—';
@@ -5152,19 +5152,7 @@ function ljClearAll() {
 }
 
 // Normalize date to DD.MM.YYYY
-function normDate(s) {
-  if (!s) return '';
-  if (s.includes('/')) {
-    const p = s.split('/');
-    return `${p[0].padStart(2,'0')}.${p[1].padStart(2,'0')}.${p[2]}`;
-  }
-  if (s.includes('-')) {
-    const p = s.split('-');
-    if (p[0].length === 4) return `${p[2]}.${p[1]}.${p[0]}`;
-    return s;
-  }
-  return s;
-}
+// normDate defined earlier in script
 
 // ═══════════════════════════════════════════════════════════════
 // ── CAPITAL EFFICIENCY (ГО + маржа + ROC) ──
