@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781947038 -->
+<!-- v:1781947250 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -318,6 +318,7 @@
   color:var(--red);font-size:12px;margin-top:6px;min-height:16px;
 }
 </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 </head>
 <body>
 <div id="password-gate" style="display:none">
@@ -8276,14 +8277,8 @@ function renderOverviewTab(force) {
   // renderCapitalBlock removed — unreliable P&L from positions system
   setTimeout(() => renderOvConstructions(), 80);
 
-  // Load Chart.js and draw
-  if (window.Chart) { _drawOverviewCharts(mxDays,fxDays,allDates,mxByDate,fxByDate,cumMx,cumFx,cumComb,instrSorted); }
-  else {
-    const s = document.createElement('script');
-    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js';
-    s.onload = () => _drawOverviewCharts(mxDays,fxDays,allDates,mxByDate,fxByDate,cumMx,cumFx,cumComb,instrSorted);
-    document.head.appendChild(s);
-  }
+  // Draw charts (Chart.js loaded in <head>)
+  setTimeout(() => _drawOverviewCharts(mxDays,fxDays,allDates,mxByDate,fxByDate,cumMx,cumFx,cumComb,instrSorted), 50);
 }
 
 function _overviewChart(id, cfg) {
