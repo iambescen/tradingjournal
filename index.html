@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781938467 -->
+<!-- v:1781938636 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8114,13 +8114,15 @@ function renderOverviewTab(force) {
   // Combined P&L (days where both have data with RUB conversion)
   const combinedPnlRub = mxTotalPnl + fxTotalPnlRub;
 
-  // Combined best/worst day
-  const allDaysPnl = [
-    ...mxDays.map(d => d.pnl),
-    ...fxDays.filter(d=>d.pnlRub!==null).map(d => d.pnlRub)
-  ];
-  const combinedBestDay  = allDaysPnl.length ? Math.max(...allDaysPnl) : 0;
-  const combinedWorstDay = allDaysPnl.length ? Math.min(...allDaysPnl) : 0;
+  // Combined best/worst day — sum MX+FX per calendar day
+  const allDatesForBW = [...new Set([...mxDays.map(d=>d.date),...fxDays.map(d=>d.date)])];
+  const dailyCombined = allDatesForBW.map(dt => {
+    const mx = mxDays.find(d=>d.date===dt)?.pnl || 0;
+    const fx = fxDays.find(d=>d.date===dt)?.pnlRub || 0;
+    return mx + fx;
+  });
+  const combinedBestDay  = dailyCombined.length ? Math.max(...dailyCombined) : 0;
+  const combinedWorstDay = dailyCombined.length ? Math.min(...dailyCombined) : 0;
 
   // Combined max drawdown
   const combinedMaxDD = (() => {
@@ -8232,15 +8234,15 @@ function renderOverviewTab(force) {
     <!-- STAT CARDS ROW 1: Ключевые результаты -->
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
       ${(hasMx&&hasFx)?statCard('P&L совокупный',fmtRub(combinedPnlRub),'МХ + FX в рублях',combinedPnlRub>=0?'var(--green)':'var(--red)'):''}
-      ${hasMx?statCard('P&L МХ',fmtRub(mxTotalPnl),mxTotalComm?'комиссии: '+fmtRub(mxTotalComm):'',mxTotalPnl>=0?'var(--green)':'var(--red)'):''}
+      ${(hasMx&&hasFx)?statCard('P&L совокупный $','$'+(combinedPnlRub/rate0).toFixed(2),'МХ + FX в USDT',(combinedPnlRub/rate0)>=0?'var(--green)':'var(--red)'):''}
+      ${hasMx?statCard('P&L МХ',fmtRub(mxTotalPnl),'≈ $'+(mxTotalPnl/rate0).toFixed(2),mxTotalPnl>=0?'var(--green)':'var(--red)'):''}
       ${hasFx?statCard('P&L FX',`${fxTotalPnlUsd>=0?'+':''}$${fxTotalPnlUsd.toFixed(2)}`,fxTotalPnlRub?fmtRub(fxTotalPnlRub):'',fxTotalPnlUsd>=0?'var(--green)':'var(--red)'):''}
       ${(hasMx||hasFx)?statCard('Средний день',fmtRub(combinedAvgDay),`${allDaysCount} торговых дней`,combinedAvgDay>=0?'var(--green)':'var(--red)'):''}
     </div>
     <!-- STAT CARDS ROW 2: Риски -->
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
-      ${(hasMx||hasFx)?statCard('Лучший день',fmtRub(combinedBestDay),'МХ + FX','var(--green)'):''}
-      ${(hasMx||hasFx)?statCard('Худший день',fmtRub(combinedWorstDay),'МХ + FX','var(--red)'):''}
-      ${(hasMx||hasFx)?statCard('Макс. просадка',fmtRub(-combinedMaxDD),'от пика (совокупно)','var(--red)'):''}
+      ${(hasMx||hasFx)&&combinedBestDay>0?statCard('Лучший день',fmtRub(combinedBestDay),'МХ + FX','var(--green)'):''}
+      ${(hasMx||hasFx)&&combinedWorstDay<0?statCard('Худший день',fmtRub(combinedWorstDay),'МХ + FX','var(--red)'):''}
     </div>
     <!-- STAT CARDS ROW 3: Затраты -->
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px">
