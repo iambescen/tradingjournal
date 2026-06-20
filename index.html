@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781937477 -->
+<!-- v:1781937766 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8111,6 +8111,39 @@ function renderOverviewTab(force) {
   // Combined P&L (days where both have data with RUB conversion)
   const combinedPnlRub = mxTotalPnl + fxTotalPnlRub;
 
+  // Combined best/worst day
+  const allDaysPnl = [
+    ...mxDays.map(d => d.pnl),
+    ...fxDays.filter(d=>d.pnlRub!==null).map(d => d.pnlRub)
+  ];
+  const combinedBestDay  = allDaysPnl.length ? Math.max(...allDaysPnl) : 0;
+  const combinedWorstDay = allDaysPnl.length ? Math.min(...allDaysPnl) : 0;
+
+  // Combined max drawdown
+  const combinedMaxDD = (() => {
+    const allDates = [...new Set([...mxDays.map(d=>d.date),...fxDays.map(d=>d.date)])].sort();
+    let peak = -Infinity, maxDD = 0, cum = 0;
+    for (const date of allDates) {
+      const mx = mxDays.find(d=>d.date===date);
+      const fx = fxDays.find(d=>d.date===date);
+      cum += (mx?.pnl||0) + (fx?.pnlRub||0);
+      if (cum > peak) peak = cum;
+      const dd = peak - cum;
+      if (dd > maxDD) maxDD = dd;
+    }
+    return maxDD;
+  })();
+
+  // MX extra fields (payout, rollover/перенос, funding)
+  const mxTotalPayout   = hasMx ? mxDays.reduce((s,d)=>s+(d.payout||0),0) : 0;
+  const mxTotalRollover = hasMx ? mxDays.reduce((s,d)=>s+(d.rollover||0),0) : 0;
+  const mxTotalFunding  = hasMx ? mxDays.reduce((s,d)=>s+(d.funding||0),0) : 0;
+
+  // Combined commissions
+  const rate0 = currentRate?.value || 85;
+  const totalCommRub = mxTotalComm + fxTotalComm * rate0;
+  const totalSwapRub = fxTotalSwap * rate0;
+
   // ── Unified date axis (all dates across MX+FX) ──
   const allDatesSet = new Set([...mxDays.map(d=>d.date),...fxDays.map(d=>d.date)]);
   const allDates = [...allDatesSet].sort((a,b)=>parseDate(a)-parseDate(b));
@@ -8200,18 +8233,20 @@ function renderOverviewTab(force) {
       ${hasFx?statCard('P&L FX',`${fxTotalPnlUsd>=0?'+':''}$${fxTotalPnlUsd.toFixed(2)}`,fxTotalPnlRub?fmtRub(fxTotalPnlRub):'',fxTotalPnlUsd>=0?'var(--green)':'var(--red)'):''}
       ${(hasMx||hasFx)?statCard('Средний день',fmtRub(combinedAvgDay),`${allDaysCount} торговых дней`,combinedAvgDay>=0?'var(--green)':'var(--red)'):''}
     </div>
-    <!-- STAT CARDS ROW 2: Детали -->
-    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px">
-      ${hasMx?statCard('Лучший день',fmtRub(mxBestDay),'МХ','var(--green)'):''}
-      ${hasMx?statCard('Худший день',fmtRub(mxWorstDay),'МХ','var(--red)'):''}
-      ${hasMx?statCard('Макс. просадка',fmtRub(-mxMaxDD),'от пика P&L','var(--red)'):''}
-      ${hasMx?statCard('Комиссии МХ',fmtRub(mxTotalComm),commRatio?`${commRatio.toFixed(1)}% от P&L`:''
-        ,'var(--red)'):''}
-      ${hasFx?statCard('Комиссии FX',`$${fxTotalComm.toFixed(2)}`,fxTotalSwap?`swap $${fxTotalSwap.toFixed(2)}`:'','var(--red)'):''}
-      ${hasMx?statCard('Баланс МХ',fmtRub(mxLastBal),'на конец периода'):''}
-      ${hasFx?statCard('Баланс FX',`$${fxLastBalUsd.toFixed(0)}`,fxLastBalRub?fmtRub(fxLastBalRub):''):''}
+    <!-- STAT CARDS ROW 2: Риски -->
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+      ${(hasMx||hasFx)?statCard('Лучший день',fmtRub(combinedBestDay),'МХ + FX','var(--green)'):''}
+      ${(hasMx||hasFx)?statCard('Худший день',fmtRub(combinedWorstDay),'МХ + FX','var(--red)'):''}
+      ${(hasMx||hasFx)?statCard('Макс. просадка',fmtRub(-combinedMaxDD),'от пика (совокупно)','var(--red)'):''}
     </div>
-
+    <!-- STAT CARDS ROW 3: Затраты -->
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px">
+      ${(hasMx||hasFx)?statCard('Комиссии всего',fmtRub(-Math.abs(totalCommRub)),'МХ + FX в рублях','var(--red)'):''}
+      ${fxTotalSwap!==0?statCard('Своп FX','$'+fxTotalSwap.toFixed(2),fmtRub(totalSwapRub),fxTotalSwap>=0?'var(--green)':'var(--red)'):''}
+      ${mxTotalPayout!==0?statCard('Payout МХ',fmtRub(mxTotalPayout),'выплата проп-фирмы',mxTotalPayout>=0?'var(--green)':'var(--red)'):''}
+      ${mxTotalRollover!==0?statCard('Перенос МХ',fmtRub(mxTotalRollover),'плата за перенос',mxTotalRollover>=0?'var(--green)':'var(--red)'):''}
+      ${mxTotalFunding!==0?statCard('Фандинг МХ',fmtRub(mxTotalFunding),'финансирование',mxTotalFunding>=0?'var(--green)':'var(--red)'):''}
+    </div>
     <!-- BALANCE CHARTS -->
     <div style="display:grid;grid-template-columns:${hasMx&&hasFx?'1fr 1fr':'1fr'};gap:14px;margin-bottom:14px">
       ${hasMx?chartBox('ch-mx-bal','Баланс МХ (руб)'):''}
