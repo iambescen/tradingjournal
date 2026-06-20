@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781939396 -->
+<!-- v:1781939574 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8196,12 +8196,33 @@ function renderOverviewTab(force) {
   const commRatio  = hasMx && mxTotalPnl !== 0 ? Math.abs(mxTotalComm / mxTotalPnl * 100) : null;
 
   // ── HTML structure ──
-  const statCard = (label, val, sub='', color='') =>
-    `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:12px 16px;min-width:140px;flex:1">
+  // statCard(label, rubVal, usdVal, sub, color)
+  // rubVal: number in RUB, usdVal: number in USD (optional)
+  // Shows: "1 234 ₽ / $16.85" on one line
+  const statCard = (label, rubVal, usdVal, sub='', color='') => {
+    const isNum = v => typeof v === 'number' && !isNaN(v);
+    let mainHtml;
+    if (isNum(rubVal) && isNum(usdVal)) {
+      const rubStr = (rubVal>=0?'+':'')+Math.round(rubVal).toLocaleString('ru')+' ₽';
+      const usdStr = (usdVal>=0?'+':'')+'$'+Math.abs(usdVal).toFixed(2);
+      mainHtml = `<span style="color:${color||'var(--text1)'}">${rubStr}</span>`
+               + `<span style="color:var(--text2);font-size:13px;margin:0 3px">/</span>`
+               + `<span style="color:${color||'var(--text2)'};font-size:13px">${usdStr}</span>`;
+    } else {
+      // Legacy: rubVal is a string
+      mainHtml = `<span style="color:${color||'var(--text1)'}">${rubVal}</span>`;
+      if (isNum(usdVal)) {
+        const usdStr = (usdVal>=0?'+':'')+'$'+Math.abs(usdVal).toFixed(2);
+        mainHtml += `<span style="color:var(--text2);font-size:13px;margin:0 3px">/</span>`
+                  + `<span style="color:var(--text2);font-size:13px">${usdStr}</span>`;
+      }
+    }
+    return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:12px 16px;min-width:160px;flex:1">
       <div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">${label}</div>
-      <div style="font-size:16px;font-weight:700;font-family:monospace;color:${color||'var(--text1)'}">${val}</div>
+      <div style="font-size:15px;font-weight:700;font-family:monospace;display:flex;align-items:baseline;gap:2px;flex-wrap:wrap">${mainHtml}</div>
       ${sub?`<div style="font-size:10px;color:var(--text2);margin-top:2px">${sub}</div>`:''}
     </div>`;
+  };
 
   const chartBox = (id, title, height=220) =>
     `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:12px 16px">
@@ -8233,24 +8254,23 @@ function renderOverviewTab(force) {
 
     <!-- STAT CARDS ROW 1: Ключевые результаты -->
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
-      ${(hasMx&&hasFx)?statCard('P&L совокупный',fmtRub(combinedPnlRub),'МХ + FX в рублях',combinedPnlRub>=0?'var(--green)':'var(--red)'):''}
-      ${(hasMx&&hasFx)?statCard('P&L совокупный $','$'+(combinedPnlRub/rate0).toFixed(2),'МХ + FX в USDT',(combinedPnlRub/rate0)>=0?'var(--green)':'var(--red)'):''}
-      ${hasMx?statCard('P&L МХ',fmtRub(mxTotalPnl),'$'+(mxTotalPnl/rate0).toFixed(2),mxTotalPnl>=0?'var(--green)':'var(--red)'):''}
-      ${hasFx?statCard('P&L FX',`${fxTotalPnlUsd>=0?'+':''}$${fxTotalPnlUsd.toFixed(2)}`,fxTotalPnlRub?fmtRub(fxTotalPnlRub):'',fxTotalPnlUsd>=0?'var(--green)':'var(--red)'):''}
-      ${(hasMx||hasFx)?statCard('Средний день',fmtRub(combinedAvgDay),`${allDaysCount} торговых дней`,combinedAvgDay>=0?'var(--green)':'var(--red)'):''}
+      ${(hasMx&&hasFx)?statCard('P&L совокупный',combinedPnlRub,combinedPnlRub/rate0,'МХ + FX',combinedPnlRub>=0?'var(--green)':'var(--red)'):''}
+      ${hasMx?statCard('P&L МХ',mxTotalPnl,mxTotalPnl/rate0,'Фьючерсы MOEX',mxTotalPnl>=0?'var(--green)':'var(--red)'):''}
+      ${hasFx?statCard('P&L FX',fxTotalPnlRub||0,fxTotalPnlUsd,'Forex',fxTotalPnlUsd>=0?'var(--green)':'var(--red)'):''}
+      ${(hasMx||hasFx)?statCard('Средний день',combinedAvgDay,combinedAvgDay/rate0,allDaysCount+' торг. дней',combinedAvgDay>=0?'var(--green)':'var(--red)'):''}
     </div>
     <!-- STAT CARDS ROW 2: Риски -->
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
-      ${(hasMx||hasFx)&&combinedBestDay>0?statCard('Лучший день',fmtRub(combinedBestDay),'МХ + FX','var(--green)'):''}
-      ${(hasMx||hasFx)&&combinedWorstDay<0?statCard('Худший день',fmtRub(combinedWorstDay),'МХ + FX','var(--red)'):''}
+      ${(hasMx||hasFx)&&combinedBestDay>0?statCard('Лучший день',combinedBestDay,combinedBestDay/rate0,'МХ + FX','var(--green)'):''}
+      ${(hasMx||hasFx)&&combinedWorstDay<0?statCard('Худший день',combinedWorstDay,combinedWorstDay/rate0,'МХ + FX','var(--red)'):''}
     </div>
     <!-- STAT CARDS ROW 3: Затраты -->
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px">
-      ${(hasMx||hasFx)?statCard('Комиссии всего',fmtRub(-Math.abs(totalCommRub)),'МХ + FX в рублях','var(--red)'):''}
-      ${fxTotalSwap!==0?statCard('Своп FX','$'+fxTotalSwap.toFixed(2),fmtRub(totalSwapRub),fxTotalSwap>=0?'var(--green)':'var(--red)'):''}
-      ${hasMx?statCard('Payout МХ',fmtRub(mxTotalPayout),'выплата проп-фирмы',mxTotalPayout>=0?'var(--green)':'var(--red)'):''}
-      ${hasMx?statCard('Перенос МХ',fmtRub(mxTotalRollover),'плата за перенос позиций',mxTotalRollover>=0?'var(--green)':'var(--red)'):''}
-      ${hasMx?statCard('Фандинг МХ',fmtRub(mxTotalFunding),'финансирование',mxTotalFunding>=0?'var(--green)':'var(--red)'):''}
+      ${(hasMx||hasFx)?statCard('Комиссии всего',-Math.abs(totalCommRub),-Math.abs(totalCommRub)/rate0,'МХ + FX','var(--red)'):''}
+      ${fxTotalSwap!==0?statCard('Своп FX',totalSwapRub,fxTotalSwap,'Forex swap',fxTotalSwap>=0?'var(--green)':'var(--red)'):''}
+      ${hasMx?statCard('Payout МХ',mxTotalPayout,mxTotalPayout/rate0,'выплата проп-фирмы',mxTotalPayout>=0?'var(--green)':'var(--red)'):''}
+      ${hasMx?statCard('Перенос МХ',mxTotalRollover,mxTotalRollover/rate0,'плата за перенос',mxTotalRollover>=0?'var(--green)':'var(--red)'):''}
+      ${hasMx?statCard('Фандинг МХ',mxTotalFunding,mxTotalFunding/rate0,'финансирование',mxTotalFunding>=0?'var(--green)':'var(--red)'):''}
     </div>
     <!-- BALANCE CHARTS -->
     <!-- BALANCE CHARTS -->
