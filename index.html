@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781946001 -->
+<!-- v:1781946407 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8240,8 +8240,8 @@ function renderOverviewTab(force) {
 
     <!-- STAT CARDS ROW 1: Ключевые результаты -->
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
-      ${(hasMx&&hasFx)?statCard('P&L совокупный',combinedPnlRub,combinedPnlRub/rate0,'МХ + FX',combinedPnlRub>=0?'var(--green)':'var(--red)'):''}
-      ${hasMx?statCard('P&L МХ',mxTotalPnl,mxTotalPnl/rate0,'Фьючерсы MOEX',mxTotalPnl>=0?'var(--green)':'var(--red)'):''}
+      ${(hasMx&&hasFx)?statCard('Общий P&L',combinedPnlRub,combinedPnlRub/rate0,'МХ + FX',combinedPnlRub>=0?'var(--green)':'var(--red)'):''}
+      ${hasMx?statCard('P&L МХ',mxTotalPnl,mxTotalPnl/rate0,'MOEX',mxTotalPnl>=0?'var(--green)':'var(--red)'):''}
       ${hasFx?statCard('P&L FX',fxTotalPnlRub||0,fxTotalPnlUsd,'Forex',fxTotalPnlUsd>=0?'var(--green)':'var(--red)'):''}
       ${(hasMx||hasFx)?statCard('Средний день',combinedAvgDay,combinedAvgDay/rate0,allDaysCount+' торг. дней',combinedAvgDay>=0?'var(--green)':'var(--red)'):''}
     </div>
@@ -8252,9 +8252,9 @@ function renderOverviewTab(force) {
       ${(hasMx||hasFx)&&combinedWorstDay<0?statCard('Худший день',combinedWorstDay,combinedWorstDay/rate0,'МХ + FX','var(--red)'):''}
       ${(hasMx||hasFx)?statCard('Комиссии всего',-Math.abs(totalCommRub),-Math.abs(totalCommRub)/rate0,'МХ + FX','var(--red)'):''}
       ${fxTotalSwap!==0?statCard('Своп FX',totalSwapRub,fxTotalSwap,'Forex swap',fxTotalSwap>=0?'var(--green)':'var(--red)'):''}
-      ${hasMx?statCard('Payout МХ',mxTotalPayout,mxTotalPayout/rate0,'выплата проп-фирмы',mxTotalPayout>=0?'var(--green)':'var(--red)'):''}
-      ${hasMx?statCard('Перенос МХ',mxTotalRollover,mxTotalRollover/rate0,'плата за перенос',mxTotalRollover>=0?'var(--green)':'var(--red)'):''}
-      ${hasMx?statCard('Фандинг МХ',mxTotalFunding,mxTotalFunding/rate0,'финансирование',mxTotalFunding>=0?'var(--green)':'var(--red)'):''}
+      ${hasMx?statCard('Payout',mxTotalPayout,mxTotalPayout/rate0,'MX',mxTotalPayout>=0?'var(--green)':'var(--red)'):''}
+      ${hasMx?statCard('Перенос',mxTotalRollover,mxTotalRollover/rate0,'MX',mxTotalRollover>=0?'var(--green)':'var(--red)'):''}
+      ${hasMx?statCard('Фандинг',mxTotalFunding,mxTotalFunding/rate0,'MX',mxTotalFunding>=0?'var(--green)':'var(--red)'):''}
     </div>
     <!-- BALANCE CHARTS -->
     <!-- CHARTS: 2 per row -->
@@ -8331,12 +8331,23 @@ function _drawOverviewCharts(mxDays,fxDays,allDates,mxByDate,fxByDate,cumMx,cumF
 
   // 1. MX balance
   if (hasMx) _overviewChart('ch-mx-bal', {
-    type:'line', data:{ datasets:[{ label:'Баланс МХ',
-      data: mxDays.map(d=>({x:d.date,y:d.bal})),
-      borderColor:_ovColors.mx, backgroundColor:_ovColors.mxFill, fill:true,
-      tension:.3, pointRadius:mxDays.length>60?0:3, pointHoverRadius:5, borderWidth:2 }] },
-    options:{ ..._ovDefaults(), plugins:{..._ovDefaults().plugins,
-      tooltip:{callbacks:{label:c=>' '+fmtRub(c.parsed.y)}}}}
+    type:'line',
+    data:{ datasets:[
+      { label:'Баланс МХ ₽', data:mxDays.map(d=>({x:d.date,y:d.bal})),
+        borderColor:_ovColors.mx, backgroundColor:_ovColors.mxFill, fill:true,
+        tension:.3, pointRadius:mxDays.length>60?0:3, borderWidth:2, yAxisID:'y' },
+      { label:'Баланс МХ $', data:mxDays.map(d=>({x:d.date,y:rate0>0?+(d.bal/rate0).toFixed(0):null})),
+        borderColor:'rgba(59,130,246,.6)', backgroundColor:'transparent',
+        tension:.3, pointRadius:mxDays.length>60?0:3, borderWidth:2, borderDash:[4,3], yAxisID:'y2' },
+    ]},
+    options:{ ..._ovDefaults(), scales:{
+      x:_ovDefaults().scales.x,
+      y:{ ..._ovDefaults().scales.y, position:'left',
+          ticks:{..._ovDefaults().scales.y.ticks, callback:v=>Math.round(v/1000)+'K ₽'} },
+      y2:{ type:'linear', position:'right', grid:{drawOnChartArea:false},
+           ticks:{color:'var(--text2)',font:{size:10}, callback:v=>'$'+v.toFixed(0)} }
+    }, plugins:{..._ovDefaults().plugins,
+      tooltip:{callbacks:{label:c=>c.datasetIndex===0?' '+fmtRub(c.parsed.y):' $'+c.parsed.y}}}}
   });
 
   // 2. FX balance (USD + RUB)
