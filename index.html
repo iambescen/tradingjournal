@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781939574 -->
+<!-- v:1781939825 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -317,6 +317,10 @@
 #password-gate .gate-error {
   color:var(--red);font-size:12px;margin-top:6px;min-height:16px;
 }
+
+  @media (max-width: 700px) {
+    .charts-grid { grid-template-columns: 1fr !important; }
+  }
 </style>
 </head>
 <body>
@@ -8217,7 +8221,7 @@ function renderOverviewTab(force) {
                   + `<span style="color:var(--text2);font-size:13px">${usdStr}</span>`;
       }
     }
-    return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:12px 16px;min-width:160px;flex:1">
+    return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:12px 16px;min-width:160px;max-width:280px;flex:1">
       <div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">${label}</div>
       <div style="font-size:15px;font-weight:700;font-family:monospace;display:flex;align-items:baseline;gap:2px;flex-wrap:wrap">${mainHtml}</div>
       ${sub?`<div style="font-size:10px;color:var(--text2);margin-top:2px">${sub}</div>`:''}
@@ -8274,7 +8278,7 @@ function renderOverviewTab(force) {
     </div>
     <!-- BALANCE CHARTS -->
     <!-- BALANCE CHARTS -->
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;margin-bottom:14px">
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-bottom:14px;container-type:inline-size">
       ${hasFx?chartBox('ch-fx-bal','Баланс FX (USD и руб)'):''}
     </div>
 
@@ -8282,13 +8286,13 @@ function renderOverviewTab(force) {
 
     <!-- P&L CHARTS -->
     <!-- P&L CHARTS -->
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;margin-bottom:14px">
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-bottom:14px" class="charts-grid">
       ${chartBox('ch-daily-pnl','P&L по дням (совокупный МХ+FX)')}
     </div>
 
     <!-- BOTTOM CHARTS -->
     <!-- BOTTOM CHARTS -->
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;margin-bottom:14px">
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-bottom:14px" class="charts-grid">
       ${chartBox('ch-comm','Комиссии · Своп · Фандинг · Перенос')}
     </div>
 
