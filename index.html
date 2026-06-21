@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1781950145 -->
+<!-- v:1782049990 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8118,6 +8118,45 @@ function _ovPeriodRange() {
   return [0, Infinity];
 }
 
+
+// ── LQDT Benchmark ──────────────────────────────────────────────
+// Fetches LQDT (ВТБ Ликвидность) daily close prices from MOEX ISS
+// Returns: [{date:'YYYY-MM-DD', close: number}]
+const _lqdtCache = {};
+
+async function fetchLqdtPrices(fromDate, toDate) {
+  const key = fromDate + '_' + toDate;
+  if (_lqdtCache[key]) return _lqdtCache[key];
+  try {
+    const url = `https://iss.moex.com/iss/engines/stock/markets/shares/securities/LQDT/candles.json?interval=24&from=${fromDate}&till=${toDate}&iss.meta=off`;
+    const r = await fetch(url);
+    const d = await r.json();
+    const cols = d.candles.columns; // ['open','close','high','low','value','volume','begin','end']
+    const closeIdx = cols.indexOf('close');
+    const dateIdx  = cols.indexOf('begin');
+    const result = d.candles.data.map(row => ({
+      date:  row[dateIdx].substring(0, 10),
+      close: row[closeIdx]
+    }));
+    _lqdtCache[key] = result;
+    return result;
+  } catch(e) {
+    console.warn('[LQDT] fetch failed:', e);
+    return [];
+  }
+}
+
+// Calculate LQDT benchmark P&L given initial capital and price history
+function calcLqdtBenchmark(capitalRub, lqdtPrices) {
+  if (!lqdtPrices.length || capitalRub <= 0) return [];
+  const basePrice = lqdtPrices[0].close;
+  return lqdtPrices.map(p => ({
+    date:  p.date,
+    pnl:   capitalRub * (p.close / basePrice - 1),  // cumulative P&L vs start
+    value: capitalRub * (p.close / basePrice)         // portfolio value
+  }));
+}
+
 function renderOverviewTab(force) {
   if (_overviewRendered && !force) return;
   const container = document.getElementById('overview-container');
@@ -8288,6 +8327,55 @@ function renderOverviewTab(force) {
   }
   const fxInstrSorted = Object.entries(fxInstrPnl).sort((a,b)=>b[1]-a[1]);
 
+  // ── LQDT Benchmark ──────────────────────────────────────────────────
+  const _benchCapital = (mxBal||0) + (fxBal||0) * rate0;
+  const _allDatesForBench = allDates.slice().sort();
+  const _benchFrom = _allDatesForBench[0] || '';
+  const _benchTo   = _allDatesForBench[_allDatesForBench.length-1] || '';
+
+  if (_benchCapital > 0 && _benchFrom) {
+    const _benchEl = document.getElementById('ov-benchmark');
+    if (_benchEl) _benchEl.innerHTML = '<div style="color:var(--text2);font-size:12px;padding:8px">Загружаю LQDT...</div>';
+    fetchLqdtPrices(_benchFrom, _benchTo).then(lqdtPrices => {
+      const bench = calcLqdtBenchmark(_benchCapital, lqdtPrices);
+      if (!_benchEl) return;
+      if (!bench.length) { _benchEl.innerHTML = ''; return; }
+      const lqdtPnl  = bench[bench.length-1].pnl;
+      const lqdtPct  = (_benchCapital>0?lqdtPnl/_benchCapital*100:0).toFixed(2);
+      const myPnl    = combinedPnlRub;
+      const myPct    = (_benchCapital>0?myPnl/_benchCapital*100:0).toFixed(2);
+      const alpha    = myPnl - lqdtPnl;
+      const alphaPct = (parseFloat(myPct)-parseFloat(lqdtPct)).toFixed(2);
+      const ac = alpha>=0?'var(--green)':'var(--red)';
+      const sg = alpha>=0?'+':'';
+      const card=(l,v,s,c)=>`<div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:12px 16px;min-width:150px;flex:1"><div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">${l}</div><div style="font-size:15px;font-weight:700;font-family:monospace;color:${c}">${v}</div><div style="font-size:10px;color:var(--text2);margin-top:2px">${s}</div></div>`;
+      _benchEl.innerHTML=`<div style="margin-bottom:6px;font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">📊 Бенчмарк vs LQDT (ВТБ Ликвидность)</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+          ${card('Мой P&L',(myPnl>=0?'+':'') +Math.round(myPnl).toLocaleString('ru')+' ₽',myPct+'% от капитала',myPnl>=0?'var(--green)':'var(--red)')}
+          ${card('LQDT',(lqdtPnl>=0?'+':'') +Math.round(lqdtPnl).toLocaleString('ru')+' ₽',lqdtPct+'% за период',lqdtPnl>=0?'var(--green)':'var(--red)')}
+          ${card('Альфа',sg+Math.round(alpha).toLocaleString('ru')+' ₽',sg+alphaPct+'% над LQDT',ac)}
+        </div>
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:12px 16px">
+          <div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">P&L vs LQDT (накопленно, ₽)</div>
+          <canvas id="ch-benchmark" height="180"></canvas>
+        </div>`;
+      setTimeout(()=>{
+        const el=document.getElementById('ch-benchmark');
+        if(!el||typeof Chart==='undefined')return;
+        if(el._chart)el._chart.destroy();
+        const myD=cumComb.length?cumComb:cumMx;
+        const lqD=bench.map(b=>({x:b.date,y:b.pnl}));
+        el._chart=new Chart(el,{type:'line',data:{datasets:[
+          {label:'Мой P&L',data:myD,borderColor:'rgba(52,211,153,1)',backgroundColor:'rgba(52,211,153,.1)',fill:true,tension:.3,pointRadius:0,borderWidth:2.5},
+          {label:'LQDT',data:lqD,borderColor:'rgba(251,191,36,1)',backgroundColor:'transparent',tension:.3,pointRadius:0,borderWidth:2,borderDash:[5,4]},
+        ]},options:{responsive:true,plugins:{legend:{labels:{color:'var(--text1)',font:{size:11}}},tooltip:{callbacks:{label:c=>' '+Math.round(c.parsed.y).toLocaleString('ru')+' ₽'}}},
+          scales:{x:{type:'time',time:{unit:'day',displayFormats:{day:'d MMM'}},ticks:{color:'var(--text2)',font:{size:10}},grid:{color:'rgba(128,128,128,.1)'}},
+            y:{ticks:{color:'var(--text2)',font:{size:10},callback:v=>Math.round(v/1000)+'K ₽'},grid:{color:'rgba(128,128,128,.1)'}}}
+        }});
+      },200);
+    });
+  }
+
   // Дополнительные метрики
   const mxMaxDD = (() => {
     if (!hasMx) return 0;
@@ -8364,6 +8452,8 @@ function renderOverviewTab(force) {
       ${hasMx?statCard('Перенос',mxTotalRollover,mxTotalRollover/rate0,'MX',mxTotalRollover>=0?'var(--green)':'var(--red)'):''}
       ${hasMx?statCard('Фандинг',mxTotalFunding,mxTotalFunding/rate0,'MX',mxTotalFunding>=0?'var(--green)':'var(--red)'):''}
     </div>
+    <!-- BENCHMARK vs LQDT -->
+    <div id="ov-benchmark" style="margin-bottom:20px"></div>
     <!-- BALANCE CHARTS -->
     <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-bottom:14px" class="charts-grid">
       ${chartBox('ch-mx-bal','Баланс МХ (₽ и $)')}
