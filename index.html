@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782051488 -->
+<!-- v:1782051633 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8115,29 +8115,6 @@ function renderOverviewTab(force) {
   // Combined P&L (days where both have data with RUB conversion)
   const combinedPnlRub = mxTotalPnl + fxTotalPnlRub;
 
-  // ── Sharpe / Sortino ────────────────────────────────────────────
-  const _dailyPnls = allDatesForBW.map(dt => {
-    const mx = mxDays.find(d=>d.date===dt)?.pnl || 0;
-    const fx = fxDays.find(d=>d.date===dt)?.pnlRub || 0;
-    return mx + fx;
-  }).filter((_,i) => allDatesForBW[i]);
-
-  const _mean = arr => arr.length ? arr.reduce((s,v)=>s+v,0)/arr.length : 0;
-  const _std  = arr => {
-    if (arr.length < 2) return null;
-    const m = _mean(arr);
-    return Math.sqrt(arr.reduce((s,v)=>s+(v-m)**2,0)/(arr.length-1));
-  };
-
-  const mxPnls = mxDays.map(d=>d.pnl);
-  const meanMx = _mean(mxPnls);
-  const stdMx  = _std(mxPnls);
-  const sharpeMx = stdMx && stdMx > 0 ? +(meanMx / stdMx * Math.sqrt(252)).toFixed(2) : null;
-
-  const downMx = mxPnls.filter(v=>v<0);
-  const stdDownMx = _std(downMx.length >= 2 ? downMx : mxPnls);
-  const sortinoMx = stdDownMx && stdDownMx > 0 ? +(meanMx / stdDownMx * Math.sqrt(252)).toFixed(2) : null;
-
   // Combined best/worst day — sum MX+FX per calendar day
   const allDatesForBW = [...new Set([...mxDays.map(d=>d.date),...fxDays.map(d=>d.date)])];
   const dailyCombined = allDatesForBW.map(dt => {
@@ -8235,11 +8212,6 @@ function renderOverviewTab(force) {
   // ── HTML structure ──
   // statCard(label, rubNum, usdNum, sub, color) — dual currency
   const fmtDual = (rub, usd, color) => {
-    if (usd === null || usd === undefined) {
-      // Single value mode (e.g. Sharpe ratio)
-      const v = typeof rub === 'number' ? (rub>=0?'+':'')+rub.toFixed(2) : rub;
-      return `<span style="color:${color||'var(--text1)'}">${v}</span>`;
-    }
     const rs = (rub>=0?'+':'') + Math.round(rub).toLocaleString('ru') + ' ₽';
     const us = (usd>=0?'+':'') + '$' + Math.abs(usd).toFixed(2);
     return `<span style="color:${color||'var(--text1)'}">${rs}</span>`
@@ -8287,13 +8259,6 @@ function renderOverviewTab(force) {
       ${hasFx?statCard('P&L FX',fxTotalPnlRub||0,fxTotalPnlUsd,'Forex',fxTotalPnlUsd>=0?'var(--green)':'var(--red)'):''}
       ${(hasMx||hasFx)?statCard('Средний день',combinedAvgDay,combinedAvgDay/rate0,allDaysCount+' торг. дней',combinedAvgDay>=0?'var(--green)':'var(--red)'):''}
     </div>
-    <!-- Sharpe / Sortino -->
-    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
-      ${(hasMx||hasFx)&&sharpeMx!==null?statCard('Sharpe МХ',sharpeMx,null,'дневной × √252',sharpeMx>=1?'var(--green)':sharpeMx>=0?'var(--text1)':'var(--red)'):''}
-      ${(hasMx||hasFx)&&sortinoMx!==null?statCard('Sortino МХ',sortinoMx,null,'риск просадок',sortinoMx>=1?'var(--green)':sortinoMx>=0?'var(--text1)':'var(--red)'):''}
-    </div>
-    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
-    </div>
     <!-- STAT CARDS ROW 2: Риски -->
     <!-- STAT CARDS ROW 2+3: Риски + Затраты -->
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px">
@@ -8324,8 +8289,6 @@ function renderOverviewTab(force) {
     <div style="display:grid;grid-template-columns:1fr;gap:14px;margin-bottom:14px" class="charts-grid">
       ${chartBox('ch-instr-fx','P&L по инструментам FX',220)}
     </div>
-    <!-- WEEKLY TABLE -->
-    <div id="ov-weekly" style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:16px;margin-bottom:16px"></div>
     <!-- BENCHMARK vs LQDT — at bottom -->
     <div id="ov-benchmark" style="margin-top:8px"></div>
   `;
@@ -8341,7 +8304,6 @@ function renderOverviewTab(force) {
     if (canvas && typeof Chart !== 'undefined') {
       _drawOverviewCharts(..._args);
       renderBenchmark(); // async LQDT benchmark
-      renderWeeklyTable();  // weekly/monthly stats table
       // Hide chart boxes with no data
       if (!hasMx) { const el=document.getElementById('ch-mx-bal'); if(el) el.closest('div[style*="border"]').style.display='none'; }
       if (!hasFx) { const el=document.getElementById('ch-fx-bal'); if(el) el.closest('div[style*="border"]').style.display='none'; }
@@ -8373,143 +8335,6 @@ async function fetchLqdtPrices(from, to) {
     _lqdtCache[key] = result;
     return result;
   } catch(e) { console.warn('[LQDT]', e); return []; }
-}
-
-
-// ── Weekly/Monthly stats table ────────────────────────────────
-function renderWeeklyTable() {
-  const el = document.getElementById('ov-weekly');
-  if (!el) return;
-  const rate0 = currentRate?.value || 85;
-
-  // Build daily data
-  const days = [];
-  const mxByD = Object.fromEntries(store.mx.map(r => [normDate(r.date), r]));
-  const fxByD = {};
-  for (const t of store.fx) {
-    const d = normDate(t.close_date||'');
-    if (!d) continue;
-    if (!fxByD[d]) fxByD[d] = {pnl:0, comm:0, trades:0};
-    fxByD[d].pnl   += (t.net_pnl_usd||t.pnl||0) * rate0;
-    fxByD[d].comm  += (t.commission||0) * rate0;
-    fxByD[d].trades++;
-  }
-
-  const allDates = [...new Set([...Object.keys(mxByD),...Object.keys(fxByD)])].sort();
-  if (allDates.length < 2) { el.innerHTML = ''; return; }
-
-  for (const d of allDates) {
-    const mx = mxByD[d];
-    const fx = fxByD[d];
-    days.push({
-      date:   d,
-      pnl:    (mx?.equity||0) + (fx?.pnl||0),
-      comm:   Math.abs(mx?.commission||0) + Math.abs(fx?.comm||0),
-      trades: (mx?.trades?.length||0) + (fx?.trades||0),
-    });
-  }
-
-  // Group by week (ISO week key YYYY-Www)
-  const getWeekKey = d => {
-    const dt = new Date(d);
-    const jan4 = new Date(dt.getFullYear(), 0, 4);
-    const wn = Math.ceil(((dt - jan4) / 86400000 + jan4.getDay() + 1) / 7);
-    return dt.getFullYear() + '-W' + String(wn).padStart(2,'0');
-  };
-  const getMonthKey = d => d.substring(0,7);
-
-  const MONTHS_RU = ['Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен','Окт','Ноя','Дек'];
-  const fmtWeek = key => {
-    const [yr, ww] = key.split('-W');
-    return `Нед. ${ww} · ${yr}`;
-  };
-  const fmtMonth = key => {
-    const [yr, mm] = key.split('-');
-    return `${MONTHS_RU[parseInt(mm)-1]} ${yr}`;
-  };
-
-  // Aggregate by period
-  const aggregate = (groupFn) => {
-    const map = {};
-    for (const d of days) {
-      const k = groupFn(d.date);
-      if (!map[k]) map[k] = { label:'', pnl:0, comm:0, trades:0, wins:0, days:0 };
-      map[k].pnl    += d.pnl;
-      map[k].comm   += d.comm;
-      map[k].trades += d.trades;
-      map[k].wins   += d.pnl > 0 ? 1 : 0;
-      map[k].days++;
-    }
-    return map;
-  };
-
-  const weeks  = aggregate(getWeekKey);
-  const months = aggregate(getMonthKey);
-
-  const rowHtml = (label, r, isMonth=false) => {
-    const pnlColor = r.pnl >= 0 ? 'var(--green)' : 'var(--red)';
-    const wr = r.days > 0 ? Math.round(r.wins/r.days*100) : 0;
-    return `<tr style="${isMonth?'font-weight:600;background:var(--bg3)':''}">
-      <td style="padding:6px 12px;color:var(--text2);white-space:nowrap">${label}</td>
-      <td style="padding:6px 12px;font-family:monospace;color:${pnlColor};text-align:right">
-        ${r.pnl>=0?'+':''}${Math.round(r.pnl).toLocaleString('ru')} ₽
-      </td>
-      <td style="padding:6px 12px;font-family:monospace;color:var(--red);text-align:right">
-        −${Math.round(r.comm).toLocaleString('ru')} ₽
-      </td>
-      <td style="padding:6px 12px;text-align:right;color:var(--text2)">${r.trades}</td>
-      <td style="padding:6px 12px;text-align:right;color:${wr>=50?'var(--green)':'var(--red)'}">
-        ${r.days > 0 ? wr+'%' : '—'}
-      </td>
-    </tr>`;
-  };
-
-  // Build HTML — sorted desc
-  const weekKeys  = Object.keys(weeks).sort().reverse();
-  const monthKeys = Object.keys(months).sort().reverse();
-
-  let rows = '';
-  let prevMonth = '';
-  for (const wk of weekKeys) {
-    const mk = wk.split('-W')[0] + '-' + String(Math.ceil(parseInt(wk.split('-W')[1])*7/30.5)).padStart(2,'0');
-    // Actually compute month from first day of week
-    const mo = Object.keys(months).filter(m => weekKeys.some(w => {
-      const yr = w.split('-W')[0];
-      const wn = parseInt(w.split('-W')[1]);
-      const d1 = new Date(parseInt(yr), 0, 1 + (wn-1)*7);
-      return d1.toISOString().substring(0,7) === m;
-    }));
-
-    // Insert month header when month changes
-    const firstDayOfWeek = (() => {
-      const [yr, wn] = wk.split('-W');
-      return new Date(parseInt(yr), 0, 1 + (parseInt(wn)-1)*7).toISOString().substring(0,7);
-    })();
-    if (firstDayOfWeek !== prevMonth && months[firstDayOfWeek]) {
-      rows += rowHtml(fmtMonth(firstDayOfWeek), months[firstDayOfWeek], true);
-      prevMonth = firstDayOfWeek;
-    }
-    rows += rowHtml(fmtWeek(wk), weeks[wk]);
-  }
-
-  el.innerHTML = `
-    <div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">
-      📅 Статистика по неделям
-    </div>
-    <div style="overflow-x:auto">
-      <table style="width:100%;border-collapse:collapse;font-size:12px">
-        <thead>
-          <tr style="border-bottom:2px solid var(--border)">
-            <th style="padding:6px 12px;text-align:left;color:var(--text2);font-weight:500">Период</th>
-            <th style="padding:6px 12px;text-align:right;color:var(--text2);font-weight:500">P&L</th>
-            <th style="padding:6px 12px;text-align:right;color:var(--text2);font-weight:500">Комиссии</th>
-            <th style="padding:6px 12px;text-align:right;color:var(--text2);font-weight:500">Сделок</th>
-            <th style="padding:6px 12px;text-align:right;color:var(--text2);font-weight:500">Win%</th>
-          </tr>
-        </thead>
-        <tbody>${rows}</tbody>
-      </table>
-    </div>`;
 }
 
 async function renderBenchmark() {
