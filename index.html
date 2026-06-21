@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782054403 -->
+<!-- v:1782054480 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -5690,19 +5690,16 @@ function calcMxLegPnl(instrument, volume, date) {
 }
 
 function calcFxLegPnl(instrument, date) {
-  // Normalize instrument: remove suffixes like _xp, -xp
   const baseInstr = instrument.replace(/[-_].*/,'').toUpperCase();
-  // Normalize date to YYYY-MM-DD for comparison
   const dateISO = normDate(date);
 
   const fxTrades = (store.fx||[]).filter(t => {
-    // Match instrument
     const ti = (t.instrument||'').replace(/[-_].*/,'').toUpperCase();
     if (ti !== baseInstr) return false;
-    // Match date — compare normalized
     const cd = normDate(t.close_date || t.close_time || t.open_time || '');
     return cd === dateISO;
   });
+  console.log('[FX]', instrument, date, '→', baseInstr, dateISO, 'found:', fxTrades.length);
 
   if (!fxTrades.length) return null;
 
