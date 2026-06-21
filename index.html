@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782051703 -->
+<!-- v:1782052139 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8552,7 +8552,7 @@ async function renderBenchmark() {
     ]}, options:{ responsive:true,
       plugins:{ legend:{labels:{color:'var(--text1)',font:{size:11}}}, tooltip:{callbacks:{label:c=>' '+Math.round(c.parsed.y).toLocaleString('ru')+' ₽'}} },
       scales:{
-        x:{ type:'time', time:{unit:'day',displayFormats:{day:'d MMM'}}, ticks:{color:'var(--text2)',font:{size:10}}, grid:{color:'rgba(128,128,128,.1)'} },
+        x:{ type:'category', ticks:{color:'var(--text2)',font:{size:10},maxTicksLimit:6,callback:v=>v.substring(5)}, grid:{color:'rgba(128,128,128,.1)'} },
         y:{ ticks:{color:'var(--text2)',font:{size:10},callback:v=>Math.round(v/1000)+'K ₽'}, grid:{color:'rgba(128,128,128,.1)'} }
       }
     }});
