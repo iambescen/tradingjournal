@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782057316 -->
+<!-- v:1782057935 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -5676,9 +5676,13 @@ function calcMxLegPnl(instrument, volume, date) {
     (i.name||'').replace(/[-_].*/,'').toUpperCase() === baseInstr
   );
   if (instrSummary) {
+    // instrSummary.pnl = финансовый результат (уже включает комиссию)
+    // instrSummary.commission = биржевая комиссия (отдельно для отображения)
+    // Чтобы не двоить: pnl = фин.рез., commission = 0 (уже учтена)
     return {
-      pnl:        instrSummary.pnl        || 0,
-      commission: instrSummary.commission || 0,
+      pnl:        instrSummary.pnl || 0,
+      commission: 0, // already included in pnl (финансовый результат)
+      commissionDisplay: instrSummary.commission || 0, // for display only
       matched: true
     };
   }
@@ -5793,8 +5797,8 @@ function renderPositionCard(g) {
     if (ig.platform==='MX') {
       const pd = calcMxLegPnl(ig.instrument, eVol, g.date);
       if (pd) {
-        totalMxPnl+=pd.pnl; totalMxComm+=pd.commission; hasAnyPnl=true;
-        const net=pd.pnl+pd.commission;
+        totalMxPnl+=pd.pnl; totalMxComm+=(pd.commissionDisplay||pd.commission); hasAnyPnl=true;
+        const net=pd.pnl; // commission already in pnl when from PDF instruments
         pnlHtml=`<td style="padding:4px 8px;text-align:right;font-family:monospace;font-size:11px;color:${net>=0?'var(--green)':'var(--red)'}">${net>=0?'+':''}${Math.round(net)} ₽</td>`;
       } else pnlHtml='<td style="padding:4px 8px;color:var(--text2);text-align:right;font-size:11px">—</td>';
     } else {
