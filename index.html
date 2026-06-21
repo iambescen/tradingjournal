@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782053380 -->
+<!-- v:1782053513 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -3811,29 +3811,23 @@ async function calcEstimatedPnl(g) {
   let mxPnl = 0, fxPnl = 0, hasMx = false, hasFx = false;
 
   // PRIORITY: find matching day in store.mx and sum margin_rub from CLOSING trades only
-  // margin_rub != 0 only on closing trades (exit position) — that's the real P&L
   const mxRows = g.rows.filter(r => r.platform === 'MX');
   if (mxRows.length > 0) {
-    // Get unique instruments in this construction
     const instrSet = new Set(mxRows.map(r => (r.instrument||'').toUpperCase().replace(/[-_].*/,'')));
-    // Get unique dates — normalize ALL to ISO YYYY-MM-DD
-    const dateSet  = new Set(mxRows.map(r => normDate(r.date)).filter(Boolean));
-
-    console.log('[P&L] instrSet:', [...instrSet], 'dateSet:', [...dateSet]);
-    console.log('[P&L] store.mx days:', store.mx.map(d => d.date + '→' + normDate(d.date)));
+    // Normalize dates to ISO — g.rows may have 2026-06-19, store.mx has 19.06.2026
+    const dateSet = new Set(mxRows.map(r => normDate(r.date)).filter(d => d && d.length === 10));
 
     for (const day of store.mx) {
       const dayNorm = normDate(day.date);
-      if (!dateSet.has(dayNorm)) continue;
-      // Sum all closing trades (margin_rub != 0) for matching instruments
+      if (!dayNorm || !dateSet.has(dayNorm)) continue;
       for (const t of (day.trades || [])) {
         if (!t.margin_rub || Math.abs(t.margin_rub) < 0.001) continue;
-        // Try multiple normalizations to match instrument
-        const tRaw  = (t.instrument||'').toUpperCase();
-        const tBase = tRaw.replace(/[-_].*/,'');
-        const tNoNum = tRaw.replace(/[0-9]/g,'');
-        if (instrSet.has(tBase) || instrSet.has(tRaw) || instrSet.has(tNoNum) ||
-            [...instrSet].some(s => tRaw.startsWith(s) || s.startsWith(tBase))) {
+        const tBase = (t.instrument||'').toUpperCase().replace(/[-_.0-9]/g,'');
+        const match = [...instrSet].some(s => {
+          const sBase = s.replace(/[-_.0-9]/g,'');
+          return tBase === sBase || tBase.startsWith(sBase) || sBase.startsWith(tBase);
+        });
+        if (match) {
           mxPnl += t.margin_rub;
           hasMx = true;
         }
@@ -8560,7 +8554,7 @@ async function renderBenchmark() {
     ]}, options:{ responsive:true,
       plugins:{ legend:{labels:{color:'var(--text1)',font:{size:11}}}, tooltip:{callbacks:{label:c=>' '+Math.round(c.parsed.y).toLocaleString('ru')+' ₽'}} },
       scales:{
-        x:{ type:'category', ticks:{color:'var(--text2)',font:{size:10},maxTicksLimit:6,callback:v=>v.substring(5)}, grid:{color:'rgba(128,128,128,.1)'} },
+        x:{ type:'category', ticks:{color:'var(--text2)',font:{size:10},maxTicksLimit:6,callback:v=>String(v).substring(5)}, grid:{color:'rgba(128,128,128,.1)'} },
         y:{ ticks:{color:'var(--text2)',font:{size:10},callback:v=>Math.round(v/1000)+'K ₽'}, grid:{color:'rgba(128,128,128,.1)'} }
       }
     }});
