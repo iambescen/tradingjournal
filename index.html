@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782053832 -->
+<!-- v:1782054312 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -5659,7 +5659,10 @@ async function renderDealsAnalytics(cards) {
 // ── P&L calculation helpers ──
 
 function getMxReportForDate(date) {
-  return (store.mx || []).find(r => r.date === date) || null;
+  // date может быть DD.MM.YYYY или YYYY-MM-DD
+  return (store.mx || []).find(r =>
+    r.date === date || normDate(r.date) === normDate(date)
+  ) || null;
 }
 
 function calcMxLegPnl(instrument, volume, date) {
