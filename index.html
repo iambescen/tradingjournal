@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782050225 -->
+<!-- v:1782050284 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8270,6 +8270,7 @@ function renderOverviewTab(force) {
       ${hasMx?statCard('Перенос',mxTotalRollover,mxTotalRollover/rate0,'MX',mxTotalRollover>=0?'var(--green)':'var(--red)'):''}
       ${hasMx?statCard('Фандинг',mxTotalFunding,mxTotalFunding/rate0,'MX',mxTotalFunding>=0?'var(--green)':'var(--red)'):''}
     </div>
+    <div id="ov-benchmark" style="margin-bottom:16px"></div>
     <!-- BALANCE CHARTS -->
     <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-bottom:14px" class="charts-grid">
       ${chartBox('ch-mx-bal','Баланс МХ (₽ и $)')}
@@ -8300,6 +8301,7 @@ function renderOverviewTab(force) {
     const canvas = document.getElementById('ch-mx-bal') || document.getElementById('ch-fx-bal') || document.getElementById('ch-daily-pnl');
     if (canvas && typeof Chart !== 'undefined') {
       _drawOverviewCharts(..._args);
+      renderBenchmark(); // async LQDT benchmark
       // Hide chart boxes with no data
       if (!hasMx) { const el=document.getElementById('ch-mx-bal'); if(el) el.closest('div[style*="border"]').style.display='none'; }
       if (!hasFx) { const el=document.getElementById('ch-fx-bal'); if(el) el.closest('div[style*="border"]').style.display='none'; }
@@ -8310,6 +8312,129 @@ function renderOverviewTab(force) {
     }
   };
   setTimeout(() => _tryDraw(0), 100);
+}
+
+
+// ══════════════════════════════════════════════════
+// ── LQDT Benchmark ────────────────────────────────
+// ══════════════════════════════════════════════════
+const _lqdtCache = {};
+
+async function fetchLqdtPrices(from, to) {
+  const key = from + '_' + to;
+  if (_lqdtCache[key]) return _lqdtCache[key];
+  try {
+    const url = `https://iss.moex.com/iss/engines/stock/markets/shares/securities/LQDT/candles.json?interval=24&from=${from}&till=${to}&iss.meta=off`;
+    const r = await fetch(url);
+    const d = await r.json();
+    const ci = d.candles.columns.indexOf('close');
+    const di = d.candles.columns.indexOf('begin');
+    const result = d.candles.data.map(row => ({ date: row[di].substring(0,10), close: row[ci] }));
+    _lqdtCache[key] = result;
+    return result;
+  } catch(e) { console.warn('[LQDT]', e); return []; }
+}
+
+async function renderBenchmark() {
+  const el = document.getElementById('ov-benchmark');
+  if (!el) return;
+
+  // Get data from store
+  const rate0 = currentRate?.value || 85;
+  const mxDays = store.mx.map(r => ({ date: normDate(r.date), pnl: r.equity || 0 }));
+  const hasMx = mxDays.length > 0;
+  const hasFx = store.fx.length > 0;
+  if (!hasMx && !hasFx) { el.innerHTML = ''; return; }
+
+  // Capital
+  const lastMx = store.mx.length ? store.mx[store.mx.length-1] : null;
+  const mxBal = lastMx ? (lastMx.balance_end || 0) : 0;
+  const lastFx = store.fx.length ? store.fx[store.fx.length-1] : null;
+  const fxBal = lastFx ? (lastFx.balance || 0) : 0;
+  const capital = mxBal + fxBal * rate0;
+  if (capital <= 0) { el.innerHTML = ''; return; }
+
+  // Date range
+  const dates = [
+    ...store.mx.map(r => normDate(r.date)),
+    ...store.fx.map(t => normDate(t.close_date || ''))
+  ].filter(Boolean).sort();
+  const from = dates[0], to = dates[dates.length-1];
+  if (!from) { el.innerHTML = ''; return; }
+
+  el.innerHTML = '<div style="color:var(--text2);font-size:12px;padding:4px 0">📊 Загружаю бенчмарк LQDT...</div>';
+
+  const lqdtPrices = await fetchLqdtPrices(from, to);
+  if (!lqdtPrices.length) { el.innerHTML = ''; return; }
+
+  // My cumulative P&L by date
+  const myPnlByDate = {};
+  let cumMx = 0;
+  for (const r of store.mx) {
+    cumMx += (r.equity || 0);
+    myPnlByDate[normDate(r.date)] = cumMx;
+  }
+  // Add FX
+  const fxByDate = {};
+  for (const t of store.fx) {
+    const d = normDate(t.close_date || '');
+    if (!d) continue;
+    fxByDate[d] = (fxByDate[d] || 0) + (t.net_pnl_usd || t.pnl || 0) * rate0;
+  }
+  let cumFx = 0;
+  for (const d of dates) {
+    cumFx += (fxByDate[d] || 0);
+    myPnlByDate[d] = (myPnlByDate[d] || 0) + cumFx;
+  }
+
+  // LQDT benchmark
+  const basePrice = lqdtPrices[0].close;
+  const lqdtData = lqdtPrices.map(p => ({ x: p.date, y: capital * (p.close / basePrice - 1) }));
+  const myData   = lqdtPrices.map(p => ({ x: p.date, y: myPnlByDate[p.date] || 0 }));
+
+  const myPnl    = myData[myData.length-1]?.y || 0;
+  const lqdtPnl  = lqdtData[lqdtData.length-1]?.y || 0;
+  const myPct    = capital > 0 ? (myPnl / capital * 100).toFixed(2) : '0.00';
+  const lqdtPct  = capital > 0 ? (lqdtPnl / capital * 100).toFixed(2) : '0.00';
+  const alpha    = myPnl - lqdtPnl;
+  const alphaPct = (parseFloat(myPct) - parseFloat(lqdtPct)).toFixed(2);
+  const ac = alpha >= 0 ? 'var(--green)' : 'var(--red)';
+  const sg = alpha >= 0 ? '+' : '';
+  const fmt = v => (v>=0?'+':'')+Math.round(v).toLocaleString('ru')+' ₽';
+
+  const card = (l,v,s,c) => `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:12px 16px;min-width:150px;flex:1 1 150px">
+    <div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">${l}</div>
+    <div style="font-size:15px;font-weight:700;font-family:monospace;color:${c}">${v}</div>
+    <div style="font-size:10px;color:var(--text2);margin-top:2px">${s}</div>
+  </div>`;
+
+  el.innerHTML = `
+    <div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">📊 Бенчмарк vs LQDT (ВТБ Ликвидность)</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+      ${card('Мой P&L', fmt(myPnl), myPct+'% от капитала', myPnl>=0?'var(--green)':'var(--red)')}
+      ${card('LQDT', fmt(lqdtPnl), lqdtPct+'% за период', lqdtPnl>=0?'var(--green)':'var(--red)')}
+      ${card('Альфа', sg+Math.round(alpha).toLocaleString('ru')+' ₽', sg+alphaPct+'% над LQDT', ac)}
+    </div>
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:12px 16px;margin-bottom:4px">
+      <div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">P&L vs LQDT (накопленно, ₽)</div>
+      <canvas id="ch-benchmark" height="180"></canvas>
+    </div>`;
+
+  setTimeout(() => {
+    const cv = document.getElementById('ch-benchmark');
+    if (!cv || typeof Chart === 'undefined') return;
+    if (cv._chart) cv._chart.destroy();
+    cv._chart = new Chart(cv, { type:'line', data:{ datasets:[
+      { label:'Мой P&L', data:myData, borderColor:'rgba(52,211,153,1)', backgroundColor:'rgba(52,211,153,.1)', fill:true, tension:.3, pointRadius:0, borderWidth:2.5 },
+      { label:'LQDT',    data:lqdtData, borderColor:'rgba(251,191,36,1)', backgroundColor:'transparent', tension:.3, pointRadius:0, borderWidth:2, borderDash:[5,4] },
+    ]}, options:{ responsive:true,
+      plugins:{ legend:{labels:{color:'var(--text1)',font:{size:11}}}, tooltip:{callbacks:{label:c=>' '+Math.round(c.parsed.y).toLocaleString('ru')+' ₽'}} },
+      scales:{
+        x:{ type:'time', time:{unit:'day',displayFormats:{day:'d MMM'}}, ticks:{color:'var(--text2)',font:{size:10}}, grid:{color:'rgba(128,128,128,.1)'} },
+        y:{ ticks:{color:'var(--text2)',font:{size:10},callback:v=>Math.round(v/1000)+'K ₽'}, grid:{color:'rgba(128,128,128,.1)'} }
+      }
+    }});
+  }, 100);
 }
 
 function _overviewChart(id, cfg) {
