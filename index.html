@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782050284 -->
+<!-- v:1782050850 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8394,8 +8394,13 @@ async function renderBenchmark() {
 
   const myPnl    = myData[myData.length-1]?.y || 0;
   const lqdtPnl  = lqdtData[lqdtData.length-1]?.y || 0;
+  // % returns — main metric for comparison
   const myPct    = capital > 0 ? (myPnl / capital * 100).toFixed(2) : '0.00';
   const lqdtPct  = capital > 0 ? (lqdtPnl / capital * 100).toFixed(2) : '0.00';
+  // Annualised % (for fair comparison across periods)
+  const nDays    = Math.max(dates.length, 1);
+  const myAnn    = (parseFloat(myPct) / nDays * 365).toFixed(1);
+  const lqdtAnn  = (parseFloat(lqdtPct) / nDays * 365).toFixed(1);
   const alpha    = myPnl - lqdtPnl;
   const alphaPct = (parseFloat(myPct) - parseFloat(lqdtPct)).toFixed(2);
   const ac = alpha >= 0 ? 'var(--green)' : 'var(--red)';
@@ -8411,8 +8416,8 @@ async function renderBenchmark() {
   el.innerHTML = `
     <div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">📊 Бенчмарк vs LQDT (ВТБ Ликвидность)</div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
-      ${card('Мой P&L', fmt(myPnl), myPct+'% от капитала', myPnl>=0?'var(--green)':'var(--red)')}
-      ${card('LQDT', fmt(lqdtPnl), lqdtPct+'% за период', lqdtPnl>=0?'var(--green)':'var(--red)')}
+      ${card('Мой P&L', fmt(myPnl), myPct+'% · '+myAnn+'% год.', myPnl>=0?'var(--green)':'var(--red)')}
+      ${card('LQDT', fmt(lqdtPnl), lqdtPct+'% · '+lqdtAnn+'% год.', lqdtPnl>=0?'var(--green)':'var(--red)')}
       ${card('Альфа', sg+Math.round(alpha).toLocaleString('ru')+' ₽', sg+alphaPct+'% над LQDT', ac)}
     </div>
     <div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:12px 16px;margin-bottom:4px">
