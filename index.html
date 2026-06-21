@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782054729 -->
+<!-- v:1782056849 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -5669,45 +5669,33 @@ function calcMxLegPnl(instrument, volume, date) {
   const report = getMxReportForDate(date);
   if (!report) return null;
   const baseInstr = instrument.replace(/[-_].*/,'').toUpperCase();
+
+  // PRIMARY: use instrument summary from PDF report
+  // report.instruments has {name, pnl, commission} — direct broker result
+  const instrSummary = (report.instruments || []).find(i =>
+    (i.name||'').replace(/[-_].*/,'').toUpperCase() === baseInstr
+  );
+  if (instrSummary) {
+    return {
+      pnl:        instrSummary.pnl        || 0,
+      commission: instrSummary.commission || 0,
+      matched: true
+    };
+  }
+
+  // FALLBACK: sum margin_rub from closing trades
   const allTrades = (report.trades || []).filter(t =>
     (t.instrument||'').replace(/[-_].*/,'').toUpperCase() === baseInstr
   );
-  if (!allTrades.length) return null;
-
-  // Prop formula: avgExit - avgEntry * volume / tickStep
-  // But margin_rub from PDF is already the correct result — sum it directly
   const withMargin = allTrades.filter(t => t.margin_rub && Math.abs(t.margin_rub) > 0.001);
   if (withMargin.length) {
-    // PDF has real margin — use it directly (broker already calculated)
-    const totalPnl  = withMargin.reduce((s,t) => s + t.margin_rub, 0);
-    const totalComm = allTrades.reduce((s,t) => s + (t.commission||0), 0);
-    return { pnl: totalPnl, commission: totalComm, matched: true };
+    return {
+      pnl:        withMargin.reduce((s,t) => s + t.margin_rub, 0),
+      commission: allTrades.reduce((s,t)  => s + (t.commission||0), 0),
+      matched: true
+    };
   }
-
-  // Fallback: prop avg method — (avgExit - avgEntry) * netVol / tick * stepRub
-  const TICK = { USDRUBF:0.0025, EURRUBF:0.0025, CNYRUBF:0.001, SI:1, EU:1, CR:0.001, UC:0.0001, GD:0.1, SV:0.1, ED:0.0001 };
-  const STEP = { USDRUBF:1, EURRUBF:1, CNYRUBF:1, SI:1, EU:1, CR:1, UC:1, GD:1, SV:1, ED:10 };
-  const tick = TICK[baseInstr] || 1;
-  const step = STEP[baseInstr] || 1;
-
-  // Separate entries and exits by direction of first trade
-  const sorted = [...allTrades].sort((a,b) => (a.time||'').localeCompare(b.time||''));
-  const firstDir = sorted[0]?.direction || 'Long';
-  const isLong = firstDir === 'Long' || firstDir === 'Buy';
-  const entries = allTrades.filter(t => isLong ? (t.direction==='Long'||t.direction==='Buy') : (t.direction==='Short'||t.direction==='Sell'));
-  const exits   = allTrades.filter(t => isLong ? (t.direction==='Short'||t.direction==='Sell') : (t.direction==='Long'||t.direction==='Buy'));
-
-  const entryVol = entries.reduce((s,t) => s + Math.abs(t.volume||0), 0);
-  const exitVol  = exits.reduce((s,t) => s + Math.abs(t.volume||0), 0);
-  const avgEntry = entryVol > 0 ? entries.reduce((s,t) => s + (t.price||0)*Math.abs(t.volume||0), 0) / entryVol : 0;
-  const avgExit  = exitVol  > 0 ? exits.reduce((s,t)  => s + (t.price||0)*Math.abs(t.volume||0), 0) / exitVol  : 0;
-
-  if (!avgEntry || !avgExit) return null;
-  const netVol = Math.min(entryVol, exitVol);
-  const sign   = isLong ? 1 : -1;
-  const pnl    = sign * (avgExit - avgEntry) / tick * step * netVol;
-  const totalComm = allTrades.reduce((s,t) => s + (t.commission||0), 0);
-  return { pnl, commission: totalComm, matched: true };
+  return null;
 }
 
 function calcFxLegPnl(instrument, date) {
