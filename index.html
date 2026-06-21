@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782053513 -->
+<!-- v:1782053832 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -5671,19 +5671,19 @@ function calcMxLegPnl(instrument, volume, date) {
     return ti === baseInstr && t.margin_rub && Math.abs(t.margin_rub) > 0.001;
   });
   if (!closing.length) {
+    // Fallback: use instrument summary from report
     const instr = (report.instruments || []).find(i =>
       (i.name||'').replace(/[-_].*/,'').toUpperCase() === baseInstr
     );
     if (instr && (instr.pnl || instr.commission)) {
-      const totalVol = (report.trades||[]).filter(t=>(t.instrument||'').replace(/[-_].*/,'').toUpperCase()===baseInstr).reduce((s,t)=>s+Math.abs(t.volume||0),0)||1;
-      return { pnl:(instr.pnl||0)/totalVol*volume, commission:(instr.commission||0)/totalVol*volume, matched:true };
+      return { pnl: instr.pnl||0, commission: instr.commission||0, matched:true };
     }
     return null;
   }
-  const totalVol = closing.reduce((s,t)=>s+Math.abs(t.volume||0),0)||1;
-  const ppl = closing.reduce((s,t)=>s+(t.margin_rub||0),0)/totalVol;
-  const cpl = closing.reduce((s,t)=>s+(t.commission||0),0)/totalVol;
-  return { pnl:ppl*volume, commission:cpl*volume, matched:true };
+  // Use total margin_rub directly — already the full P&L for all lots
+  const totalPnl  = closing.reduce((s,t)=>s+(t.margin_rub||0),0);
+  const totalComm = closing.reduce((s,t)=>s+(t.commission||0),0);
+  return { pnl: totalPnl, commission: totalComm, matched:true };
 }
 
 function calcFxLegPnl(instrument, date) {
