@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782056849 -->
+<!-- v:1782057316 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -5715,13 +5715,15 @@ function calcFxLegPnl(instrument, date) {
   const pnlUsd   = fxTrades.reduce((s,t)=>s+(t.net_pnl_usd??t.profit??t.pnl??0),0);
   const swapUsd  = fxTrades.reduce((s,t)=>s+(t.swap||0),0);
   const commUsd  = fxTrades.reduce((s,t)=>s+(t.commission||0),0);
-  const rate     = currentRate?.value || 85;
+  // Use rate on the date of the trade, not current rate
+  const rate = getRateForDate(dateISO) || currentRate?.value || 85;
 
   return {
-    pnl:        pnlUsd,        // in USD
-    swap:       swapUsd,       // in USD
-    commission: commUsd,       // in USD
-    pnlRub:     pnlUsd * rate, // convenience in RUB
+    pnl:        pnlUsd,
+    swap:       swapUsd,
+    commission: commUsd,
+    pnlRub:     pnlUsd * rate,
+    rate:       rate,
     matched:    true
   };
 }
@@ -5757,7 +5759,7 @@ function renderPositionCard(g) {
     instrMap[k].rows.push(r);
   }
 
-  let totalMxPnl=0, totalMxComm=0, totalFxPnl=0, totalFxSwap=0, totalFxComm=0, hasAnyPnl=false;
+  let totalMxPnl=0, totalMxComm=0, totalFxPnl=0, totalFxSwap=0, totalFxComm=0, totalFxPnlRub=0, hasAnyPnl=false;
 
   const legsHtml = Object.values(instrMap).map(ig => {
     const platBg = ig.platform==='MX'?'var(--badge-mx-bg)':'var(--badge-fx-bg)';
@@ -5798,7 +5800,7 @@ function renderPositionCard(g) {
     } else {
       const pd = calcFxLegPnl(ig.instrument, g.date);
       if (pd) {
-        totalFxPnl+=pd.pnl; totalFxSwap+=pd.swap; totalFxComm+=pd.commission; hasAnyPnl=true;
+        totalFxPnl+=pd.pnl; totalFxSwap+=pd.swap; totalFxComm+=pd.commission; totalFxPnlRub+=(pd.pnlRub||(pd.pnl*(pd.rate||rate))); hasAnyPnl=true;
         const net=pd.pnl+pd.swap+pd.commission;
         pnlHtml=`<td style="padding:4px 8px;text-align:right;font-family:monospace;font-size:11px;color:${net>=0?'var(--green)':'var(--red)'}">${net>=0?'+':''}${net.toFixed(2)}$</td>`;
       } else pnlHtml='<td style="padding:4px 8px;color:var(--text2);text-align:right;font-size:11px">—</td>';
@@ -5822,7 +5824,8 @@ function renderPositionCard(g) {
   }).join('');
 
   const rate = currentRate?.value||85;
-  const fxPnlRub = (totalFxPnl+totalFxSwap+totalFxComm)*rate;
+  // fxPnlRub already computed using per-trade historical rates in calcFxLegPnl
+  const fxPnlRub = totalFxPnlRub; // uses rate on date
   const mxNet2 = totalMxPnl+totalMxComm;
   const grandTotal = mxNet2+fxPnlRub;
   const gtColor = grandTotal>=0?'var(--green)':'var(--red)';
