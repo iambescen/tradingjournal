@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782053273 -->
+<!-- v:1782053380 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -3816,8 +3816,11 @@ async function calcEstimatedPnl(g) {
   if (mxRows.length > 0) {
     // Get unique instruments in this construction
     const instrSet = new Set(mxRows.map(r => (r.instrument||'').toUpperCase().replace(/[-_].*/,'')));
-    // Get unique dates
-    const dateSet  = new Set(mxRows.map(r => normDate(r.date)));
+    // Get unique dates — normalize ALL to ISO YYYY-MM-DD
+    const dateSet  = new Set(mxRows.map(r => normDate(r.date)).filter(Boolean));
+
+    console.log('[P&L] instrSet:', [...instrSet], 'dateSet:', [...dateSet]);
+    console.log('[P&L] store.mx days:', store.mx.map(d => d.date + '→' + normDate(d.date)));
 
     for (const day of store.mx) {
       const dayNorm = normDate(day.date);
