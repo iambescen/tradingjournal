@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782051121 -->
+<!-- v:1782051351 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8289,8 +8289,11 @@ function renderOverviewTab(force) {
     <div style="display:grid;grid-template-columns:1fr;gap:14px;margin-bottom:14px" class="charts-grid">
       ${chartBox('ch-instr-fx','P&L по инструментам FX',220)}
     </div>
-
+    <!-- BENCHMARK vs LQDT — at bottom -->
+    <div id="ov-benchmark" style="margin-top:8px"></div>
   `;
+
+  _overviewRendered = true;
   // renderCapitalBlock removed — unreliable P&L from positions system
   setTimeout(() => renderOvConstructions(), 80);
 
