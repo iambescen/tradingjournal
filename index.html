@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782051633 -->
+<!-- v:1782051703 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8115,6 +8115,21 @@ function renderOverviewTab(force) {
   // Combined P&L (days where both have data with RUB conversion)
   const combinedPnlRub = mxTotalPnl + fxTotalPnlRub;
 
+  // ── Sharpe / Sortino ─────────────────────────────────────────
+  const _mean = arr => arr.length ? arr.reduce((s,v)=>s+v,0)/arr.length : 0;
+  const _std  = arr => {
+    if (arr.length < 2) return null;
+    const m = _mean(arr);
+    return Math.sqrt(arr.reduce((s,v)=>s+(v-m)**2,0)/(arr.length-1));
+  };
+  const mxPnls   = mxDays.map(d=>d.pnl);
+  const meanMx   = _mean(mxPnls);
+  const stdMx    = _std(mxPnls);
+  const sharpeMx = stdMx && stdMx>0 ? +(meanMx/stdMx*Math.sqrt(252)).toFixed(2) : null;
+  const downMx   = mxPnls.filter(v=>v<0);
+  const stdDownMx  = _std(downMx.length>=2 ? downMx : mxPnls);
+  const sortinoMx  = stdDownMx && stdDownMx>0 ? +(meanMx/stdDownMx*Math.sqrt(252)).toFixed(2) : null;
+
   // Combined best/worst day — sum MX+FX per calendar day
   const allDatesForBW = [...new Set([...mxDays.map(d=>d.date),...fxDays.map(d=>d.date)])];
   const dailyCombined = allDatesForBW.map(dt => {
@@ -8212,6 +8227,10 @@ function renderOverviewTab(force) {
   // ── HTML structure ──
   // statCard(label, rubNum, usdNum, sub, color) — dual currency
   const fmtDual = (rub, usd, color) => {
+    if (usd === null || usd === undefined) {
+      const v = typeof rub === 'number' ? (rub>=0?'+':'')+rub.toFixed(2) : String(rub);
+      return `<span style="color:${color||'var(--text1)'}">${v}</span>`;
+    }
     const rs = (rub>=0?'+':'') + Math.round(rub).toLocaleString('ru') + ' ₽';
     const us = (usd>=0?'+':'') + '$' + Math.abs(usd).toFixed(2);
     return `<span style="color:${color||'var(--text1)'}">${rs}</span>`
@@ -8260,6 +8279,11 @@ function renderOverviewTab(force) {
       ${(hasMx||hasFx)?statCard('Средний день',combinedAvgDay,combinedAvgDay/rate0,allDaysCount+' торг. дней',combinedAvgDay>=0?'var(--green)':'var(--red)'):''}
     </div>
     <!-- STAT CARDS ROW 2: Риски -->
+    <!-- STAT CARDS ROW 1.5: Sharpe/Sortino -->
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+      ${hasMx&&sharpeMx!==null?statCard('Sharpe МХ',sharpeMx,null,'дневной × √252',sharpeMx>=1?'var(--green)':sharpeMx>=0?'var(--text1)':'var(--red)'):''}
+      ${hasMx&&sortinoMx!==null?statCard('Sortino МХ',sortinoMx,null,'риск просадок',sortinoMx>=1?'var(--green)':sortinoMx>=0?'var(--text1)':'var(--red)'):''}
+    </div>
     <!-- STAT CARDS ROW 2+3: Риски + Затраты -->
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px">
       ${(hasMx||hasFx)&&combinedBestDay>0?statCard('Лучший день',combinedBestDay,combinedBestDay/rate0,'МХ + FX','var(--green)'):''}
@@ -8289,6 +8313,8 @@ function renderOverviewTab(force) {
     <div style="display:grid;grid-template-columns:1fr;gap:14px;margin-bottom:14px" class="charts-grid">
       ${chartBox('ch-instr-fx','P&L по инструментам FX',220)}
     </div>
+    <!-- WEEKLY TABLE -->
+    <div id="ov-weekly" style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:16px;margin-bottom:14px"></div>
     <!-- BENCHMARK vs LQDT — at bottom -->
     <div id="ov-benchmark" style="margin-top:8px"></div>
   `;
@@ -8303,7 +8329,8 @@ function renderOverviewTab(force) {
     const canvas = document.getElementById('ch-mx-bal') || document.getElementById('ch-fx-bal') || document.getElementById('ch-daily-pnl');
     if (canvas && typeof Chart !== 'undefined') {
       _drawOverviewCharts(..._args);
-      renderBenchmark(); // async LQDT benchmark
+      renderBenchmark();     // async LQDT benchmark
+      renderWeeklyTable();   // weekly/monthly stats
       // Hide chart boxes with no data
       if (!hasMx) { const el=document.getElementById('ch-mx-bal'); if(el) el.closest('div[style*="border"]').style.display='none'; }
       if (!hasFx) { const el=document.getElementById('ch-fx-bal'); if(el) el.closest('div[style*="border"]').style.display='none'; }
@@ -8335,6 +8362,94 @@ async function fetchLqdtPrices(from, to) {
     _lqdtCache[key] = result;
     return result;
   } catch(e) { console.warn('[LQDT]', e); return []; }
+}
+
+
+// ── Weekly/Monthly table ──────────────────────────────────────
+function renderWeeklyTable() {
+  const el = document.getElementById('ov-weekly');
+  if (!el) return;
+  const rate0 = currentRate?.value || 85;
+  const mxByD = Object.fromEntries(store.mx.map(r => [normDate(r.date), r]));
+  const fxByD = {};
+  for (const t of store.fx) {
+    const d = normDate(t.close_date||'');
+    if (!d) continue;
+    if (!fxByD[d]) fxByD[d] = {pnl:0, comm:0, trades:0};
+    fxByD[d].pnl   += (t.net_pnl_usd||t.pnl||0) * rate0;
+    fxByD[d].comm  += Math.abs(t.commission||0) * rate0;
+    fxByD[d].trades++;
+  }
+  const allD = [...new Set([...Object.keys(mxByD),...Object.keys(fxByD)])].sort();
+  if (allD.length < 2) { el.style.display='none'; return; }
+  el.style.display='';
+
+  const days = allD.map(d => {
+    const mx = mxByD[d], fx = fxByD[d];
+    return { date:d, pnl:(mx?.equity||0)+(fx?.pnl||0), comm:Math.abs(mx?.commission||0)+(fx?.comm||0), trades:(mx?.trades?.length||0)+(fx?.trades||0) };
+  });
+
+  const getWk = d => {
+    const dt=new Date(d), jan4=new Date(dt.getFullYear(),0,4);
+    const wn=Math.ceil(((dt-jan4)/86400000+jan4.getDay()+1)/7);
+    return dt.getFullYear()+'-W'+String(wn).padStart(2,'0');
+  };
+  const getMo = d => d.substring(0,7);
+  const MO=['Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен','Окт','Ноя','Дек'];
+
+  const agg = fn => {
+    const m={};
+    for (const d of days) {
+      const k=fn(d.date);
+      if(!m[k]) m[k]={pnl:0,comm:0,trades:0,wins:0,days:0};
+      m[k].pnl+=d.pnl; m[k].comm+=d.comm; m[k].trades+=d.trades;
+      m[k].wins+=d.pnl>0?1:0; m[k].days++;
+    }
+    return m;
+  };
+  const wks=agg(getWk), mos=agg(getMo);
+
+  const row = (label,r,bold) => {
+    const pc=r.pnl>=0?'var(--green)':'var(--red)';
+    const wr=r.days>0?Math.round(r.wins/r.days*100):0;
+    const s=bold?'font-weight:700;background:var(--bg3)':'';
+    return `<tr style="${s};border-bottom:1px solid var(--border)">
+      <td style="padding:5px 10px;color:var(--text2);white-space:nowrap;font-size:12px">${label}</td>
+      <td style="padding:5px 10px;font-family:monospace;color:${pc};text-align:right;font-size:12px">${r.pnl>=0?'+':''}${Math.round(r.pnl).toLocaleString('ru')} ₽</td>
+      <td style="padding:5px 10px;font-family:monospace;color:var(--red);text-align:right;font-size:12px">−${Math.round(r.comm).toLocaleString('ru')} ₽</td>
+      <td style="padding:5px 10px;text-align:right;color:var(--text2);font-size:12px">${r.trades}</td>
+      <td style="padding:5px 10px;text-align:right;font-size:12px;color:${wr>=50?'var(--green)':'var(--red)'}">${r.days>0?wr+'%':'—'}</td>
+    </tr>`;
+  };
+
+  const wkKeys=Object.keys(wks).sort().reverse();
+  let rows='', prevMo='';
+  for (const wk of wkKeys) {
+    const [yr,wn]=wk.split('-W');
+    const dt=new Date(parseInt(yr),0,1+(parseInt(wn)-1)*7);
+    const mo=dt.toISOString().substring(0,7);
+    if (mo!==prevMo && mos[mo]) {
+      const [y,m]=mo.split('-');
+      rows+=row(MO[parseInt(m)-1]+' '+y, mos[mo], true);
+      prevMo=mo;
+    }
+    rows+=row('Нед. '+wn, wks[wk], false);
+  }
+
+  el.innerHTML=`
+    <div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">📅 По неделям</div>
+    <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse">
+        <thead><tr style="border-bottom:2px solid var(--border)">
+          <th style="padding:5px 10px;text-align:left;color:var(--text2);font-weight:500;font-size:11px">Период</th>
+          <th style="padding:5px 10px;text-align:right;color:var(--text2);font-weight:500;font-size:11px">P&L</th>
+          <th style="padding:5px 10px;text-align:right;color:var(--text2);font-weight:500;font-size:11px">Комиссии</th>
+          <th style="padding:5px 10px;text-align:right;color:var(--text2);font-weight:500;font-size:11px">Сделок</th>
+          <th style="padding:5px 10px;text-align:right;color:var(--text2);font-weight:500;font-size:11px">Win%</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
 }
 
 async function renderBenchmark() {
