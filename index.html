@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782052139 -->
+<!-- v:1782053273 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -3820,12 +3820,17 @@ async function calcEstimatedPnl(g) {
     const dateSet  = new Set(mxRows.map(r => normDate(r.date)));
 
     for (const day of store.mx) {
-      if (!dateSet.has(normDate(day.date))) continue;
+      const dayNorm = normDate(day.date);
+      if (!dateSet.has(dayNorm)) continue;
       // Sum all closing trades (margin_rub != 0) for matching instruments
       for (const t of (day.trades || [])) {
         if (!t.margin_rub || Math.abs(t.margin_rub) < 0.001) continue;
-        const tBase = (t.instrument||'').toUpperCase().replace(/[-_].*/,'');
-        if (instrSet.has(tBase)) {
+        // Try multiple normalizations to match instrument
+        const tRaw  = (t.instrument||'').toUpperCase();
+        const tBase = tRaw.replace(/[-_].*/,'');
+        const tNoNum = tRaw.replace(/[0-9]/g,'');
+        if (instrSet.has(tBase) || instrSet.has(tRaw) || instrSet.has(tNoNum) ||
+            [...instrSet].some(s => tRaw.startsWith(s) || s.startsWith(tBase))) {
           mxPnl += t.margin_rub;
           hasMx = true;
         }
