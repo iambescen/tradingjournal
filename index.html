@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782054312 -->
+<!-- v:1782054403 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -5659,9 +5659,9 @@ async function renderDealsAnalytics(cards) {
 // ── P&L calculation helpers ──
 
 function getMxReportForDate(date) {
-  // date может быть DD.MM.YYYY или YYYY-MM-DD
+  const norm = normDate(date);
   return (store.mx || []).find(r =>
-    r.date === date || normDate(r.date) === normDate(date)
+    r.date === date || normDate(r.date) === norm
   ) || null;
 }
 
@@ -5690,19 +5690,34 @@ function calcMxLegPnl(instrument, volume, date) {
 }
 
 function calcFxLegPnl(instrument, date) {
-  const baseInstr = instrument.replace(/[_].*/,'').toUpperCase();
+  // Normalize instrument: remove suffixes like _xp, -xp
+  const baseInstr = instrument.replace(/[-_].*/,'').toUpperCase();
+  // Normalize date to YYYY-MM-DD for comparison
+  const dateISO = normDate(date);
+
   const fxTrades = (store.fx||[]).filter(t => {
-    const ti = (t.instrument||'').replace(/[_].*/,'').toUpperCase();
+    // Match instrument
+    const ti = (t.instrument||'').replace(/[-_].*/,'').toUpperCase();
     if (ti !== baseInstr) return false;
-    const cd = (t.close_time||t.open_time||'').slice(0,10).split('-').reverse().join('.');
-    return cd === date;
+    // Match date — compare normalized
+    const cd = normDate(t.close_date || t.close_time || t.open_time || '');
+    return cd === dateISO;
   });
+
   if (!fxTrades.length) return null;
+
+  // net_pnl_usd is the most accurate field from cTrader XLSX
+  const pnlUsd   = fxTrades.reduce((s,t)=>s+(t.net_pnl_usd??t.profit??t.pnl??0),0);
+  const swapUsd  = fxTrades.reduce((s,t)=>s+(t.swap||0),0);
+  const commUsd  = fxTrades.reduce((s,t)=>s+(t.commission||0),0);
+  const rate     = currentRate?.value || 85;
+
   return {
-    pnl: fxTrades.reduce((s,t)=>s+(t.pnl||t.profit||0),0),
-    swap: fxTrades.reduce((s,t)=>s+(t.swap||0),0),
-    commission: fxTrades.reduce((s,t)=>s+(t.commission||0),0),
-    matched: true
+    pnl:        pnlUsd,        // in USD
+    swap:       swapUsd,       // in USD
+    commission: commUsd,       // in USD
+    pnlRub:     pnlUsd * rate, // convenience in RUB
+    matched:    true
   };
 }
 
