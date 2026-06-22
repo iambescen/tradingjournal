@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782057935 -->
+<!-- v:1782110501 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -4094,10 +4094,33 @@ function renderLjDashboard() {
     groups[key].rows.push(r);
   }
 
-  const cards = Object.values(groups).sort((a,b) => {
-    const dd = parseDate(b.date) - parseDate(a.date);
-    return dd !== 0 ? dd : (a.set - b.set);
-  });
+  const today = new Date();
+  today.setHours(0,0,0,0);
+
+  const cards = Object.values(groups)
+    .sort((a,b) => {
+      const dd = parseDate(b.date) - parseDate(a.date);
+      return dd !== 0 ? dd : (a.set - b.set);
+    })
+    .filter(g => {
+      // Hide closed cards from previous days — they live in "Сделки"
+      const cardDate = parseDate(g.date);
+      if (cardDate >= today.getTime()) return true; // today — always show
+      // Check if closed
+      const rows = g.rows;
+      const mxR = rows.filter(r => r.platform === 'MX');
+      const fxR = rows.filter(r => r.platform === 'FX');
+      const mxNetVol = {};
+      for (const r of mxR) {
+        const k = r.instrument.replace(/[-_].*/,'').toUpperCase();
+        const sign = (r.direction==='Buy'||r.direction==='L') ? 1 : -1;
+        mxNetVol[k] = (mxNetVol[k]||0) + sign*(r.volume||0);
+      }
+      const mxClosed = mxR.length > 0 && Object.values(mxNetVol).every(v=>Math.abs(v)<0.001);
+      const fxClosed = fxR.length > 0 && fxR.every(r=>r.price_close != null);
+      const allClosed = (mxR.length===0||mxClosed) && (fxR.length===0||fxClosed);
+      return !allClosed; // show only open/partial from past days
+    });
 
   const html = cards.map(g => {
     const rows = g.rows;
