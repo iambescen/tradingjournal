@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782205275 -->
+<!-- v:1782206024 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8341,7 +8341,9 @@ async function autoTagFromReports(date) {
         ? trades.reduce((s,t) => s + (t.close_price||0)*Math.abs(t.qty||0), 0) / (vol||1)
         : null;
       // dir_open: "Buy"/"Sell"
-      const dirFx = (trades[0].dir_open||trades[0].direction||'Buy');
+      // dir_open: normalize to Buy/Sell
+      const rawDir = (trades[0].dir_open || trades[0].direction || 'buy').toLowerCase();
+      const dirFx = rawDir.includes('buy') || rawDir.includes('купить') || rawDir.includes('long') ? 'Buy' : 'Sell';
       // open_time: "19/06/2026 09:26:12.101" → take part after space
       const ot = trades[0].open_time || '';
       const openT = ot.includes(' ') ? ot.split(' ')[1].substring(0,8) : ot.substring(0,8);
