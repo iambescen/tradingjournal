@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782199755 -->
+<!-- v:1782199876 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -456,7 +456,7 @@
         </div>
         <div class="section-actions" onclick="event.stopPropagation()">
           <label class="upload-btn" for="pdf-input">📄 Загрузить PDF</label>
-          <button class="upload-btn" onclick="autoTagFromReports(new Date().toLocaleDateString('ru').replace(/\./g, function(v,i,a){return v;}))" style="background:var(--blue);color:#fff;border:none;cursor:pointer" title="Авторазнос сделок из PDF+Excel">🤖 Авторазнос</button>
+          <button class="upload-btn" onclick="showAutoTagDialog()" style="background:var(--blue);color:#fff;border:none;cursor:pointer" title="Авторазнос сделок из PDF+Excel">🤖 Авторазнос</button>
           <input type="file" id="pdf-input" accept=".pdf" multiple onchange="handlePDFUpload(event)">
           <button id="mx-clear-btn" class="btn-reject" style="display:none;font-size:12px;padding:4px 10px" onclick="clearAllMX()">✕ Очистить все MX</button>
           <span id="pdf-status"></span>
@@ -8279,6 +8279,40 @@ function splitIntoSets(trades, gapMinutes = 7) {
     }
   }
   return sets;
+}
+
+
+function showAutoTagDialog() {
+  // Get all available dates from store.mx
+  const dates = store.mx.map(r => r.date).filter(Boolean);
+  if (!dates.length) {
+    alert('Сначала загрузи PDF-отчёт МХ');
+    return;
+  }
+
+  // Show date picker
+  const dateList = dates.map(d => `<option value="${d}">${d}</option>`).join('');
+  const dlg = document.createElement('div');
+  dlg.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center';
+  dlg.innerHTML = `
+    <div style="background:var(--bg1);border:1px solid var(--border);border-radius:10px;padding:24px;min-width:320px">
+      <div style="font-size:15px;font-weight:700;margin-bottom:16px">🤖 Авторазнос сделок</div>
+      <div style="font-size:12px;color:var(--text2);margin-bottom:12px">Выбери дату из загруженных отчётов:</div>
+      <select id="autotag-date-sel" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1);font-size:13px;margin-bottom:16px">
+        ${dateList}
+      </select>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button onclick="this.closest('div[style*=fixed]').remove()" 
+          style="padding:6px 14px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1);cursor:pointer">
+          Отмена
+        </button>
+        <button onclick="const d=document.getElementById('autotag-date-sel').value; this.closest('div[style*=fixed]').remove(); autoTagFromReports(d);"
+          style="padding:6px 14px;border:none;border-radius:6px;background:var(--blue);color:#fff;cursor:pointer;font-weight:600">
+          Разнести
+        </button>
+      </div>
+    </div>`;
+  document.body.appendChild(dlg);
 }
 
 async function autoTagFromReports(date) {
