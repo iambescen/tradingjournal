@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782235730 -->
+<!-- v:1782235992 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -7,7 +7,7 @@
   <meta http-equiv="Pragma" content="no-cache">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Торговый журнал</title>
-  <!-- build:1782235730 -->
+  <!-- build:1782235992 -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
@@ -10536,13 +10536,14 @@ renderFXTable();
 renderFXFiles();
 renderManualTable();
 renderUnifiedTableAsync(); // async: подтягивает исторические курсы ЦБ РФ, потом рендерит
-setTimeout(() => { updateDashboard(); renderOverviewTab(true); }, 300); // render overview on startup
+updateDashboard(); // run immediately to fill dashboard cards
 renderJournalTab();
 renderConstructionsTab();
 renderPositionsTab();
 // Small delay to ensure localStorage is fully read before rendering Journal
 setTimeout(() => { renderLiveJournal(); renderCapitalLoad(); }, 50);
-updateDashboard();
+// Render overview after dashboard has had time to populate (1 second)
+setTimeout(() => renderOverviewTab(true), 1000); // render overview on startup
 </script>
 
 
@@ -10751,11 +10752,31 @@ function renderDiaryPositions() {
   const gold  = 'var(--amber)';
   const purple= 'var(--purple)';
 
+  // Filter state
+  var filterTag  = root._diaryFilterTag  || '';
+  var filterDate = root._diaryFilterDate || '';
+
   const allPos = store.positions || [];
-  const closed = allPos.filter(function(p){return p.status==='closed';})
-    .sort(function(a,b){return parseDate(b.closed_date||b.opened_date)-parseDate(a.closed_date||a.opened_date);});
+
+  // Unique tags and dates for filters
+  var allTags2 = [];
+  var allDates2 = [];
+  allPos.filter(function(p){return p.status==='closed';}).forEach(function(p){
+    if (allTags2.indexOf(p.tag)<0) allTags2.push(p.tag);
+    var d = p.closed_date||p.opened_date;
+    if (d && allDates2.indexOf(d)<0) allDates2.push(d);
+  });
+  allTags2.sort();
+  allDates2.sort(function(a,b){return parseDate(b)-parseDate(a);});
+
+  const closed = allPos.filter(function(p){
+    if (p.status!=='closed') return false;
+    if (filterTag && p.tag!==filterTag) return false;
+    if (filterDate && (p.closed_date||p.opened_date)!==filterDate) return false;
+    return true;
+  }).sort(function(a,b){return parseDate(b.closed_date||b.opened_date)-parseDate(a.closed_date||a.opened_date);});
   const opened = allPos.filter(function(p){return p.status==='open';});
-  if (!closed.length && !opened.length) return;
+  if (!allPos.length) return;
 
   // Tag → human-readable name
   function tagName(tag) {
@@ -10922,7 +10943,24 @@ function renderDiaryPositions() {
         return '<button data-restoreidx="'+i+'" class="diary-restore-btn" style="font-size:11px;padding:3px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg3);color:var(--blue);cursor:pointer">↩ '+p.tag+'</button>';
       }).join('')
     + '</div></div>' : '';
-  const dashHtml = restoreHtml + '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px">'
+  // Filter UI
+  const tagOpts2 = '<option value="">Все конструкции</option>'
+    + allTags2.map(t=>`<option value="${t}"${filterTag===t?' selected':''}>${t}</option>`).join('');
+  const dateOpts2 = '<option value="">Все даты</option>'
+    + allDates2.map(d=>`<option value="${d}"${filterDate===d?' selected':''}>${d}</option>`).join('');
+  const filterHtml2 = `<div style="display:flex;gap:8px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
+    <select onchange="document.getElementById('showcase-root')._diaryFilterTag=this.value;renderShowcase()"
+      style="font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1)">
+      ${tagOpts2}</select>
+    <select onchange="document.getElementById('showcase-root')._diaryFilterDate=this.value;renderShowcase()"
+      style="font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1)">
+      ${dateOpts2}</select>
+    ${filterTag||filterDate?`<button onclick="document.getElementById('showcase-root')._diaryFilterTag='';document.getElementById('showcase-root')._diaryFilterDate='';renderShowcase()"
+      style="font-size:12px;padding:4px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text2);cursor:pointer">✕ Сбросить</button>`:''}
+    <span style="font-size:12px;color:var(--text2);margin-left:auto">${closed.length} сделок</span>
+  </div>`;
+
+  const dashHtml = restoreHtml + filterHtml2 + '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px">'
     + '<div style="background:'+bg2+';border:1px solid '+border+';border-radius:10px;padding:16px;text-align:center">'
     + '<div style="font-size:11px;color:'+text2+';text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Закрыто</div>'
     + '<div style="font-size:28px;font-weight:700;color:'+green+'">'+closed.length+'</div></div>'
