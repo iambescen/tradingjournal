@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782201291 -->
+<!-- v:1782201463 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8472,6 +8472,12 @@ function showAutoTagDialog() {
       </div>
     </div>`;
   document.body.appendChild(dlg);
+  document.getElementById('autotag-cancel-btn').onclick = function() {
+    var m = document.getElementById('autotag-modal'); if (m) m.remove();
+  };
+  document.getElementById('autotag-ok-btn').onclick = function() {
+    _autoTagSave(date, window._autoTagSets, window._autoTagRows);
+  };
 }
 
 async function autoTagFromReports(date) {
@@ -8626,44 +8632,55 @@ async function autoTagFromReports(date) {
     `${r.platform} ${r.instrument} ${r.direction} ${r.volume} @ ${r.price} [${r.tag} №${r.set}]`
   ).join('\n');
 
-  // Show preview in modal instead of confirm()
-  await new Promise((resolve, reject) => {
-    const dlg = document.createElement('div');
-    dlg.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center';
-    const lines = newRows.map(r =>
-      `<div style="font-size:11px;padding:2px 0;color:var(--text1)">
-        <span style="color:${r.platform==='MX'?'var(--blue)':'var(--purple)'}">${r.platform}</span>
-        <span style="margin:0 4px;font-weight:600">${r.instrument}</span>
-        <span style="color:${r.direction==='Buy'?'var(--green)':'var(--red)'}">${r.direction==='Buy'?'Купить':'Продать'}</span>
-        ${r.volume} лот @ ${r.price}
-        <span style="color:var(--text2);margin-left:4px">[${r.tag} №${r.set}]</span>
-      </div>`
-    ).join('');
-    dlg.innerHTML = '<div style="background:var(--bg1);border:1px solid var(--border);border-radius:10px;padding:24px;min-width:420px;max-width:560px;max-height:80vh;display:flex;flex-direction:column">'
-      + '<div style="font-size:15px;font-weight:700;margin-bottom:4px">🤖 Авторазнос за ' + date + '</div>'
-      + '<div style="font-size:12px;color:var(--text2);margin-bottom:12px">Наборов: ' + sets.length + ' · Записей: ' + newRows.length + '</div>'
-      + '<div style="overflow-y:auto;flex:1;border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--bg2);margin-bottom:16px">' + lines + '</div>'
-      + '<div style="display:flex;gap:8px;justify-content:flex-end">'
-      + '<button id="autotag-cancel" style="padding:6px 16px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1);cursor:pointer">Отмена</button>'
-      + '<button id="autotag-ok" style="padding:6px 16px;border:none;border-radius:6px;background:var(--blue);color:#fff;cursor:pointer;font-weight:600">Добавить в журнал</button>'
-      + '</div></div>';
-    document.body.appendChild(dlg);
-    dlg.querySelector('#autotag-cancel').onclick = () => { dlg.remove(); reject('cancel'); };
-    dlg.querySelector('#autotag-ok').onclick    = () => { dlg.remove(); resolve(); };
-  }).catch(() => { return Promise.reject('cancel'); });
+  // Show preview modal
+  _autoTagPreview(date, sets, newRows);
+}
 
-  // Save to separate autoLj store — doesn't affect manual journal
+function _autoTagSave(date, sets, newRows) {
   if (!store.autoLj) store.autoLj = { rows: [] };
-  // Remove existing auto-rows for this date
-  store.autoLj.rows = store.autoLj.rows.filter(r => r.date !== dateStr);
-  // Add new rows
+  store.autoLj.rows = store.autoLj.rows.filter(r => r.date !== date);
   store.autoLj.rows.push(...newRows);
   saveStore();
-  // Refresh auto-journal tab if visible
-  if (document.getElementById('tab-autolj')?.classList.contains('active')) {
-    renderAutoLj();
-  }
-  alert(`✅ Авторазнос за ${date}: ${sets.length} набор(а), ${newRows.length} записей.\nОткрой вкладку «Авто-журнал» для просмотра.`);
+  if (document.getElementById('tab-autolj')?.classList.contains('active')) renderAutoLj();
+  const existingDlg = document.getElementById('autotag-modal');
+  if (existingDlg) existingDlg.remove();
+  alert('✅ Авторазнос за ' + date + ': ' + sets.length + ' набор(а), ' + newRows.length + ' записей.\nОткрой вкладку «Авто-журнал».');
+}
+
+function _autoTagPreview(date, sets, newRows) {
+  const existing = document.getElementById('autotag-modal');
+  if (existing) existing.remove();
+
+  const lines = newRows.map(function(r) {
+    var platColor = r.platform === 'MX' ? 'var(--blue)' : 'var(--purple)';
+    var dirColor  = r.direction === 'Buy' ? 'var(--green)' : 'var(--red)';
+    var dirLabel  = r.direction === 'Buy' ? 'Купить' : 'Продать';
+    return '<div style="font-size:11px;padding:3px 0;border-bottom:1px solid var(--border);display:flex;gap:6px;align-items:center">'
+      + '<span style="font-size:10px;font-weight:700;border-radius:3px;padding:1px 4px;background:' + platColor + ';color:#fff">' + r.platform + '</span>'
+      + '<span style="font-weight:600;min-width:70px">' + r.instrument + '</span>'
+      + '<span style="color:' + dirColor + ';min-width:60px">' + dirLabel + '</span>'
+      + '<span style="color:var(--text2)">' + r.volume + ' л</span>'
+      + '<span style="font-family:monospace">@ ' + r.price + '</span>'
+      + '<span style="color:var(--blue);margin-left:auto">[' + r.tag + ' №' + r.set + ']</span>'
+      + '</div>';
+  }).join('');
+
+  var dlg = document.createElement('div');
+  dlg.id = 'autotag-modal';
+  dlg.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center';
+  dlg.innerHTML = '<div style="background:var(--bg1);border:1px solid var(--border);border-radius:10px;padding:24px;min-width:440px;max-width:580px;max-height:80vh;display:flex;flex-direction:column;gap:12px">'
+    + '<div style="font-size:15px;font-weight:700">🤖 Авторазнос за ' + date + '</div>'
+    + '<div style="font-size:12px;color:var(--text2)">Наборов: ' + sets.length + ' · Записей: ' + newRows.length + '</div>'
+    + '<div style="overflow-y:auto;border:1px solid var(--border);border-radius:6px;padding:8px;background:var(--bg2);flex:1">' + lines + '</div>'
+    + '<div style="display:flex;gap:8px;justify-content:flex-end">'
+    + '<button onclick="var m=document.getElementById(\'autotag-modal\');if(m)m.remove()" style="padding:6px 16px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1);cursor:pointer">Отмена</button>'
+    + '<button id="autotag-ok-btn2" style="padding:6px 16px;border:none;border-radius:6px;background:var(--blue);color:#fff;cursor:pointer;font-weight:600">✓ Добавить в журнал</button>'
+    + '</div></div>';
+
+  // Store for callback
+  window._autoTagSets = sets;
+  window._autoTagRows = newRows;
+  document.body.appendChild(dlg);
 }
 
 function renderOverviewTab(force) {
