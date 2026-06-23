@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782210249 -->
+<!-- v:1782211204 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8375,6 +8375,31 @@ function updatePositionWithDay(pos, date, allMxTrades, fxTrades) {
   }
 }
 
+// Check and close position if all MX legs net_volume = 0
+function checkAndClosePosition(pos, date) {
+  if (pos.status === 'closed') return;
+  const mxLegs = Object.values(pos.legs).filter(function(l){return l.platform==='MX';});
+  const allClosed = mxLegs.length > 0 && mxLegs.every(function(l){return Math.abs(l.net_volume)<0.001;});
+  if (!allClosed) return;
+  pos.status = 'closed';
+  pos.closed_date = date;
+  const rep = getMxReportForDate(date);
+  if (rep) {
+    var pnl = 0, seen = {};
+    for (var b in pos.legs) {
+      if (pos.legs[b].platform !== 'MX' || seen[b]) continue;
+      seen[b] = true;
+      var instr = (rep.instruments||[]).find(function(i){
+        return (i.name||'').replace(/[-_0-9.]/g,'').toUpperCase() === b;
+      });
+      if (instr) pnl += instr.pnl || 0;
+    }
+    pos.pnl_rub = pnl;
+  }
+  pos.pnl_usd = (pos.fx_trades||[]).reduce(function(s,t){return s+(t.net_pnl_usd||0);},0);
+  console.log('[POS CLOSED]', pos.tag, 'pnl_rub:', pos.pnl_rub, 'pnl_usd:', pos.pnl_usd);
+}
+
 // Attach a set to position
 function attachSetToPosition(pos, setInfo) {
   if (!pos.sets) pos.sets = [];
@@ -8538,6 +8563,7 @@ async function autoTagFromReports(date) {
         for (const t of exitTrades) {
           const b = (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
           const leg = pos.legs[b];
+          if (!leg) continue;
           const vol = Math.abs(t.volume||0);
           const reduce = Math.min(vol, leg.net_volume);
           leg.vol_out += reduce;
@@ -8545,6 +8571,8 @@ async function autoTagFromReports(date) {
           if (leg.net_volume < 0.001) leg.net_volume = 0;
         }
       }
+      // Check if position is now closed
+      checkAndClosePosition(pos, date);
     }
     // Attach set info
     attachSetToPosition(pos, { set_n: setN, date, rows: [...setMxRows, ...setFxRows] });
@@ -8565,6 +8593,7 @@ async function autoTagFromReports(date) {
     });
     if (allMxForPos.length > 0 || fxForPos.length > 0) {
       updatePositionWithDay(pos, date, allMxForPos, fxForPos);
+      checkAndClosePosition(pos, date);
     } else {
       // No trades for this position today — still check if closed
       // (might have been closed by new position's exits processed above)
