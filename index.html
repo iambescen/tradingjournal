@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<!-- v:1782234595 -->
+<!-- v:1782234721 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Торговый журнал</title>
-  <!-- build:1782234595 -->
+  <!-- build:1782234721 -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
@@ -788,6 +788,11 @@ async function fetchHistoricalRates(dates) {
   let added = 0;
   await Promise.all(missing.map(async (date) => {
     try {
+      // Validate: must be ISO format YYYY-MM-DD
+      if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        console.warn('[CBR] skipping invalid date:', date);
+        return;
+      }
       const [y, m, d] = date.split('-');
       const url = `https://www.cbr-xml-daily.ru/archive/${y}/${m}/${d}/daily_json.js`;
       const res = await fetch(url);
@@ -8136,6 +8141,7 @@ function calcSetPnl(instrBase, entryTrades, exitTrades) {
 }
 
 
+function renderOvConstructions() { renderConstructionAnalytics(); }
 function renderConstructionAnalytics() {
   const el = document.getElementById('ov-construction-analytics');
   if (!el) return;
