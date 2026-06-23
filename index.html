@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782207591 -->
+<!-- v:1782208287 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8233,6 +8233,135 @@ function showAutoTagDialog() {
   };
 }
 
+
+// ══════════════════════════════════════════════════════════════
+// МАСТЕР-ПОЗИЦИИ (store.positions)
+// Позиция = от первого входа до net_volume=0 по всем MX ногам
+// ══════════════════════════════════════════════════════════════
+
+function positionsInit() {
+  if (!store.positions) store.positions = [];
+}
+
+// Найти открытую позицию по тегу
+function findOpenPosition(tag) {
+  positionsInit();
+  return store.positions.find(p => p.tag === tag && p.status === 'open') || null;
+}
+
+// Создать новую мастер-позицию
+function createPosition(tag, date, entryRows, fxRows) {
+  positionsInit();
+  const pos = {
+    id: 'pos_' + tag.replace(/\//g,'_') + '_' + date.replace(/\./g,'') + '_' + Date.now(),
+    tag,
+    opened_date: date,
+    closed_date: null,
+    status: 'open',
+    legs: {},      // {instrBase: {platform, instrument, entry_direction, net_volume, vol_in, vol_out}}
+    sets: [],
+    fx_trades: [], // накопленные FX сделки
+    pnl_rub: null,
+    pnl_usd: null,
+  };
+  // Init legs from entry rows
+  for (const r of entryRows) {
+    const b = r.instrument.replace(/[-_0-9.]/g,'').toUpperCase();
+    if (!pos.legs[b]) {
+      pos.legs[b] = {
+        platform: r.platform,
+        instrument: r.instrument,
+        entry_direction: r.direction,
+        net_volume: 0,
+        vol_in: 0,
+        vol_out: 0,
+      };
+    }
+    pos.legs[b].vol_in += r.volume;
+    pos.legs[b].net_volume += r.volume;
+  }
+  // FX legs
+  for (const r of fxRows) {
+    const b = (r.instrument||'').replace(/[-_]/g,'').toUpperCase();
+    if (!pos.legs[b]) {
+      pos.legs[b] = {
+        platform: 'FX',
+        instrument: r.instrument,
+        entry_direction: r.direction,
+        net_volume: 0,
+        vol_in: 0,
+        vol_out: 0,
+      };
+    }
+    pos.legs[b].vol_in += r.volume;
+    pos.legs[b].net_volume += r.volume;
+  }
+  store.positions.push(pos);
+  return pos;
+}
+
+// Обновить позицию новыми сделками из PDF
+// allMxTrades — все сделки МХ за день (включая выходы)
+function updatePositionWithDay(pos, date, allMxTrades, fxTrades) {
+  // Process all MX trades for this day
+  for (const t of allMxTrades) {
+    const b = (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
+    if (!pos.legs[b]) continue; // не наш инструмент
+    const leg = pos.legs[b];
+    const isEntry = t.direction === (leg.entry_direction === 'Sell' ? 'Short' : 'Long');
+    const isExit  = !isEntry;
+    if (isEntry) {
+      leg.vol_in += Math.abs(t.volume||0);
+      leg.net_volume += Math.abs(t.volume||0);
+    } else {
+      leg.vol_out += Math.abs(t.volume||0);
+      leg.net_volume -= Math.abs(t.volume||0);
+    }
+  }
+  // FX trades — always closing (net_pnl_usd already set)
+  for (const t of fxTrades) {
+    pos.fx_trades.push(t);
+    const b = (t.instrument||'').replace(/[-_]/g,'').toUpperCase();
+    if (pos.legs[b]) {
+      // FX closes when position closes — just track
+    }
+  }
+  // Add day to position days list
+  if (!pos.days) pos.days = [];
+  if (!pos.days.includes(date)) pos.days.push(date);
+  // Check if position is closed (all MX legs net_volume ≈ 0)
+  const mxLegs = Object.values(pos.legs).filter(l => l.platform === 'MX');
+  const allClosed = mxLegs.length > 0 && mxLegs.every(l => Math.abs(l.net_volume) < 0.001);
+  if (allClosed) {
+    pos.status = 'closed';
+    pos.closed_date = date;
+    // Get P&L from PDF instruments for this day
+    const rep = getMxReportForDate(date);
+    if (rep) {
+      // Accumulate P&L across all MX legs
+      let totalMxPnl = 0;
+      const seen = {};
+      for (const [b, leg] of Object.entries(pos.legs)) {
+        if (leg.platform !== 'MX') continue;
+        if (seen[b]) continue; seen[b] = true;
+        const instr = (rep.instruments||[]).find(i =>
+          (i.name||'').replace(/[-_0-9.]/g,'').toUpperCase() === b
+        );
+        if (instr) totalMxPnl += instr.pnl || 0;
+      }
+      pos.pnl_rub = totalMxPnl;
+    }
+    // FX P&L — sum all net_pnl_usd from fx_trades
+    pos.pnl_usd = pos.fx_trades.reduce((s,t) => s+(t.net_pnl_usd||0), 0);
+  }
+}
+
+// Attach a set to position
+function attachSetToPosition(pos, setInfo) {
+  if (!pos.sets) pos.sets = [];
+  pos.sets.push(setInfo);
+}
+
 async function autoTagFromReports(date) {
   try {
   const report = getMxReportForDate(date);
@@ -8365,6 +8494,37 @@ async function autoTagFromReports(date) {
     alert('Записи не созданы. Проверь данные.'); return;
   }
 
+  // Step 6: Create or update master positions
+  positionsInit();
+  for (const { cluster, tag, set: setN } of sets) {
+    const setMxRows = newRows.filter(r => r.platform==='MX' && r.tag===tag && r.set===setN);
+    const setFxRows = newRows.filter(r => r.platform==='FX' && r.tag===tag && r.set===setN);
+
+    let pos = findOpenPosition(tag);
+    if (!pos) {
+      // New position
+      pos = createPosition(tag, date, setMxRows, setFxRows);
+    } else {
+      // Existing position — update with all MX trades of this day
+      const allMxForPos = sorted.filter(t => {
+        const b = (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
+        return pos.legs[b] !== undefined;
+      });
+      const dateISO2 = normDate(date);
+      const fxForPos = (store.fx||[]).filter(t => {
+        if (normDate(t.close_date||'') !== dateISO2) return false;
+        const b = (t.instrument||'').replace(/[-_]/g,'').toUpperCase();
+        return pos.legs[b] !== undefined;
+      });
+      updatePositionWithDay(pos, date, allMxForPos, fxForPos);
+    }
+    // Attach set info to position
+    attachSetToPosition(pos, {
+      set_n: setN, date,
+      rows: [...setMxRows, ...setFxRows]
+    });
+  }
+
   // Show preview modal
   const existing2 = document.getElementById('autotag-modal');
   if (existing2) existing2.remove();
@@ -8416,7 +8576,132 @@ async function autoTagFromReports(date) {
 }
 
 
+
 function renderAutoLj() {
+  const container = document.getElementById('autolj-container');
+  if (!container) return;
+  positionsInit();
+  if (!store.autoLj) store.autoLj = { rows: [] };
+
+  const positions = store.positions || [];
+  if (!positions.length && !store.autoLj.rows.length) {
+    container.innerHTML = '<div class="empty"><div class="icon">🤖</div>'
+      + '<p>Нет автоматически разнесённых позиций</p>'
+      + '<p style="font-size:12px;color:var(--text2);margin-top:8px">'
+      + 'Загрузи PDF и Excel, затем нажми «🤖 Авторазнос» в Движении средств</p></div>';
+    return;
+  }
+
+  const rate = currentRate && currentRate.value || 85;
+
+  let html = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'
+    + '<div style="font-size:16px;font-weight:700">🤖 Авто-журнал</div>'
+    + '<div style="display:flex;gap:8px">'
+    + '<span style="font-size:12px;color:var(--text2);align-self:center">Позиций: '
+    + positions.length + ' · Открытых: ' + positions.filter(p=>p.status==='open').length + '</span>'
+    + '<button id="autolj-clear-btn" style="font-size:11px;padding:4px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--red);cursor:pointer">Очистить всё</button>'
+    + '</div></div>';
+
+  // Sort: open first, then by opened_date desc
+  const sorted = [...positions].sort(function(a,b) {
+    if (a.status==='open' && b.status!=='open') return -1;
+    if (a.status!=='open' && b.status==='open') return 1;
+    return parseDate(b.opened_date||'') - parseDate(a.opened_date||'');
+  });
+
+  for (const pos of sorted) {
+    const isOpen = pos.status === 'open';
+    const statusLabel = isOpen
+      ? '<span style="color:var(--amber);font-size:11px;font-weight:600">● ОТКРЫТА</span>'
+      : '<span style="color:var(--green);font-size:11px;font-weight:600">✓ ЗАКРЫТА</span>';
+
+    // P&L display
+    let pnlHtml = '';
+    const fxRate = (pos.closed_date ? getRateForDate(normDate(pos.closed_date)) : rate) || rate;
+    if (!isOpen && pos.pnl_rub !== null) {
+      const total = (pos.pnl_rub||0) + (pos.pnl_usd||0)*fxRate;
+      const tc = total>=0?'var(--green)':'var(--red)';
+      pnlHtml = '<span style="font-family:monospace;font-weight:700;color:'+tc+'">'
+        + (total>=0?'+':'')+Math.round(total).toLocaleString('ru')+' ₽</span>';
+    } else {
+      pnlHtml = '<span style="font-size:11px;color:var(--text2)">P&L после закрытия</span>';
+    }
+
+    // Days range
+    const days = pos.days || [pos.opened_date];
+    const daysStr = days.length > 1
+      ? days[0] + ' — ' + days[days.length-1]
+      : days[0] || pos.opened_date;
+
+    // Net volume per leg
+    const legsHtml = Object.entries(pos.legs||{}).map(function(e) {
+      const b = e[0], leg = e[1];
+      const netVol = Math.abs(leg.net_volume||0);
+      const pc = leg.platform==='MX'?'var(--blue)':'var(--purple)';
+      const vol_str = isOpen && netVol > 0
+        ? '<span style="color:var(--amber)">'+netVol+' л открыто</span>'
+        : '<span style="color:var(--text2)">закрыта</span>';
+      return '<span style="font-size:11px;background:var(--bg3);border-radius:4px;padding:2px 6px;margin-right:4px">'
+        + '<span style="color:'+pc+';font-weight:700">'+leg.platform+'</span> '
+        + leg.instrument + ' ' + vol_str + '</span>';
+    }).join('');
+
+    html += '<div style="background:var(--bg2);border:1px solid var(--border);border-left:3px solid '
+      + (isOpen?'var(--amber)':'var(--green)')
+      + ';border-radius:6px;padding:14px 16px;margin-bottom:12px">'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">'
+      + '<div style="display:flex;align-items:center;gap:10px">'
+      + '<span style="font-weight:700;color:var(--blue);font-size:14px">'+pos.tag+'</span>'
+      + statusLabel
+      + '</div>'
+      + '<div style="display:flex;align-items:center;gap:12px">'
+      + '<span style="font-size:11px;color:var(--text2)">'+daysStr+'</span>'
+      + pnlHtml
+      + '</div>'
+      + '</div>'
+      + '<div style="margin-bottom:10px">'+legsHtml+'</div>';
+
+    // Sets
+    if (pos.sets && pos.sets.length) {
+      html += '<div style="border-top:1px solid var(--border);padding-top:8px">'
+        + '<div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Наборы</div>';
+
+      for (const s of pos.sets) {
+        const mxR = (s.rows||[]).filter(function(r){return r.platform==='MX';});
+        const fxR = (s.rows||[]).filter(function(r){return r.platform==='FX';});
+        html += '<div style="margin-bottom:6px;font-size:11px">'
+          + '<span style="color:var(--text2);margin-right:8px">Набор №'+s.set_n+' · '+s.date+'</span>';
+        for (const r of mxR) {
+          const dc = r.direction==='Sell'?'var(--red)':'var(--green)';
+          html += '<span style="margin-right:8px"><span style="color:'+dc+'">'+r.direction+'</span> '
+            + r.instrument + ' ' + r.volume + 'л @ ' + r.price + '</span>';
+        }
+        for (const r of fxR) {
+          const dc = r.direction==='Buy'?'var(--green)':'var(--red)';
+          html += '<span style="margin-right:8px;color:var(--purple)">FX <span style="color:'+dc+'">'+r.direction+'</span> '
+            + r.instrument + ' ' + r.volume + 'л @ ' + r.price + '</span>';
+        }
+        html += '</div>';
+      }
+      html += '</div>';
+    }
+
+    html += '</div>';
+  }
+
+  container.innerHTML = html;
+  var cb = document.getElementById('autolj-clear-btn');
+  if (cb) cb.onclick = function() {
+    if (confirm('Очистить все позиции и авто-журнал?')) {
+      store.positions = [];
+      store.autoLj = { rows: [] };
+      saveStore();
+      renderAutoLj();
+    }
+  };
+}
+
+function _renderAutoLjOLD() {
   const container = document.getElementById('autolj-container');
   if (!container) return;
   if (!store.autoLj) store.autoLj = { rows: [] };
