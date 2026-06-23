@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782206024 -->
+<!-- v:1782206728 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8442,21 +8442,37 @@ function renderAutoLj() {
     for (const [key, g] of Object.entries(byDate[date])) {
       const mxRows = g.rows.filter(function(r){return r.platform==='MX';});
       const fxRows = g.rows.filter(function(r){return r.platform==='FX';});
-      let mxPnl=0, mxComm=0;
+      // P&L by avg price method for this specific set
+      let mxPnl = 0;
       const rep = getMxReportForDate(date);
       if (rep) {
-        const seen = {};
+        // For each MX instrument in this set — find all trades in report
+        // and compute (avgExit - avgEntry) × vol / tick × step
+        const TICK = {SI:1,EU:1,CR:0.001,UC:0.0001,ED:0.0001,GD:0.1,SV:0.1,PT:0.1,PD:0.1,USDRUBF:0.0025,EURRUBF:0.0025,CNYRUBF:0.001};
         for (const r of mxRows) {
           const b = r.instrument.replace(/[-_0-9.]/g,'').toUpperCase();
-          if (seen[b]) continue; seen[b] = true;
-          const pd = calcMxLegPnl(r.instrument, r.volume, date);
-          if (pd) { mxPnl += pd.pnl; mxComm += (pd.commissionDisplay||0); }
+          // entry direction
+          const isShort = r.direction === 'Sell';
+          // avg entry = r.price (already computed as avg entry)
+          // avg exit = from report last trade price
+          const exitTrades = (rep.trades||[]).filter(t => {
+            const tb = (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
+            return tb === b && (isShort ? t.direction==='Long' : t.direction==='Short');
+          });
+          if (!exitTrades.length) continue;
+          const exitVol = exitTrades.reduce((s,t)=>s+Math.abs(t.volume||0),0)||1;
+          const avgExit = exitTrades.reduce((s,t)=>s+(t.price||0)*Math.abs(t.volume||0),0)/exitVol;
+          const tick = TICK[b]||1;
+          const sign = isShort ? -1 : 1;
+          mxPnl += sign*(avgExit - r.price)/tick * Math.min(r.volume, exitVol);
         }
       }
       let fxPnlUsd = 0;
       for (const r of fxRows) {
-        const pd = calcFxLegPnl(r.instrument, date);
-        if (pd) fxPnlUsd += pd.pnl;
+        if (r.price && r.price_close) {
+          const isBuy = r.direction==='Buy';
+          fxPnlUsd += (isBuy ? r.price_close-r.price : r.price-r.price_close) * r.volume * 100000;
+        }
       }
       const fxRate = getRateForDate(normDate(date)) || rate;
       const total = mxPnl + fxPnlUsd * fxRate;
