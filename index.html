@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782226900 -->
+<!-- v:1782228091 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -10450,17 +10450,17 @@ function renderDiaryPositions() {
 
   // Tag → human-readable name
   function tagName(tag) {
-    if (tag.indexOf('SI')>=0 && tag.indexOf('CR')>=0) return '🇺🇸 USD/CNH (Si·CR)';
-    if (tag.indexOf('EU1')>=0 && tag.indexOf('CR')>=0) return '🇪🇺 EUR/CNH (Eu·CR)';
-    if (tag.indexOf('ERF')>=0) return '🇪🇺 EUR/CNH (вечник)';
-    if (tag.indexOf('URF')>=0) return '🇺🇸 USD/CNH (вечник)';
-    if (tag.indexOf('UC')>=0) return '🇺🇸 USD/CNH (UC)';
-    if (tag.indexOf('ED')>=0) return '🇪🇺 EUR/USD (ED)';
-    if (tag.indexOf('GD')>=0) return '🥇 Золото';
-    if (tag.indexOf('SV')>=0) return '🥈 Серебро';
-    if (tag.indexOf('PT')>=0) return '⚙️ Платина';
-    if (tag.indexOf('PD')>=0) return '⚙️ Палладий';
-    return tag;
+    if (tag.indexOf('SI')>=0 && tag.indexOf('CR')>=0) return '🇺🇸 Валюта';
+    if (tag.indexOf('EU1')>=0 && tag.indexOf('CR')>=0) return '🇪🇺 Валюта';
+    if (tag.indexOf('ERF')>=0) return '🇪🇺 Валюта';
+    if (tag.indexOf('URF')>=0) return '🇺🇸 Валюта';
+    if (tag.indexOf('UC')>=0) return '🇺🇸 Валюта';
+    if (tag.indexOf('ED')>=0) return '🇪🇺 Валюта';
+    if (tag.indexOf('GD')>=0) return '🥇 Металл';
+    if (tag.indexOf('SV')>=0) return '🥈 Металл';
+    if (tag.indexOf('PT')>=0) return '⚙️ Металл';
+    if (tag.indexOf('PD')>=0) return '⚙️ Металл';
+    return '💱 Валюта';
   }
 
   function fmtP(v, isFx) {
@@ -10604,7 +10604,15 @@ function renderDiaryPositions() {
   });
 
   // Add dashboard counters at top (like old showcase)
-  const dashHtml = '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px">'
+  const deleted = store.deletedPositions || [];
+  const restoreHtml = deleted.length ? '<div style="margin-bottom:12px;padding:8px 12px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;justify-content:space-between">'
+    + '<span style="font-size:12px;color:var(--text2)">Удалено: '+deleted.length+' позиций</span>'
+    + '<div style="display:flex;gap:6px">'
+    + deleted.map(function(p,i){
+        return '<button data-restoreidx="'+i+'" class="diary-restore-btn" style="font-size:11px;padding:3px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg3);color:var(--blue);cursor:pointer">↩ '+p.tag+'</button>';
+      }).join('')
+    + '</div></div>' : '';
+  const dashHtml = restoreHtml + '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px">'
     + '<div style="background:'+bg2+';border:1px solid '+border+';border-radius:10px;padding:16px;text-align:center">'
     + '<div style="font-size:11px;color:'+text2+';text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Закрыто</div>'
     + '<div style="font-size:28px;font-weight:700;color:'+green+'">'+closed.length+'</div></div>'
@@ -10624,12 +10632,30 @@ function renderDiaryPositions() {
     wrap.style.cssText = 'padding:4px';
     wrap.innerHTML = dashHtml + html;
     root.appendChild(wrap);
+    // Wire up restore buttons
+    root.querySelectorAll('.diary-restore-btn').forEach(function(btn){
+      btn.onclick = function(){
+        var idx = parseInt(this.dataset.restoreidx);
+        var del = store.deletedPositions || [];
+        var pos = del[idx];
+        if (!pos) return;
+        if (!store.positions) store.positions = [];
+        store.positions.push(pos);
+        store.deletedPositions = del.filter(function(_,i){return i!==idx;});
+        saveStore();
+        renderShowcase();
+      };
+    });
     // Wire up delete buttons
     root.querySelectorAll('.diary-del-pos-btn').forEach(function(btn){
       btn.onclick = function(){
         var pid = this.dataset.delposid;
-        if (!confirm('Удалить позицию из дневника?')) return;
-        store.positions = (store.positions||[]).filter(function(p){return p.id!==pid;});
+        if (!confirm('Удалить позицию из дневника? Её можно будет восстановить.')) return;
+        var pos = (store.positions||[]).find(function(p){return p.id===pid;});
+        if (!pos) return;
+        if (!store.deletedPositions) store.deletedPositions = [];
+        store.deletedPositions.push(pos);
+        store.positions = store.positions.filter(function(p){return p.id!==pid;});
         saveStore();
         renderShowcase();
       };
