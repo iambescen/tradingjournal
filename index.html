@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<!-- v:1782234329 -->
+<!-- v:1782234434 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Торговый журнал</title>
-  <!-- build:1782234329 -->
+  <!-- build:1782234434 -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
@@ -322,7 +322,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 </head>
 <body>
-<div id="password-gate" style="display:none">
+<div id="password-gate" style="display:none;position:fixed;inset:0;z-index:9999">
   <div class="gate-box">
     <div style="font-size:32px;margin-bottom:8px">🔐</div>
     <h2>Торговый журнал</h2>
@@ -334,7 +334,7 @@
   </div>
 </div>
 
-<div class="app" id="main-app" style="display:none">
+<div class="app" id="main-app">
 
   <!-- Header -->
   <div class="header">
