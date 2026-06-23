@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782214807 -->
+<!-- v:1782215381 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8746,148 +8746,222 @@ function renderAutoLj() {
 
   const rate = (currentRate && currentRate.value) || 85;
 
-  // Helper: get MX P&L by summing margin_rub of closing trades, proportional to position volume
-  // margin_rub is already computed by broker per closing trade — most accurate source
-  function getPosMxPnl(pos) {
-    var pnl = 0;
+  // ── P&L helpers ──────────────────────────────────────────────
+  function getPosMxPnlFull(pos) {
+    var result = {};
     var allDays = pos.days || [pos.closed_date || pos.opened_date];
-    var seen = {};
     for (var b in pos.legs) {
       var leg = pos.legs[b];
-      if (leg.platform !== 'MX' || seen[b]) continue;
-      seen[b] = true;
+      if (leg.platform !== 'MX') continue;
       var posVol = leg.vol_in || 0;
       var closingMargin = 0, totalComm = 0, closingVol = 0;
       var isEntryShort = leg.entry_direction === 'Sell';
+      var allEntries = [], allExits = [];
       for (var i = 0; i < allDays.length; i++) {
         var rep = getMxReportForDate(allDays[i]);
         if (!rep) continue;
         (rep.trades||[]).forEach(function(t){
           var tb = (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
           if (tb !== b) return;
-          var isExit = isEntryShort ? t.direction === 'Long' : t.direction === 'Short';
-          // margin_rub only from closing trades
+          var isExit = isEntryShort ? t.direction==='Long' : t.direction==='Short';
           if (isExit) {
             closingMargin += t.margin_rub || 0;
-            closingVol    += Math.abs(t.volume || 0);
+            closingVol    += Math.abs(t.volume||0);
+            allExits.push(t);
+          } else {
+            allEntries.push(t);
           }
-          // commission from ALL trades (entry + exit)
           totalComm += t.commission || 0;
         });
       }
-      if (closingVol > 0 && posVol > 0) {
-        var ratio = Math.min(posVol / closingVol, 1);
-        pnl += closingMargin * ratio + totalComm * ratio;
-      }
+      var ratio = (closingVol > 0 && posVol > 0) ? Math.min(posVol/closingVol, 1) : 0;
+      var pnl = ratio > 0 ? (closingMargin + totalComm) * ratio : 0;
+      var entryVol = allEntries.reduce(function(s,t){return s+Math.abs(t.volume||0);},0)||1;
+      var exitVol  = allExits.reduce(function(s,t){return s+Math.abs(t.volume||0);},0)||1;
+      var avgEntry = allEntries.reduce(function(s,t){return s+(t.price||0)*Math.abs(t.volume||0);},0)/entryVol;
+      var avgExit  = allExits.reduce(function(s,t){return s+(t.price||0)*Math.abs(t.volume||0);},0)/exitVol;
+      result[b] = {
+        pnl: pnl, ratio: ratio, totalComm: totalComm,
+        avgEntry: avgEntry, avgExit: avgExit,
+        posVol: posVol, closingVol: closingVol,
+        instrument: leg.instrument
+      };
     }
-    return Math.round(pnl);
+    return result;
   }
 
-  // Helper: get FX P&L for a position
-  function getPosFxPnl(pos) {
-    return (pos.fx_trades||[]).reduce(function(s,t){ return s+(t.net_pnl_usd||0); }, 0);
-  }
-
-  // Helper: get commission for a position from PDF
-  function getPosComm(pos) {
-    var comm = 0;
-    var allDays = pos.days || [pos.closed_date || pos.opened_date];
-    var seen = {};
-    for (var b in pos.legs) {
-      var leg = pos.legs[b];
-      if (leg.platform !== 'MX' || seen[b]) continue;
-      seen[b] = true;
-      for (var i = 0; i < allDays.length; i++) {
-        var rep = getMxReportForDate(allDays[i]);
-        if (!rep) continue;
-        var instr = (rep.instruments||[]).find(function(x){
-          return (x.name||'').replace(/[-_0-9.]/g,'').toUpperCase() === b;
-        });
-        if (instr && instr.commission !== undefined) {
-          comm += instr.commission;
-          break;
-        }
-      }
+  function getPosFxTrades(pos) {
+    var fxTrades = pos.fx_trades || [];
+    if (!fxTrades.length) {
+      var fxInstrs = Object.keys(pos.legs).filter(function(b){return pos.legs[b].platform==='FX';});
+      var posDateISO = normDate(pos.closed_date || pos.opened_date || '');
+      fxTrades = (store.fx||[]).filter(function(t){
+        var ti = (t.instrument||'').replace(/[-_]/g,'').toUpperCase();
+        return fxInstrs.indexOf(ti) >= 0 && normDate(t.close_date||'') === posDateISO;
+      });
     }
-    return comm;
+    return fxTrades;
   }
 
-  let html = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'
-    + '<div style="font-size:16px;font-weight:700">🤖 Авто-журнал</div>'
-    + '<div style="display:flex;gap:8px;align-items:center">'
-    + '<span style="font-size:12px;color:var(--text2)">Позиций: ' + positions.length
-    + ' · Открытых: ' + positions.filter(function(p){return p.status==='open';}).length + '</span>'
-    + '<button id="autolj-clear-btn" style="font-size:11px;padding:4px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--red);cursor:pointer">Очистить всё</button>'
-    + '</div></div>';
+  // Read filter/sort state
+  var filterStatus = container._filterStatus || 'all';
+  var filterTag    = container._filterTag    || '';
+  var sortBy       = container._sortBy       || 'date';
 
-  // Sort: open first, then by date desc
-  var sorted = positions.slice().sort(function(a,b){
-    if (a.status==='open' && b.status!=='open') return -1;
-    if (a.status!=='open' && b.status==='open') return 1;
-    return parseDate(b.opened_date||'') - parseDate(a.opened_date||'');
+  // Unique tags for filter
+  var allTags = [];
+  positions.forEach(function(p){ if (allTags.indexOf(p.tag)<0) allTags.push(p.tag); });
+  allTags.sort();
+
+  // Filter
+  var filtered = positions.filter(function(p){
+    if (filterStatus==='open'   && p.status!=='open')   return false;
+    if (filterStatus==='closed' && p.status!=='closed') return false;
+    if (filterTag && p.tag !== filterTag) return false;
+    return true;
   });
 
-  for (var pi = 0; pi < sorted.length; pi++) {
-    var pos = sorted[pi];
+  // Sort
+  filtered.sort(function(a,b){
+    if (sortBy==='date') {
+      if (a.status==='open' && b.status!=='open') return -1;
+      if (a.status!=='open' && b.status==='open') return 1;
+      return parseDate(b.opened_date||'') - parseDate(a.opened_date||'');
+    }
+    if (sortBy==='pnl') {
+      var fxRateA = (a.closed_date?getRateForDate(normDate(a.closed_date)):rate)||rate;
+      var fxRateB = (b.closed_date?getRateForDate(normDate(b.closed_date)):rate)||rate;
+      var mxA = Object.values(getPosMxPnlFull(a)).reduce(function(s,x){return s+x.pnl;},0);
+      var mxB = Object.values(getPosMxPnlFull(b)).reduce(function(s,x){return s+x.pnl;},0);
+      var fxA = getPosFxTrades(a).reduce(function(s,t){return s+(t.net_pnl_usd||0);},0)*fxRateA;
+      var fxB = getPosFxTrades(b).reduce(function(s,t){return s+(t.net_pnl_usd||0);},0)*fxRateB;
+      return (mxB+fxB)-(mxA+fxA);
+    }
+    return 0;
+  });
+
+  // ── Header ────────────────────────────────────────────────────
+  var openCount   = positions.filter(function(p){return p.status==='open';}).length;
+  var closedCount = positions.filter(function(p){return p.status==='closed';}).length;
+
+  var tagOptions = '<option value="">Все конструкции</option>'
+    + allTags.map(function(t){return '<option value="'+t+'"'+(filterTag===t?' selected':'')+'>'+t+'</option>';}).join('');
+
+  var html = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">'
+    + '<div style="font-size:16px;font-weight:700">🤖 Авто-журнал</div>'
+    + '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">'
+    + '<span style="font-size:12px;color:var(--text2)">Всего: '+positions.length+' · Открыт: '+openCount+' · Закрыт: '+closedCount+'</span>'
+    + '<button id="autolj-clear-btn" style="font-size:11px;padding:4px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--red);cursor:pointer">Очистить</button>'
+    + '</div></div>'
+
+    // Filters row
+    + '<div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap">'
+    + '<div style="display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden">'
+    + ['all','open','closed'].map(function(v){
+        var label = v==='all'?'Все':v==='open'?'Открытые':'Закрытые';
+        var active = filterStatus===v;
+        return '<button onclick="document.getElementById(\'autolj-container\')._filterStatus=\''+v+'\';renderAutoLj()" '
+          + 'style="padding:4px 12px;font-size:12px;border:none;cursor:pointer;background:'
+          + (active?'var(--blue)':'var(--bg2)')+';color:'+(active?'#fff':'var(--text1)')+'">'+label+'</button>';
+      }).join('')
+    + '</div>'
+    + '<select onchange="document.getElementById(\'autolj-container\')._filterTag=this.value;renderAutoLj()" '
+    + 'style="font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1)">'
+    + tagOptions + '</select>'
+    + '<select onchange="document.getElementById(\'autolj-container\')._sortBy=this.value;renderAutoLj()" '
+    + 'style="font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1)">'
+    + '<option value="date"'+(sortBy==='date'?' selected':'')+'>По дате</option>'
+    + '<option value="pnl"'+(sortBy==='pnl'?' selected':'')+'>По P&L</option>'
+    + '</select>'
+    + '</div>';
+
+  // ── Position cards ────────────────────────────────────────────
+  for (var pi = 0; pi < filtered.length; pi++) {
+    var pos = filtered[pi];
     var isOpen = pos.status === 'open';
-    var fxRate = (pos.closed_date ? getRateForDate(normDate(pos.closed_date)) : rate) || rate;
+    var fxRate = (pos.closed_date?getRateForDate(normDate(pos.closed_date)):rate)||rate;
     var allDays = pos.days || [pos.opened_date];
 
-    // ── P&L ──────────────────────────────────────────────────
-    var pnlHtml = '';
-    if (!isOpen) {
-      var mxPnl = getPosMxPnl(pos);
-      var fxPnlUsd = getPosFxPnl(pos);
-      var total = mxPnl + fxPnlUsd * fxRate;
-      var tc = total>=0?'var(--green)':'var(--red)';
-      pnlHtml = '<span style="font-family:monospace;font-weight:700;color:'+tc+'">'
-        + (total>=0?'+':'')+Math.round(total).toLocaleString('ru')+' ₽</span>';
-    } else {
-      pnlHtml = '<span style="font-size:11px;color:var(--amber)">открыта</span>';
+    // Calc P&L
+    var mxPnlFull = getPosMxPnlFull(pos);
+    var totalMx = Object.values(mxPnlFull).reduce(function(s,x){return s+x.pnl;},0);
+    var fxTradesPos = getPosFxTrades(pos);
+    var fxPnlUsd = fxTradesPos.reduce(function(s,t){return s+(t.net_pnl_usd||0);},0);
+    var fxPnlRub = fxPnlUsd * fxRate;
+    var totalRub = totalMx + fxPnlRub;
+
+    // Duration
+    var daysCount = allDays.length;
+    var daysStr = allDays.length > 1
+      ? allDays[0]+' — '+allDays[allDays.length-1]+' ('+daysCount+' дн)'
+      : (allDays[0]||pos.opened_date);
+
+    // Total commission
+    var totalCommAll = Object.values(mxPnlFull).reduce(function(s,x){return s+(x.totalComm||0);},0);
+
+    // Spread: avgEntry vs avgExit for each MX leg
+    var spreadParts = [];
+    for (var bsp in mxPnlFull) {
+      var d = mxPnlFull[bsp];
+      if (d.avgEntry && d.avgExit) {
+        var spread = Math.abs(d.avgExit - d.avgEntry);
+        var spec = MX_SPECS[bsp];
+        var spreadPips = spec ? Math.round(spread/spec.tick) : spread.toFixed(4);
+        spreadParts.push(d.instrument+': '+spreadPips+' пп');
+      }
     }
 
-    // ── Header ────────────────────────────────────────────────
+    // Status
     var statusLabel = isOpen
       ? '<span style="color:var(--amber);font-size:11px;font-weight:600">● ОТКРЫТА</span>'
       : '<span style="color:var(--green);font-size:11px;font-weight:600">✓ ЗАКРЫТА</span>';
 
-    var daysStr = allDays.length > 1
-      ? allDays[0]+' — '+allDays[allDays.length-1]
-      : allDays[0] || pos.opened_date;
+    // P&L badge
+    var pnlBadge = '';
+    if (!isOpen) {
+      var tc = totalRub>=0?'var(--green)':'var(--red)';
+      pnlBadge = '<span style="font-family:monospace;font-weight:700;font-size:15px;color:'+tc+'">'
+        + (totalRub>=0?'+':'')+Math.round(totalRub).toLocaleString('ru')+' ₽</span>';
+    } else {
+      pnlBadge = '<span style="font-size:12px;color:var(--amber)">открыта</span>';
+    }
 
-    // ── Legs ─────────────────────────────────────────────────
+    // Legs
     var legsHtml = '';
-    for (var b in pos.legs) {
-      var leg = pos.legs[b];
+    for (var bl in pos.legs) {
+      var leg = pos.legs[bl];
       var netVol = Math.round(Math.abs(leg.net_volume||0)*100)/100;
-      var pc = leg.platform==='MX'?'var(--blue)':'var(--purple)';
-      var volStr = isOpen && netVol > 0
-        ? '<span style="color:var(--amber)">'+netVol+' л</span>'
-        : 'закрыта';
+      var lc = leg.platform==='MX'?'var(--blue)':'var(--purple)';
+      var volStr = isOpen && netVol>0 ? '<span style="color:var(--amber)">'+netVol+' л</span>' : 'закрыта';
       legsHtml += '<span style="font-size:11px;background:var(--bg3);border-radius:4px;padding:2px 8px;margin-right:4px">'
-        + '<span style="color:'+pc+';font-weight:700">'+leg.platform+'</span> '
-        + leg.instrument+' '+volStr+'</span>';
+        +'<span style="color:'+lc+';font-weight:700">'+leg.platform+'</span> '+leg.instrument+' '+volStr+'</span>';
     }
 
     html += '<div style="background:var(--bg2);border:1px solid var(--border);border-left:3px solid '
       + (isOpen?'var(--amber)':'var(--green)')
       + ';border-radius:6px;padding:14px 16px;margin-bottom:12px">';
 
-    // Top row
-    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
-      + '<div style="display:flex;align-items:center;gap:10px">'
-      + '<span style="font-weight:700;color:var(--blue);font-size:14px">'+pos.tag+'</span>'
-      + statusLabel
-      + '</div>'
-      + '<div style="display:flex;align-items:center;gap:12px">'
-      + '<span style="font-size:11px;color:var(--text2)">'+daysStr+'</span>'
-      + pnlHtml
-      + '</div></div>';
+    // Top row: tag + status | dates + P&L
+    html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">'
+      + '<div><span style="font-weight:700;color:var(--blue);font-size:14px">'+pos.tag+'</span>'
+      + ' '+statusLabel+'</div>'
+      + '<div style="text-align:right">'
+      + '<div style="font-size:11px;color:var(--text2);margin-bottom:2px">'+daysStr+'</div>'
+      + pnlBadge+'</div></div>';
+
+    // Stats row
+    if (!isOpen) {
+      html += '<div style="display:flex;gap:16px;margin-bottom:8px;flex-wrap:wrap">'
+        + '<span style="font-size:11px;color:var(--text2)">💼 Комиссии: <span style="color:var(--red)">'+Math.round(totalCommAll)+' ₽</span></span>'
+        + (spreadParts.length?'<span style="font-size:11px;color:var(--text2)">📏 Спред: '+spreadParts.join(' / ')+'</span>':'')
+        + '<span style="font-size:11px;color:var(--text2)">📊 Наборов: '+((pos.sets||[]).length)+'</span>'
+        + '</div>';
+    }
 
     // Legs row
     html += '<div style="margin-bottom:10px">'+legsHtml+'</div>';
 
-    // ── Detail section ────────────────────────────────────────
+    // Detail section
     html += '<div style="border-top:1px solid var(--border);padding-top:10px">';
 
     // Sets
@@ -8904,151 +8978,97 @@ function renderAutoLj() {
           html += '<span style="font-size:11px;display:inline-block;margin-right:12px;margin-top:3px">'
             + '<span style="font-size:10px;background:var(--blue);color:#fff;border-radius:2px;padding:0 3px">MX</span> '
             + '<span style="color:'+dc+'">'+r.direction+'</span> '
-            + '<b>'+r.instrument+'</b> '+r.volume+'л @ <span style="font-family:monospace">'+r.price+'</span>'
-            + '</span>';
+            + '<b>'+r.instrument+'</b> '+r.volume+'л @ <span style="font-family:monospace">'+r.price+'</span></span>';
         });
         fxR.forEach(function(r){
           var dc = r.direction==='Buy'?'var(--green)':'var(--red)';
           html += '<span style="font-size:11px;display:inline-block;margin-right:12px;margin-top:3px">'
             + '<span style="font-size:10px;background:#7c3aed;color:#fff;border-radius:2px;padding:0 3px">FX</span> '
             + '<span style="color:'+dc+'">'+r.direction+'</span> '
-            + '<b>'+r.instrument+'</b> '+r.volume+'л @ <span style="font-family:monospace">'+r.price+'</span>'
-            + '</span>';
+            + '<b>'+r.instrument+'</b> '+r.volume+'л @ <span style="font-family:monospace">'+r.price+'</span></span>';
         });
         html += '</div>';
       }
     }
 
-    // P&L breakdown for closed positions
+    // P&L breakdown (closed only)
     if (!isOpen) {
       html += '<div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin:8px 0 6px">Расчёт P&L</div>';
       var totalMxDisp = 0;
 
-      for (var b2 in pos.legs) {
-        var leg2 = pos.legs[b2];
-        if (leg2.platform !== 'MX') continue;
-
-        // Get instruments.pnl and commission from PDF
-        var instrPnl = null, instrComm = 0;
-        for (var di = 0; di < allDays.length; di++) {
-          var rep2 = getMxReportForDate(allDays[di]);
-          if (!rep2) continue;
-          var instrData = (rep2.instruments||[]).find(function(x){
-            return (x.name||'').replace(/[-_0-9.]/g,'').toUpperCase() === b2;
-          });
-          if (instrData) {
-            instrPnl = instrData.pnl || 0;
-            instrComm = instrData.commission || 0;
-            break;
-          }
+      for (var b2 in mxPnlFull) {
+        var d2 = mxPnlFull[b2];
+        if (!d2.posVol) continue;
+        totalMxDisp += d2.pnl;
+        var pc2 = d2.pnl>=0?'var(--green)':'var(--red)';
+        var pct = d2.ratio < 0.99 ? ' ('+Math.round(d2.ratio*100)+'% дня)' : '';
+        var spreadPp = '';
+        var sp2 = MX_SPECS[b2];
+        if (sp2 && d2.avgEntry && d2.avgExit) {
+          var raw = Math.abs(d2.avgExit - d2.avgEntry);
+          spreadPp = ' · спред '+Math.round(raw/sp2.tick)+' пп';
         }
-
-        // Also calc avg prices for info
-        var allEntries2 = [], allExits2 = [];
-        for (var di2 = 0; di2 < allDays.length; di2++) {
-          var rep3 = getMxReportForDate(allDays[di2]);
-          if (!rep3) continue;
-          var instrTrades2 = (rep3.trades||[]).filter(function(t){
-            return (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase() === b2;
-          });
-          var isEntryShort2 = leg2.entry_direction === 'Sell';
-          instrTrades2.forEach(function(t){
-            if (isEntryShort2 ? t.direction==='Short' : t.direction==='Long') allEntries2.push(t);
-            else allExits2.push(t);
-          });
-        }
-
-        var entryVol2 = allEntries2.reduce(function(s,t){return s+Math.abs(t.volume||0);},0);
-        var exitVol2  = allExits2.reduce(function(s,t){return s+Math.abs(t.volume||0);},0);
-        var avgEntry2 = entryVol2 ? allEntries2.reduce(function(s,t){return s+(t.price||0)*Math.abs(t.volume||0);},0)/entryVol2 : 0;
-        var avgExit2  = exitVol2  ? allExits2.reduce(function(s,t){return s+(t.price||0)*Math.abs(t.volume||0);},0)/exitVol2 : 0;
-
-        // Sum margin_rub from closing trades, proportional to position volume
-        var posVol2 = leg2.vol_in || 0;
-        var isEntryShort2 = leg2.entry_direction === 'Sell';
-        var closingMargin2 = 0, totalComm2 = 0, closingVol2 = 0;
-        for (var di3 = 0; di3 < allDays.length; di3++) {
-          var rep4 = getMxReportForDate(allDays[di3]);
-          if (!rep4) continue;
-          (rep4.trades||[]).forEach(function(t){
-            var tb = (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
-            if (tb !== b2) return;
-            var isExit2 = isEntryShort2 ? t.direction==='Long' : t.direction==='Short';
-            if (isExit2) {
-              closingMargin2 += t.margin_rub || 0;
-              closingVol2    += Math.abs(t.volume||0);
-            }
-            totalComm2 += t.commission || 0;
-          });
-        }
-        if (closingVol2 > 0 && posVol2 > 0) {
-          var ratio2 = Math.min(posVol2 / closingVol2, 1);
-          var dispPnl2 = closingMargin2 * ratio2 + totalComm2 * ratio2;
-          totalMxDisp += dispPnl2;
-          var pc2 = dispPnl2>=0?'var(--green)':'var(--red)';
-          var margPct = ratio2 < 0.99 ? ' ('+Math.round(ratio2*100)+'% дня)' : '';
-          html += '<div style="font-size:11px;display:flex;gap:8px;align-items:center;margin-bottom:4px;padding:4px 8px;background:var(--bg3);border-radius:4px;flex-wrap:wrap">'
-            + '<span style="font-weight:600;min-width:80px">'+leg2.instrument+'</span>'
-            + '<span style="color:var(--text2)">вход: <span style="font-family:monospace">'+avgEntry2.toFixed(4)+'</span></span>'
-            + '<span style="color:var(--text2)">выход: <span style="font-family:monospace">'+avgExit2.toFixed(4)+'</span></span>'
-            + '<span style="color:var(--text2)">'+posVol2+'л'+margPct+'</span>'
-            + '<span style="color:var(--red);font-size:10px">ком: '+Math.round(totalComm2*ratio2)+' ₽</span>'
-            + '<span style="font-family:monospace;font-weight:700;color:'+pc2+';margin-left:auto">'+(dispPnl2>=0?'+':'')+Math.round(dispPnl2)+' ₽</span>'
-            + '</div>';
-        }
-
-      // FX breakdown — search store.fx by date and instrument from position legs
-      var fxTrades = pos.fx_trades || [];
-      if (!fxTrades.length) {
-        var fxInstrs = Object.keys(pos.legs).filter(function(b){return pos.legs[b].platform==='FX';});
-        var posDateISO = normDate(pos.closed_date || pos.opened_date || '');
-        fxTrades = (store.fx||[]).filter(function(t){
-          var ti = (t.instrument||'').replace(/[-_]/g,'').toUpperCase();
-          return fxInstrs.indexOf(ti) >= 0 && normDate(t.close_date||'') === posDateISO;
-        });
+        html += '<div style="font-size:11px;display:flex;gap:6px;align-items:center;margin-bottom:4px;padding:4px 8px;background:var(--bg3);border-radius:4px;flex-wrap:wrap">'
+          + '<span style="font-weight:600;min-width:80px">'+d2.instrument+'</span>'
+          + '<span style="color:var(--text2)">вход: <span style="font-family:monospace">'+d2.avgEntry.toFixed(4)+'</span></span>'
+          + '<span style="color:var(--text2)">выход: <span style="font-family:monospace">'+d2.avgExit.toFixed(4)+'</span></span>'
+          + '<span style="color:var(--text2)">'+d2.posVol+'л'+pct+'</span>'
+          + '<span style="color:var(--text2);font-size:10px">'+spreadPp+'</span>'
+          + '<span style="color:var(--red);font-size:10px">ком: '+Math.round(d2.totalComm*d2.ratio)+' ₽</span>'
+          + '<span style="font-family:monospace;font-weight:700;color:'+pc2+';margin-left:auto">'+(d2.pnl>=0?'+':'')+Math.round(d2.pnl)+' ₽</span>'
+          + '</div>';
       }
-      var fxPnlUsd2 = fxTrades.reduce(function(s,t){return s+(t.net_pnl_usd||0);},0);
+
+      // FX breakdown
       var fxInstrList = Object.keys(pos.legs).filter(function(b){return pos.legs[b].platform==='FX';});
       if (fxInstrList.length > 0) {
+        var fxPnlUsd2 = fxTradesPos.reduce(function(s,t){return s+(t.net_pnl_usd||0);},0);
+        var fxSwap    = fxTradesPos.reduce(function(s,t){return s+(t.swap||0);},0);
+        var fxComm    = fxTradesPos.reduce(function(s,t){return s+(t.commission||0);},0);
         var fxC = fxPnlUsd2>=0?'var(--green)':'var(--red)';
-        html += '<div style="font-size:11px;display:flex;gap:8px;align-items:center;margin-bottom:4px;padding:4px 8px;background:var(--bg3);border-radius:4px">'
+        html += '<div style="font-size:11px;display:flex;gap:6px;align-items:center;margin-bottom:4px;padding:4px 8px;background:var(--bg3);border-radius:4px;flex-wrap:wrap">'
           + '<span style="font-weight:600;min-width:80px">'+fxInstrList.join(',')+' (FX)</span>'
-          + '<span style="color:var(--text2)">'+fxTrades.length+' сделок</span>'
-          + '<span style="color:var(--text2)">курс: '+fxRate.toFixed(2)+' ₽/$</span>'
+          + '<span style="color:var(--text2)">'+fxTradesPos.length+' сделок</span>'
+          + '<span style="color:var(--text2)">курс: '+fxRate.toFixed(2)+'</span>'
+          + (fxSwap?'<span style="color:var(--red);font-size:10px">своп: '+fxSwap.toFixed(2)+'$</span>':'')
+          + (fxComm?'<span style="color:var(--red);font-size:10px">ком: '+fxComm.toFixed(2)+'$</span>':'')
           + '<span style="font-family:monospace;font-weight:700;color:'+fxC+';margin-left:auto">'
           + (fxPnlUsd2>=0?'+':'')+fxPnlUsd2.toFixed(2)+'$ = '
           + (fxPnlUsd2>=0?'+':'')+Math.round(fxPnlUsd2*fxRate)+' ₽</span>'
           + '</div>';
       }
+
       // Total line
-      var fxRubDisp = fxPnlUsd2 * fxRate;
-      var totalDisp = totalMxDisp + fxRubDisp;
-      var tcDisp = totalDisp>=0?'var(--green)':'var(--red)';
+      var tc2 = totalRub>=0?'var(--green)':'var(--red)';
       html += '<div style="font-size:12px;display:flex;justify-content:space-between;margin-top:8px;padding-top:6px;border-top:1px dashed var(--border)">'
         + '<span style="color:var(--text2);font-size:11px">Итого позиции:</span>'
-        + '<span style="font-family:monospace;font-weight:700;color:'+tcDisp+'">'
-        + 'МХ '+(totalMxDisp>=0?'+':'')+Math.round(totalMxDisp)+' ₽'
-        + (fxTrades.length?' + FX '+(fxRubDisp>=0?'+':'')+Math.round(fxRubDisp)+' ₽':'')
-        + ' = '+(totalDisp>=0?'+':'')+Math.round(totalDisp)+' ₽'
+        + '<span style="font-family:monospace;font-weight:700;color:'+tc2+'">'
+        + 'МХ '+(totalMx>=0?'+':'')+Math.round(totalMx)+' ₽'
+        + (fxPnlRub?'  FX '+(fxPnlRub>=0?'+':'')+Math.round(fxPnlRub)+' ₽':'')
+        + '  = '+(totalRub>=0?'+':'')+Math.round(totalRub)+' ₽'
         + '</span></div>';
     }
 
     html += '</div></div>';
   }
 
+  if (!filtered.length) {
+    html += '<div style="text-align:center;color:var(--text2);padding:32px">Нет позиций по фильтру</div>';
+  }
+
   container.innerHTML = html;
+
+  // Wire up clear button
   var cb = document.getElementById('autolj-clear-btn');
-  if (cb) cb.onclick = function() {
+  if (cb) cb.onclick = function(){
     if (confirm('Очистить все позиции и авто-журнал?')) {
-      store.positions = [];
-      store.autoLj = { rows: [] };
-      saveStore();
-      renderAutoLj();
+      store.positions=[]; store.autoLj={rows:[]};
+      saveStore(); renderAutoLj();
     }
   };
 }
 
-}
+
 
 function _renderAutoLjOLD() {
   const container = document.getElementById('autolj-container');
