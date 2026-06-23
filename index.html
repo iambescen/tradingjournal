@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782235390 -->
+<!-- v:1782235508 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -7,7 +7,7 @@
   <meta http-equiv="Pragma" content="no-cache">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Торговый журнал</title>
-  <!-- build:1782235390 -->
+  <!-- build:1782235508 -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
@@ -416,6 +416,11 @@
       <div class="value total" id="dash-total-pnl">—</div>
       <div class="card-convert" style="font-size:12px;color:var(--text2);margin-top:3px" id="dash-total-sub"></div>
       <div id="dash-period" style="font-size:11px;color:var(--text2);margin-top:6px;"></div>
+    </div>
+    <div class="card">
+      <div class="label">% годовых</div>
+      <div class="value" id="dash-annual-yield" style="color:var(--green)">—</div>
+      <div id="dash-annual-sub" style="font-size:11px;color:var(--text2);margin-top:6px;"></div>
     </div>
   </div>
 
@@ -8299,6 +8304,17 @@ function _buildOverviewRoiDashboard(closedPositions) {
       'за '+periodDays+' дн. с '+firstDate+' · P&L '+(totalPnl>=0?'+':'')+totalPnl.toLocaleString('ru')+'₽', gc, true);
   cardsEl.innerHTML = html;
   summaryEl.style.display = '';
+
+  // Update the top dashboard card
+  var annualEl = document.getElementById('dash-annual-yield');
+  var annualSubEl = document.getElementById('dash-annual-sub');
+  if (annualEl) {
+    annualEl.textContent = (annual>=0?'+':'')+Math.round(annual)+'%';
+    annualEl.style.color = annual>=0 ? 'var(--green)' : 'var(--red)';
+  }
+  if (annualSubEl) {
+    annualSubEl.textContent = 'за '+periodDays+' дн. · P&L '+(totalPnl>=0?'+':'')+Math.round(totalPnl).toLocaleString('ru')+'₽';
+  }
 }
 
 
