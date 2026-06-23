@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782205108 -->
+<!-- v:1782205275 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8320,6 +8320,7 @@ async function autoTagFromReports(date) {
       }
       const ot = t.open_time || t.open_date || '';
       const ts2 = ot.includes(' ') ? ot.split(' ')[1].substring(0,8) : ot.includes('T') ? ot.split('T')[1].substring(0,8) : ot.substring(0,8);
+      const ft = timeToMs(ts2);
       return ft >= setStart - 5*60*1000 && ft <= setEnd;
     });
 
