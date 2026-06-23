@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782201463 -->
+<!-- v:1782201866 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8583,13 +8583,30 @@ async function autoTagFromReports(date) {
     const setEnd   = timeToMs(setTrades[setTrades.length-1].time) + 15*60*1000;
 
     const matchedFx = fxTrades.filter(t => {
-      const ft = timeToMs((t.open_time||'').substring(11,19) || '00:00:00');
-      return ft >= setStart - 2*60*1000 && ft <= setEnd;
+      // open_time may be "2026-06-22T09:19:16" or "09:19:16"
+      const ot = t.open_time || t.open_date || '';
+      const timeStr = ot.includes('T') ? ot.split('T')[1].substring(0,8) : ot.substring(0,8);
+      const ft = timeToMs(timeStr || '00:00:00');
+      return ft >= setStart - 5*60*1000 && ft <= setEnd + 30*60*1000;
     });
 
-    // Group FX by instrument
+    // Filter FX by instrument relevant to this construction
+    // SI-construction → USDCNH, EU-construction → EURCNH, UC → USDCNH, ED → EURUSD
+    const fxInstrForTag = {
+      'USDCNH': ['USDCNH'], 'EURCNH': ['EURCNH'], 'EURUSD': ['EURUSD'],
+      'XAUUSD': ['XAUUSD'], 'XAGUSD': ['XAGUSD'], 'XPTUSD': ['XPTUSD'], 'XPDUSD': ['XPDUSD'],
+    };
+    const tagParts = (tag||'').split('/');
+    const fxPart = tagParts[tagParts.length-1]; // last part is FX instrument
+    const allowedFxInstrs = fxInstrForTag[fxPart] || [];
+    const filteredFx = matchedFx.filter(t => {
+      const instr = (t.instrument||'').replace(/[-_]/g,'').toUpperCase();
+      return allowedFxInstrs.length === 0 || allowedFxInstrs.includes(instr);
+    });
+
+    // Group FX by instrument (only allowed instruments for this construction)
     const fxByInstr = {};
-    for (const t of matchedFx) {
+    for (const t of filteredFx) {
       const instr = (t.instrument||'').replace(/[-_]/g,'').toUpperCase();
       if (!fxByInstr[instr]) fxByInstr[instr] = [];
       fxByInstr[instr].push(t);
