@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<!-- v:1782234434 -->
+<!-- v:1782234595 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Торговый журнал</title>
-  <!-- build:1782234434 -->
+  <!-- build:1782234595 -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
@@ -702,10 +702,21 @@ async function autoFetchAllRates() {
     }
   }
 
-  // Даты из FX сделок
+  // Даты из FX сделок (open_time = "DD/MM/YYYY HH:MM:SS")
   for (const r of store.fx || []) {
-    const d = (r.open_time || r.close_time || '').slice(0,10);
-    if (d) dates.add(d);
+    const raw = (r.close_date || r.open_time || r.close_time || '');
+    let d = '';
+    if (raw.includes('/')) {
+      // DD/MM/YYYY → YYYY-MM-DD
+      const p = raw.slice(0,10).split('/');
+      if (p.length === 3) d = p[2]+'-'+p[1]+'-'+p[0];
+    } else if (raw.includes('-')) {
+      d = raw.slice(0,10); // already ISO
+    } else if (raw.includes('.')) {
+      const p = raw.slice(0,10).split('.');
+      if (p.length === 3) d = p[2]+'-'+p[1]+'-'+p[0];
+    }
+    if (d && d.length === 10) dates.add(d);
   }
 
   if (!dates.size) return;
@@ -9976,7 +9987,7 @@ function renderOverviewTab(force) {
 
   _overviewRendered = true;
   // renderCapitalBlock removed — unreliable P&L from positions system
-  setTimeout(() => renderOvConstructions(), 80);
+  setTimeout(() => { if(typeof renderOvConstructions==='function') renderOvConstructions(); else if(typeof renderConstructionAnalytics==='function') renderConstructionAnalytics(); }, 80);
 
   // Draw charts after DOM settles
   const _args = [mxDays,fxDays,allDates,mxByDate,fxByDate,cumMx,cumFx,cumComb,instrSorted,fxInstrSorted];
