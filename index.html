@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782218470 -->
+<!-- v:1782219122 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8903,10 +8903,13 @@ function renderAutoLj() {
       ? allDays[0]+' — '+allDays[allDays.length-1]+' ('+daysCount+' дн)'
       : (allDays[0]||pos.opened_date);
 
-    // Total commission — proportional (same ratio as P&L)
+    // Total commission — MX proportional + FX comm + FX swap
     var totalCommAll = Object.values(mxPnlFull).reduce(function(s,x){
       return s + (x.totalComm||0) * (x.ratio||1);
     },0);
+    var fxTradesForComm = getPosFxTrades(pos);
+    totalCommAll += fxTradesForComm.reduce(function(s,t){return s+(t.commission||0)+(t.swap||0);},0)
+      * ((getRateForDate(normDate(pos.closed_date||pos.opened_date))||rate)||rate);
 
     // Spread: avgEntry vs avgExit for each MX leg
     var spreadParts = [];
