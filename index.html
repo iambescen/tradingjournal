@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782221995 -->
+<!-- v:1782222078 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -6061,10 +6061,7 @@ function deletePosition(id) {
   renderPositionsTab();
 }
 
-function todayStr() {
-  const d = new Date();
-  return `${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')}.${d.getFullYear()}`;
-}
+
 
 // ── Auto-match: try to link position legs to MX/FX trades by instrument+time ──
 function autoMatchPositions() {
@@ -8382,9 +8379,7 @@ function showAutoTagDialog() {
 // Позиция = от первого входа до net_volume=0 по всем MX ногам
 // ══════════════════════════════════════════════════════════════
 
-function positionsInit() {
-  if (!store.positions) store.positions = [];
-}
+
 
 // Найти открытую позицию по тегу
 function findOpenPosition(tag) {
