@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782200441 -->
+<!-- v:1782200834 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8283,24 +8283,41 @@ function detectConstructionByVolumes(clusterTrades, crossRates) {
   // 20% allows for: partial fills, price movement during entry, lot rounding
   const approx = (actual, expected) => expected > 0 && Math.abs(actual/expected - 1) < 0.20;
 
-  // ── Tройники с Si ──────────────────────────────────────────
-  if (bases.includes('SI') && bases.includes('CR')) {
+  // CNY = CR in PDF (CNY-9.26 is the same as CR)
+  const crBase = bases.includes('CR') ? 'CR' : bases.includes('CNY') ? 'CNY' : null;
+  const crVol  = crBase ? byInstr[crBase].vol : 0;
+  const crInstr = crBase ? byInstr[crBase].instrument : '';
+
+  // ── Кластер с SI+EU+CNY: разделяем на две конструкции ──────
+  if (bases.includes('SI') && bases.includes('EU') && crBase) {
     const siVol = byInstr['SI'].vol;
-    const crVol = byInstr['CR'].vol;
-    const ratio = crVol / siVol; // должен быть ≈ USDCNH
+    const euVol = byInstr['EU'].vol;
+    // CR should be split: siVol×USDCNH + euVol×EURCNH
+    const expectedCr = siVol * usdcnh + euVol * eurcnh;
+    if (approx(crVol, expectedCr)) {
+      // Return array of constructions — handled by caller
+      const qs = getQuarter(byInstr['SI'].instrument);
+      const qe = getQuarter(byInstr['EU'].instrument);
+      return [`SI${qs}/CR${qs}/USDCNH`, `EU${qe}/CR${qe}/EURCNH`];
+    }
+  }
+
+  // ── Тройники с Si ──────────────────────────────────────────
+  if (bases.includes('SI') && crBase) {
+    const siVol = byInstr['SI'].vol;
+    const ratio = crVol / siVol;
     const q = getQuarter(byInstr['SI'].instrument);
-    if (approx(ratio, cr.USDCNH || 6.8)) {
+    if (approx(ratio, usdcnh)) {
       return `SI${q}/CR${q}/USDCNH`;
     }
   }
 
   // ── Тройники с EU ──────────────────────────────────────────
-  if (bases.includes('EU') && bases.includes('CR')) {
+  if (bases.includes('EU') && crBase) {
     const euVol = byInstr['EU'].vol;
-    const crVol = byInstr['CR'].vol;
     const ratio = crVol / euVol;
     const q = getQuarter(byInstr['EU'].instrument);
-    if (approx(ratio, cr.EURCNH || 7.9)) {
+    if (approx(ratio, eurcnh)) {
       return `EU${q}/CR${q}/EURCNH`;
     }
   }
@@ -8457,12 +8474,14 @@ async function autoTagFromReports(date) {
     return { cluster, entries, instrDir, tag };
   });
 
-  // Group clusters by construction tag → these are "sets" within same construction
-  // Different constructions get set number 1
+  // Flatten clusterInfos (each cluster may produce multiple construction tags)
+  const flatInfos = clusterInfos.flat();
+
+  // Group by construction tag for set numbering
   const constrSetCount = {};
   const sets = [];
-  for (const info of clusterInfos) {
-    if (!info.tag) continue; // skip unrecognized
+  for (const info of flatInfos) {
+    if (!info.tag) continue;
     if (!constrSetCount[info.tag]) constrSetCount[info.tag] = 0;
     constrSetCount[info.tag]++;
     sets.push({ ...info, set: constrSetCount[info.tag] });
