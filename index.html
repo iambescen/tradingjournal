@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782233243 -->
+<!-- v:1782233474 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -7,7 +7,7 @@
   <meta http-equiv="Pragma" content="no-cache">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Торговый журнал</title>
-  <!-- build:1782233243 -->
+  <!-- build:1782233474 -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
@@ -8186,7 +8186,7 @@ function renderConstructionAnalytics() {
 
   // ROI summary dashboard (async — populated after GO fetch)
   var roiSummaryHtml = '<div id="ov-roi-summary" style="margin-top:20px;padding-top:20px;border-top:1px solid var(--border);display:none">'
-    + '<div style="font-size:14px;font-weight:700;margin-bottom:14px;color:var(--text)">💰 Доходность на депозит</div>'
+    + '<div style="font-size:14px;font-weight:700;margin-bottom:14px;color:var(--text)">💰 Доходность на капитал</div>'
     + '<div id="ov-roi-cards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px"></div>'
     + '</div>';
 
@@ -8230,30 +8230,39 @@ function _buildOverviewRoiDashboard(closedPositions) {
   var cardsEl   = document.getElementById('ov-roi-cards');
   if (!summaryEl || !cardsEl) return;
 
-  // ── Депозит: тот же расчёт что в renderDashboard ──
   var rate = (currentRate && currentRate.value) || 85;
 
-  // МХ баланс — из последнего PDF (balance_end) или из движений средств
-  var mxPdfBal = 0;
-  for (var ri = store.mx.length-1; ri >= 0; ri--) {
-    if (store.mx[ri].balance_end > 0) { mxPdfBal = store.mx[ri].balance_end; break; }
-  }
-  var mxManual = (store.manual||[]).filter(function(m){return m.account==='MX';})
-    .reduce(function(s,m){
-      return m.type==='deposit'?s+m.amount:m.type==='withdrawal'?s-m.amount:s;
-    },0);
-  var mxBal = mxPdfBal > 0 ? mxPdfBal : mxManual;
+  // ── Капитал: берём из DOM — dash-total-pnl уже считается правильно ──
+  // Это то же самое что показывается в верхних карточках Обзора
+  var totalDepositEl = document.getElementById('dash-total-pnl');
+  var mxEl = document.getElementById('dash-mx-balance');
+  var fxEl = document.getElementById('dash-fx-balance');
 
-  // FX баланс — из движений средств (депозит - вывод)
-  var fxManualUsd = (store.manual||[]).filter(function(m){return m.account==='FX';})
-    .reduce(function(s,m){
-      var amt = m.currency==='USD'?m.amount:(m.amount/rate);
-      return m.type==='deposit'?s+amt:m.type==='withdrawal'?s-amt:s;
-    },0);
-  var fxBal = fxManualUsd; // в USD
+  // Parse MX balance
+  var mxBal = 0;
+  if (mxEl) {
+    var mxText = (mxEl.textContent||'').replace(/[₽\s ]/g,'').replace(',','.');
+    mxBal = parseFloat(mxText) || 0;
+  }
+  // Parse FX balance (in USD)
+  var fxBal = 0;
+  if (fxEl) {
+    var fxText = (fxEl.textContent||'').replace(/[USDT\s ]/g,'').replace(',','.');
+    fxBal = parseFloat(fxText) || 0;
+  }
   var totalDeposit = mxBal + fxBal * rate;
 
-  console.log('[ROI Overview] mxBal='+mxBal+' fxBal='+fxBal+' rate='+rate+' total='+totalDeposit);
+  // Fallback: try from store directly (same as renderDashboard)
+  if (totalDeposit <= 0) {
+    for (var ri = store.mx.length-1; ri >= 0; ri--) {
+      if (store.mx[ri].balance_end > 0) { mxBal = store.mx[ri].balance_end; break; }
+    }
+    var lastFX = store.fx.length ? store.fx[store.fx.length-1] : null;
+    fxBal = lastFX ? (lastFX.balance || 0) : 0;
+    totalDeposit = mxBal + fxBal * rate;
+  }
+
+  console.log('[ROI] mxBal='+mxBal+' fxBal='+fxBal+'$ total='+totalDeposit+'₽');
 
   if (totalDeposit <= 0) { summaryEl.style.display='none'; return; }
 
@@ -8294,7 +8303,7 @@ function _buildOverviewRoiDashboard(closedPositions) {
   }
 
   var gc = roi>=0?'var(--green)':'var(--red)';
-  var html = card('Доходность на депозит', (roi>=0?'+':'')+roi.toFixed(2)+'%',
+  var html = card('Доходность на капитал', (roi>=0?'+':'')+roi.toFixed(2)+'%',
       'P&L ÷ (МХ '+Math.round(mxBal/1000)+'К + FX '+Math.round(fxBal)+'$) × 100%', gc, true)
     + card('% годовых', (annual>=0?'+':'')+Math.round(annual)+'%',
       'за '+periodDays+' дн. с '+firstDate, gc, true)
