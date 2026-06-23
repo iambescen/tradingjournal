@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782217433 -->
+<!-- v:1782218470 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8903,8 +8903,10 @@ function renderAutoLj() {
       ? allDays[0]+' — '+allDays[allDays.length-1]+' ('+daysCount+' дн)'
       : (allDays[0]||pos.opened_date);
 
-    // Total commission
-    var totalCommAll = Object.values(mxPnlFull).reduce(function(s,x){return s+(x.totalComm||0);},0);
+    // Total commission — proportional (same ratio as P&L)
+    var totalCommAll = Object.values(mxPnlFull).reduce(function(s,x){
+      return s + (x.totalComm||0) * (x.ratio||1);
+    },0);
 
     // Spread: avgEntry vs avgExit for each MX leg
     var spreadParts = [];
@@ -9103,10 +9105,22 @@ function renderAutoLj() {
         var fxPnlUsd2 = fxTradesPos.reduce(function(s,t){return s+(t.net_pnl_usd||0);},0);
         var fxSwap    = fxTradesPos.reduce(function(s,t){return s+(t.swap||0);},0);
         var fxComm    = fxTradesPos.reduce(function(s,t){return s+(t.commission||0);},0);
+        var fxLots    = fxTradesPos.reduce(function(s,t){return s+Math.abs(t.qty||0);},0);
+        // Avg entry and exit prices from FX trades
+        var fxEntryVol=0,fxEntrySum=0,fxExitVol=0,fxExitSum=0;
+        fxTradesPos.forEach(function(t){
+          var q=Math.abs(t.qty||0);
+          fxEntryVol+=q; fxEntrySum+=(t.entry_price||0)*q;
+          if(t.close_price){fxExitVol+=q;fxExitSum+=(t.close_price||0)*q;}
+        });
+        var fxAvgEntry = fxEntryVol ? fxEntrySum/fxEntryVol : 0;
+        var fxAvgExit  = fxExitVol  ? fxExitSum/fxExitVol   : 0;
         var fxC = fxPnlUsd2>=0?'var(--green)':'var(--red)';
         html += '<div style="font-size:11px;display:flex;gap:6px;align-items:center;margin-bottom:4px;padding:4px 8px;background:var(--bg3);border-radius:4px;flex-wrap:wrap">'
           + '<span style="font-weight:600;min-width:80px">'+fxInstrList.join(',')+' (FX)</span>'
-          + '<span style="color:var(--text2)">'+fxTradesPos.length+' сделок</span>'
+          + (fxAvgEntry?'<span style="color:var(--text2)">вход: <span style="font-family:monospace">'+fxAvgEntry.toFixed(5)+'</span></span>':'')
+          + (fxAvgExit?'<span style="color:var(--text2)">выход: <span style="font-family:monospace">'+fxAvgExit.toFixed(5)+'</span></span>':'')
+          + '<span style="color:var(--text2)">'+fxLots.toFixed(2)+'л</span>'
           + '<span style="color:var(--text2)">курс: '+fxRate.toFixed(2)+'</span>'
           + (fxSwap?'<span style="color:var(--red);font-size:10px">своп: '+fxSwap.toFixed(2)+'$</span>':'')
           + (fxComm?'<span style="color:var(--red);font-size:10px">ком: '+fxComm.toFixed(2)+'$</span>':'')
