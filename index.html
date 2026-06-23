@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782222078 -->
+<!-- v:1782222370 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8941,12 +8941,7 @@ function renderAutoLj() {
   var tagOptions = '<option value="">Все конструкции</option>'
     + allTags.map(function(t){return '<option value="'+t+'"'+(filterTag===t?' selected':'')+'>'+t+'</option>';}).join('');
 
-  var html = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">'
-    + '<div style="font-size:16px;font-weight:700">📋 Сделки</div>'
-    + '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">'
-    + '<span style="font-size:12px;color:var(--text2)">Всего: '+positions.length+' · Открыт: '+openCount+' · Закрыт: '+closedCount+'</span>'
-    + '<button id="autolj-clear-btn" style="font-size:11px;padding:4px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--red);cursor:pointer">Очистить</button>'
-    + '</div></div>'
+  var html = '';
 
     // Filters row
     + '<div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap">'
@@ -9672,6 +9667,7 @@ function renderOverviewTab(force) {
     <div id="ov-weekly" style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:16px;margin-bottom:14px"></div>
     <!-- BENCHMARK vs LQDT — at bottom -->
     <div id="ov-benchmark" style="margin-top:8px"></div>
+    <div id="ov-construction-analytics"></div>
   `;
 
   _overviewRendered = true;
