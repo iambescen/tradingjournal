@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782208287 -->
+<!-- v:1782209010 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8303,32 +8303,38 @@ function createPosition(tag, date, entryRows, fxRows) {
 // Обновить позицию новыми сделками из PDF
 // allMxTrades — все сделки МХ за день (включая выходы)
 function updatePositionWithDay(pos, date, allMxTrades, fxTrades) {
+  // Guard: don't process same day twice
+  if (!pos.days) pos.days = [];
+  if (pos.processedDays && pos.processedDays.includes(date)) return;
+  if (!pos.processedDays) pos.processedDays = [];
+  pos.processedDays.push(date);
+  if (!pos.days.includes(date)) pos.days.push(date);
+
   // Process all MX trades for this day
   for (const t of allMxTrades) {
     const b = (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
-    if (!pos.legs[b]) continue; // не наш инструмент
+    if (!pos.legs[b]) continue;
     const leg = pos.legs[b];
-    const isEntry = t.direction === (leg.entry_direction === 'Sell' ? 'Short' : 'Long');
-    const isExit  = !isEntry;
+    // entry_direction 'Sell' → entry trades are Short, exit trades are Long
+    const isEntry = (leg.entry_direction === 'Sell')
+      ? t.direction === 'Short'
+      : t.direction === 'Long';
+    const vol = Math.abs(t.volume||0);
     if (isEntry) {
-      leg.vol_in += Math.abs(t.volume||0);
-      leg.net_volume += Math.abs(t.volume||0);
+      leg.vol_in += vol;
+      leg.net_volume += vol;
     } else {
-      leg.vol_out += Math.abs(t.volume||0);
-      leg.net_volume -= Math.abs(t.volume||0);
+      leg.vol_out += vol;
+      leg.net_volume = Math.max(0, leg.net_volume - vol);
     }
   }
-  // FX trades — always closing (net_pnl_usd already set)
+  // FX trades
+  if (!pos.fx_trades) pos.fx_trades = [];
   for (const t of fxTrades) {
-    pos.fx_trades.push(t);
-    const b = (t.instrument||'').replace(/[-_]/g,'').toUpperCase();
-    if (pos.legs[b]) {
-      // FX closes when position closes — just track
+    if (!pos.fx_trades.find(x => x.id === t.id)) {
+      pos.fx_trades.push(t);
     }
   }
-  // Add day to position days list
-  if (!pos.days) pos.days = [];
-  if (!pos.days.includes(date)) pos.days.push(date);
   // Check if position is closed (all MX legs net_volume ≈ 0)
   const mxLegs = Object.values(pos.legs).filter(l => l.platform === 'MX');
   const allClosed = mxLegs.length > 0 && mxLegs.every(l => Math.abs(l.net_volume) < 0.001);
@@ -8496,33 +8502,39 @@ async function autoTagFromReports(date) {
 
   // Step 6: Create or update master positions
   positionsInit();
+  const dateISO2 = normDate(date);
+
+  // Process each detected construction
   for (const { cluster, tag, set: setN } of sets) {
     const setMxRows = newRows.filter(r => r.platform==='MX' && r.tag===tag && r.set===setN);
     const setFxRows = newRows.filter(r => r.platform==='FX' && r.tag===tag && r.set===setN);
 
     let pos = findOpenPosition(tag);
     if (!pos) {
-      // New position
+      // New position — init from entry rows
       pos = createPosition(tag, date, setMxRows, setFxRows);
-    } else {
-      // Existing position — update with all MX trades of this day
-      const allMxForPos = sorted.filter(t => {
-        const b = (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
-        return pos.legs[b] !== undefined;
-      });
-      const dateISO2 = normDate(date);
-      const fxForPos = (store.fx||[]).filter(t => {
-        if (normDate(t.close_date||'') !== dateISO2) return false;
-        const b = (t.instrument||'').replace(/[-_]/g,'').toUpperCase();
-        return pos.legs[b] !== undefined;
-      });
+    }
+    // Attach set info
+    attachSetToPosition(pos, { set_n: setN, date, rows: [...setMxRows, ...setFxRows] });
+  }
+
+  // After all sets processed — run ALL trades of the day through each position
+  // This processes both entries AND exits to update net_volume correctly
+  for (const pos of store.positions.filter(p => p.status === 'open')) {
+    // Get all MX trades for instruments in this position
+    const allMxForPos = sorted.filter(t => {
+      const b = (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
+      return pos.legs[b] !== undefined;
+    });
+    // FX trades for this position
+    const fxForPos = (store.fx||[]).filter(t => {
+      if (normDate(t.close_date||'') !== dateISO2) return false;
+      const b = (t.instrument||'').replace(/[-_]/g,'').toUpperCase();
+      return pos.legs[b] !== undefined;
+    });
+    if (allMxForPos.length > 0 || fxForPos.length > 0) {
       updatePositionWithDay(pos, date, allMxForPos, fxForPos);
     }
-    // Attach set info to position
-    attachSetToPosition(pos, {
-      set_n: setN, date,
-      rows: [...setMxRows, ...setFxRows]
-    });
   }
 
   // Show preview modal
