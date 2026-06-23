@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782215987 -->
+<!-- v:1782216453 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8250,6 +8250,13 @@ const FX_FOR_TAG = {
 function showAutoTagDialog() {
   const dates = store.mx.map(r => r.date).filter(Boolean);
   if (!dates.length) { alert('Сначала загрузи PDF-отчёт МХ'); return; }
+  // Sort dates descending — closest to today first
+  var sortedDates = dates.slice().sort(function(a, b) {
+    var pa=a.split('.'), pb=b.split('.');
+    var da=new Date(+pa[2],+pa[1]-1,+pa[0]);
+    var db=new Date(+pb[2],+pb[1]-1,+pb[0]);
+    return db-da;
+  });
   const existing = document.getElementById('autotag-modal');
   if (existing) existing.remove();
   const dlg = document.createElement('div');
@@ -8259,7 +8266,7 @@ function showAutoTagDialog() {
     + '<div style="font-size:15px;font-weight:700;margin-bottom:16px">🤖 Авторазнос сделок</div>'
     + '<div style="font-size:12px;color:var(--text2);margin-bottom:12px">Выбери дату из загруженных отчётов:</div>'
     + '<select id="autotag-date-sel" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1);font-size:13px;margin-bottom:16px">'
-    + dates.map(d => '<option value="'+d+'">'+d+'</option>').join('')
+    + sortedDates.map(d => '<option value="'+d+'">'+d+'</option>').join('')
     + '</select>'
     + '<div style="display:flex;gap:8px;justify-content:flex-end">'
     + '<button id="atd-cancel" style="padding:6px 14px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1);cursor:pointer">Отмена</button>'
