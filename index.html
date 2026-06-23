@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782233872 -->
+<!-- v:1782233906 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -7,7 +7,7 @@
   <meta http-equiv="Pragma" content="no-cache">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Торговый журнал</title>
-  <!-- build:1782233872 -->
+  <!-- build:1782233906 -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
@@ -8186,7 +8186,7 @@ function renderConstructionAnalytics() {
 
   // ROI summary dashboard (async — populated after GO fetch)
   var roiSummaryHtml = '<div id="ov-roi-summary" style="margin-top:20px;padding-top:20px;border-top:1px solid var(--border);display:none">'
-    + '<div style="font-size:14px;font-weight:700;margin-bottom:14px;color:var(--text)">💰 Доходность на депозит</div>'
+    + '<div style="font-size:14px;font-weight:700;margin-bottom:14px;color:var(--text)">💰 Доходность на капитал</div>'
     + '<div id="ov-roi-cards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px"></div>'
     + '</div>';
 
@@ -8245,12 +8245,13 @@ function _buildOverviewRoiDashboard(closedPositions) {
   var mxBal = mxPdfBal > 0 ? mxPdfBal : mxManual;
 
   // FX баланс — из движений средств (депозит - вывод)
-  var fxManualUsd = (store.manual||[]).filter(function(m){return m.account==='FX';})
-    .reduce(function(s,m){
-      var amt = m.currency==='USD'?m.amount:(m.amount/rate);
-      return m.type==='deposit'?s+amt:m.type==='withdrawal'?s-amt:s;
-    },0);
-  var fxBal = fxManualUsd; // в USD
+  // FX balance — same as renderDashboard: lastFX.balance or manual entries
+  var lastFX2 = store.fx.length ? store.fx[store.fx.length-1] : null;
+  var fxBrokerBal2 = lastFX2 ? (lastFX2.balance || 0) : 0;
+  var fxManualUsd = (store.manual||[])
+    .filter(function(m){return (m.account==='FX'||m.account==='both') && (m.type==='deposit'||m.type==='withdrawal');})
+    .reduce(function(s,m){return s + (m.type==='deposit'?1:-1)*Math.abs(parseFloat(m.amount)||0);}, 0);
+  var fxBal = fxBrokerBal2 > 0 ? fxBrokerBal2 : fxManualUsd;
   var totalDeposit = mxBal + fxBal * rate;
 
   console.log('[ROI Overview] mxBal='+mxBal+' fxBal='+fxBal+' rate='+rate+' total='+totalDeposit);
@@ -8294,7 +8295,7 @@ function _buildOverviewRoiDashboard(closedPositions) {
   }
 
   var gc = roi>=0?'var(--green)':'var(--red)';
-  var html = card('Доходность на депозит', (roi>=0?'+':'')+roi.toFixed(2)+'%',
+  var html = card('Доходность на капитал', (roi>=0?'+':'')+roi.toFixed(2)+'%',
       'P&L ÷ (МХ '+Math.round(mxBal/1000)+'К + FX '+Math.round(fxBal)+'$) × 100%', gc, true)
     + card('% годовых', (annual>=0?'+':'')+Math.round(annual)+'%',
       'за '+periodDays+' дн. с '+firstDate, gc, true)
