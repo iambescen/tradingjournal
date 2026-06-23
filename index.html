@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782212424 -->
+<!-- v:1782212643 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8789,7 +8789,12 @@ function renderAutoLj() {
         }
 
         const result = calcSetPnl(b, allEntries, allExits);
-        if (result) mxPnl += result.pnl;
+        if (result) {
+          mxPnl += result.pnl;
+          // Add commissions from all trades (entries + exits)
+          const allTrades = allEntries.concat(allExits);
+          mxPnl += allTrades.reduce(function(s,t){return s+(t.commission||0);},0);
+        }
       }
 
       const fxPnl = (pos.fx_trades||[]).reduce(function(s,t){return s+(t.net_pnl_usd||0);},0);
@@ -8909,14 +8914,17 @@ function renderAutoLj() {
         const pnl = sign * (avgExit - avgEntry) / spec.tick * spec.step * lots;
         totalMxBr += pnl;
 
-        const pc = pnl>=0?'var(--green)':'var(--red)';
-        html += '<div style="font-size:11px;display:flex;gap:8px;align-items:center;margin-bottom:4px;padding:4px 8px;background:var(--bg3);border-radius:4px">'
+        const comm = allEntries.concat(allExits).reduce(function(s,t){return s+(t.commission||0);},0);
+        const pnlWithComm = pnl + comm;
+        const pc = pnlWithComm>=0?'var(--green)':'var(--red)';
+        html += '<div style="font-size:11px;display:flex;gap:8px;align-items:center;margin-bottom:4px;padding:4px 8px;background:var(--bg3);border-radius:4px;flex-wrap:wrap">'
           + '<span style="font-weight:600;min-width:80px">'+leg.instrument+'</span>'
-          + '<span style="color:var(--text2)">вход avg: <span style="font-family:monospace">'+avgEntry.toFixed(4)+'</span></span>'
-          + '<span style="color:var(--text2)">выход avg: <span style="font-family:monospace">'+avgExit.toFixed(4)+'</span></span>'
+          + '<span style="color:var(--text2)">вход: <span style="font-family:monospace">'+avgEntry.toFixed(4)+'</span></span>'
+          + '<span style="color:var(--text2)">выход: <span style="font-family:monospace">'+avgExit.toFixed(4)+'</span></span>'
           + '<span style="color:var(--text2)">'+lots+'л</span>'
           + '<span style="color:var(--text2);font-size:10px">÷'+spec.tick+'×'+spec.step+'</span>'
-          + '<span style="font-family:monospace;font-weight:700;color:'+pc+';margin-left:auto">'+(pnl>=0?'+':'')+Math.round(pnl)+' ₽</span>'
+          + '<span style="color:var(--red);font-size:10px">ком: '+Math.round(comm)+' ₽</span>'
+          + '<span style="font-family:monospace;font-weight:700;color:'+pc+';margin-left:auto">'+(pnlWithComm>=0?'+':'')+Math.round(pnlWithComm)+' ₽</span>'
           + '</div>';
       }
 
