@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782202106 -->
+<!-- v:1782202186 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8472,10 +8472,10 @@ function showAutoTagDialog() {
       </div>
     </div>`;
   document.body.appendChild(dlg);
-  document.getElementById('autotag-cancel-btn').onclick = function() {
+  dlg.querySelector('#autotag-cancel-btn').onclick = function() {
     var m = document.getElementById('autotag-modal'); if (m) m.remove();
   };
-  document.getElementById('autotag-ok-btn').onclick = function() {
+  dlg.querySelector('#autotag-ok-btn, #autotag-ok-btn2').onclick = function() {
     _autoTagSave(date, window._autoTagSets, window._autoTagRows);
   };
 }
@@ -8583,9 +8583,7 @@ async function autoTagFromReports(date) {
       const ot = t.open_time || t.open_date || '';
       const timeStr = ot.includes('T') ? ot.split('T')[1].substring(0,8) : ot.substring(0,8);
       const ft = timeToMs(timeStr || '00:00:00');
-      const ok = ft >= setStart - 5*60*1000 && ft <= setEnd + 30*60*1000;
-      console.log('[FX match]', t.instrument, ot, timeStr, ft, setStart, setEnd, ok);
-      return ok;
+      return ft >= setStart - 5*60*1000 && ft <= setEnd + 30*60*1000;
     });
 
     // Filter FX by instrument relevant to this construction
