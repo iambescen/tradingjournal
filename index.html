@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782110501 -->
+<!-- v:1782199479 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -455,6 +455,7 @@
         </div>
         <div class="section-actions" onclick="event.stopPropagation()">
           <label class="upload-btn" for="pdf-input">📄 Загрузить PDF</label>
+          <button class="upload-btn" onclick="autoTagFromReports(new Date().toLocaleDateString('ru').replace(/\./g, function(v,i,a){return v;}))" style="background:var(--blue);color:#fff;border:none;cursor:pointer" title="Авторазнос сделок из PDF+Excel">🤖 Авторазнос</button>
           <input type="file" id="pdf-input" accept=".pdf" multiple onchange="handlePDFUpload(event)">
           <button id="mx-clear-btn" class="btn-reject" style="display:none;font-size:12px;padding:4px 10px" onclick="clearAllMX()">✕ Очистить все MX</button>
           <span id="pdf-status"></span>
@@ -8077,6 +8078,230 @@ function _ovPeriodRange() {
     return [f, t];
   }
   return [0, Infinity];
+}
+
+
+// ══════════════════════════════════════════════════════════════
+// ── AUTO-TAG FROM REPORTS ────────────────────────────────────
+// ══════════════════════════════════════════════════════════════
+
+// Map of MX instrument base → short code for tag matching
+const MX_INSTRUMENT_MAP = {
+  'SI': 'SI', 'EU': 'EU', 'CR': 'CR', 'UC': 'UC', 'ED': 'ED',
+  'GD': 'GD', 'SV': 'SV', 'PT': 'PT', 'PD': 'PD',
+  'USDRUBF': 'URF', 'CNYRUBF': 'CRF', 'EURRUBF': 'ERF',
+};
+
+// Map tag prefix to MX instrument
+const TAG_TO_MX = {
+  'SI1': 'SI', 'SI2': 'SI', 'EU1': 'EU', 'EU2': 'EU',
+  'CR1': 'CR', 'CR2': 'CR', 'UC1': 'UC', 'UC2': 'UC',
+  'ED1': 'ED', 'ED2': 'ED', 'GD1': 'GD', 'GD2': 'GD',
+  'SV1': 'SV', 'SV2': 'SV', 'PT1': 'PT', 'PT2': 'PT',
+  'PD1': 'PD', 'PD2': 'PD',
+  'URF': 'USDRUBF', 'CRF': 'CNYRUBF', 'ERF': 'EURRUBF',
+};
+
+// FX instrument in tag → store.fx instrument name
+const TAG_TO_FX = {
+  'USDCNH': 'USDCNH', 'EURCNH': 'EURCNH', 'EURUSD': 'EURUSD',
+  'XAUUSD': 'XAUUSD', 'XAGUSD': 'XAGUSD', 'XPTUSD': 'XPTUSD', 'XPDUSD': 'XPDUSD',
+};
+
+function timeToMs(timeStr) {
+  // "09:19:13" → milliseconds
+  const [h,m,s] = timeStr.split(':').map(Number);
+  return (h*3600 + m*60 + (s||0)) * 1000;
+}
+
+function findConstructionByInstruments(mxBases, fxBases) {
+  // Find best matching CALC_CONSTRUCTIONS tag
+  for (const con of CALC_CONSTRUCTIONS) {
+    const mxLegs = con.legs.filter(l => l.isMx).map(l =>
+      l.name.replace(/[-_.0-9]/g,'').toUpperCase()
+    );
+    const fxLegs = con.legs.filter(l => !l.isMx).map(l =>
+      l.name.replace(/[^A-Z]/g,'').toUpperCase()
+    );
+    // Check if all MX legs match
+    const mxMatch = mxLegs.every(ml => mxBases.some(b => b === ml || b.startsWith(ml) || ml.startsWith(b)));
+    const fxMatch = fxLegs.length === 0 || fxLegs.every(fl => fxBases.some(b => b === fl));
+    if (mxMatch && fxMatch) return con.tag;
+  }
+  return null;
+}
+
+function splitIntoSets(trades, gapMinutes = 7) {
+  // Split array of trades into sets by time gaps
+  if (!trades.length) return [];
+  const sorted = [...trades].sort((a,b) => timeToMs(a.time) - timeToMs(b.time));
+  const sets = [[sorted[0]]];
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = sorted[i-1];
+    const curr = sorted[i];
+    const gap = (timeToMs(curr.time) - timeToMs(prev.time)) / 60000;
+    if (gap > gapMinutes) {
+      sets.push([curr]);
+    } else {
+      sets[sets.length-1].push(curr);
+    }
+  }
+  return sets;
+}
+
+async function autoTagFromReports(date) {
+  // date: DD.MM.YYYY
+  const report = getMxReportForDate(date);
+  if (!report || !report.trades?.length) {
+    alert(`Нет данных PDF за ${date}`);
+    return;
+  }
+
+  const dateISO = normDate(date);
+  const fxTrades = store.fx.filter(t => normDate(t.close_date || '') === dateISO);
+
+  // Get unique MX instrument bases
+  const mxBases = [...new Set(report.trades.map(t =>
+    (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase()
+  ))];
+  const fxBases = [...new Set(fxTrades.map(t =>
+    (t.instrument||'').replace(/[-_]/g,'').toUpperCase()
+  ))];
+
+  // Find construction
+  const tag = findConstructionByInstruments(mxBases, fxBases);
+  if (!tag) {
+    alert(`Не удалось определить конструкцию для инструментов: МХ=${mxBases.join(',')} FX=${fxBases.join(',')}`);
+    return;
+  }
+
+  // Split MX trades into entry sets (only entries — first direction per instrument)
+  // Determine entry direction per instrument
+  const instrFirstDir = {};
+  for (const t of report.trades.sort((a,b) => timeToMs(a.time)-timeToMs(b.time))) {
+    const base = (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
+    if (!instrFirstDir[base]) instrFirstDir[base] = t.direction;
+  }
+
+  // Get only entry trades (same direction as first trade per instrument)
+  const entryTrades = report.trades.filter(t => {
+    const base = (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
+    return t.direction === instrFirstDir[base];
+  });
+
+  // Split entries into sets by time gap
+  const sets = splitIntoSets(entryTrades, 7);
+
+  // For each set — create lj.rows entries
+  const newRows = [];
+  const dateStr = date; // DD.MM.YYYY
+
+  for (let setIdx = 0; setIdx < sets.length; setIdx++) {
+    const setTrades = sets[setIdx];
+    const setN = setIdx + 1;
+
+    // Group by instrument within set
+    const byInstr = {};
+    for (const t of setTrades) {
+      const base = (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
+      if (!byInstr[base]) byInstr[base] = [];
+      byInstr[base].push(t);
+    }
+
+    // Create MX rows
+    for (const [base, trades] of Object.entries(byInstr)) {
+      const vol = trades.reduce((s,t) => s + Math.abs(t.volume||0), 0);
+      const avgPrice = trades.reduce((s,t) => s + (t.price||0)*Math.abs(t.volume||0), 0) / (vol||1);
+      const firstTime = trades[0].time;
+      const lastTrade = [...report.trades].reverse().find(t =>
+        (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase() === base
+      );
+      const dir = instrFirstDir[base] === 'Long' ? 'Buy' : 'Sell';
+
+      newRows.push({
+        id: `auto_${dateStr}_${base}_${setN}_${Date.now()}_${Math.random()}`,
+        date: dateStr,
+        time: firstTime,
+        platform: 'MX',
+        instrument: trades[0].instrument,
+        direction: dir,
+        volume: vol,
+        price: +avgPrice.toFixed(4),
+        price_close: lastTrade?.price || null,
+        time_close: lastTrade?.time || null,
+        status: lastTrade && lastTrade !== trades[0] ? 'closed' : 'open',
+        tag,
+        set: setN,
+        note: 'авторазнос',
+      });
+    }
+
+    // Find FX trades for this set (±15 min from last MX entry)
+    const setStart = timeToMs(setTrades[0].time);
+    const setEnd   = timeToMs(setTrades[setTrades.length-1].time) + 15*60*1000;
+
+    const matchedFx = fxTrades.filter(t => {
+      const ft = timeToMs((t.open_time||'').substring(11,19) || '00:00:00');
+      return ft >= setStart - 2*60*1000 && ft <= setEnd;
+    });
+
+    // Group FX by instrument
+    const fxByInstr = {};
+    for (const t of matchedFx) {
+      const instr = (t.instrument||'').replace(/[-_]/g,'').toUpperCase();
+      if (!fxByInstr[instr]) fxByInstr[instr] = [];
+      fxByInstr[instr].push(t);
+    }
+
+    for (const [instr, trades] of Object.entries(fxByInstr)) {
+      const vol = trades.reduce((s,t) => s + Math.abs(parseFloat(t.lots)||0), 0);
+      const avgEntry = trades.reduce((s,t) => s + (parseFloat(t.open_price)||0)*Math.abs(parseFloat(t.lots)||0), 0) / (vol||1);
+      const avgClose = trades.every(t=>t.close_price) ?
+        trades.reduce((s,t) => s + (parseFloat(t.close_price)||0)*Math.abs(parseFloat(t.lots)||0), 0) / (vol||1) : null;
+      const dir = (trades[0].direction||'buy').toLowerCase().includes('buy') ? 'Buy' : 'Sell';
+      const openTime = (trades[0].open_time||'').substring(11,19);
+
+      newRows.push({
+        id: `auto_${dateStr}_FX${instr}_${setN}_${Date.now()}_${Math.random()}`,
+        date: dateStr,
+        time: openTime,
+        platform: 'FX',
+        instrument: trades[0].instrument,
+        direction: dir,
+        volume: +vol.toFixed(2),
+        price: +avgEntry.toFixed(5),
+        price_close: avgClose ? +avgClose.toFixed(5) : null,
+        time_close: trades[0].close_time ? trades[0].close_time.substring(11,19) : null,
+        status: avgClose ? 'closed' : 'open',
+        tag,
+        set: setN,
+        note: 'авторазнос',
+      });
+    }
+  }
+
+  if (!newRows.length) {
+    alert('Не удалось создать записи. Проверь данные PDF и Excel.');
+    return;
+  }
+
+  // Preview
+  const preview = newRows.map(r =>
+    `${r.platform} ${r.instrument} ${r.direction} ${r.volume} @ ${r.price} [${r.tag} №${r.set}]`
+  ).join('\n');
+
+  if (!confirm(`Авторазнос за ${date}\nКонструкция: ${tag}\nНаборов: ${sets.length}\nЗаписей: ${newRows.length}\n\n${preview}\n\nДобавить в журнал?`)) return;
+
+  // Remove existing auto-rows for this date
+  store.lj.rows = store.lj.rows.filter(r => !(r.date === dateStr && r.note === 'авторазнос'));
+
+  // Add new rows
+  ljInit();
+  store.lj.rows.push(...newRows);
+  saveStore();
+  renderLjDashboard();
+  renderLiveJournal();
+  alert(`✅ Добавлено ${newRows.length} записей в журнал.`);
 }
 
 function renderOverviewTab(force) {
