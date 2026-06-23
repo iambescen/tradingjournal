@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782222370 -->
+<!-- v:1782225974 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8205,8 +8205,8 @@ function renderConstructionAnalytics() {
       +'<td style="padding:8px 12px;text-align:center;color:'+(wr>=50?'var(--green)':'var(--red)')+'">'+wr+'%</td>'
       +'<td style="padding:8px 12px;text-align:center;color:var(--text2)">'+g.avgDays+'</td>'
       +'<td style="padding:8px 12px;text-align:right;font-family:monospace;color:'+col(g.avg)+'">'+fmt(g.avg)+'</td>'
-      +'<td style="padding:8px 12px;text-align:right;font-family:monospace;color:var(--green)">+'+g.best.toLocaleString('ru')+'</td>'
-      +'<td style="padding:8px 12px;text-align:right;font-family:monospace;color:var(--red)">'+g.worst.toLocaleString('ru')+'</td>'
+      +'<td style="padding:8px 12px;text-align:right;font-family:monospace;color:var(--green)">'+fmt(g.best)+'</td>'
+      +(g.count>1?'<td style="padding:8px 12px;text-align:right;font-family:monospace;color:'+(g.worst>=0?'var(--green)':'var(--red)')+'">'+fmt(g.worst)+'</td>':'<td style="padding:8px 12px;text-align:center;color:var(--text2)">—</td>')
       +'<td style="padding:8px 12px;text-align:right;font-family:monospace;font-weight:700;color:'+col(g.total)+'">'+fmt(g.total)+'</td>'
       +'</tr>';
   });
