@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782206728 -->
+<!-- v:1782207188 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8442,36 +8442,43 @@ function renderAutoLj() {
     for (const [key, g] of Object.entries(byDate[date])) {
       const mxRows = g.rows.filter(function(r){return r.platform==='MX';});
       const fxRows = g.rows.filter(function(r){return r.platform==='FX';});
-      // P&L by avg price method for this specific set
+      // P&L: from PDF instruments, proportional to set volume
       let mxPnl = 0;
       const rep = getMxReportForDate(date);
       if (rep) {
-        // For each MX instrument in this set — find all trades in report
-        // and compute (avgExit - avgEntry) × vol / tick × step
-        const TICK = {SI:1,EU:1,CR:0.001,UC:0.0001,ED:0.0001,GD:0.1,SV:0.1,PT:0.1,PD:0.1,USDRUBF:0.0025,EURRUBF:0.0025,CNYRUBF:0.001};
         for (const r of mxRows) {
           const b = r.instrument.replace(/[-_0-9.]/g,'').toUpperCase();
-          // entry direction
-          const isShort = r.direction === 'Sell';
-          // avg entry = r.price (already computed as avg entry)
-          // avg exit = from report last trade price
-          const exitTrades = (rep.trades||[]).filter(t => {
-            const tb = (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
-            return tb === b && (isShort ? t.direction==='Long' : t.direction==='Short');
-          });
-          if (!exitTrades.length) continue;
-          const exitVol = exitTrades.reduce((s,t)=>s+Math.abs(t.volume||0),0)||1;
-          const avgExit = exitTrades.reduce((s,t)=>s+(t.price||0)*Math.abs(t.volume||0),0)/exitVol;
-          const tick = TICK[b]||1;
-          const sign = isShort ? -1 : 1;
-          mxPnl += sign*(avgExit - r.price)/tick * Math.min(r.volume, exitVol);
+          // Get total day P&L for this instrument from PDF
+          const instr = (rep.instruments||[]).find(i =>
+            (i.name||'').replace(/[-_0-9.]/g,'').toUpperCase() === b
+          );
+          if (!instr) continue;
+          // Total entry volume for this instrument in the whole day
+          const totalEntryVol = (rep.trades||[])
+            .filter(t => {
+              const tb = (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
+              const isEntryDir = r.direction === 'Sell' ? t.direction === 'Short' : t.direction === 'Long';
+              return tb === b && isEntryDir;
+            })
+            .reduce((s,t) => s + Math.abs(t.volume||0), 0) || 1;
+          // Proportion: this set volume / total day volume
+          const ratio = r.volume / totalEntryVol;
+          mxPnl += (instr.pnl||0) * ratio;
         }
       }
+      // FX P&L: from net_pnl_usd of matched trades
       let fxPnlUsd = 0;
       for (const r of fxRows) {
-        if (r.price && r.price_close) {
-          const isBuy = r.direction==='Buy';
-          fxPnlUsd += (isBuy ? r.price_close-r.price : r.price-r.price_close) * r.volume * 100000;
+        const pd = calcFxLegPnl(r.instrument, date);
+        if (pd) {
+          // proportion by set volume vs total day FX volume
+          const totalFxVol = (store.fx||[])
+            .filter(t => normDate(t.close_date||'')===normDate(date) &&
+              (t.instrument||'').replace(/[-_]/g,'').toUpperCase() ===
+              r.instrument.replace(/[-_]/g,'').toUpperCase())
+            .reduce((s,t)=>s+Math.abs(t.qty||0),0)||1;
+          const ratio = r.volume / totalFxVol;
+          fxPnlUsd += pd.pnl * ratio;
         }
       }
       const fxRate = getRateForDate(normDate(date)) || rate;
