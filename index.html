@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<!-- v:1782234997 -->
+<!-- v:1782235134 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Торговый журнал</title>
-  <!-- build:1782234997 -->
+  <!-- build:1782235134 -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
@@ -8317,15 +8317,8 @@ function _buildOverviewRoiDashboard(closedPositions) {
   }
 
   var gc = roi>=0?'var(--green)':'var(--red)';
-  var html = card('Доходность на депозит', (roi>=0?'+':'')+roi.toFixed(2)+'%',
-      'P&L ÷ (МХ '+Math.round(mxBal/1000)+'К + FX '+Math.round(fxBal)+'$) × 100%', gc, true)
-    + card('% годовых', (annual>=0?'+':'')+Math.round(annual)+'%',
-      'за '+periodDays+' дн. с '+firstDate, gc, true)
-    + card('Итого P&L', (totalPnl>=0?'+':'')+totalPnl.toLocaleString('ru')+' ₽',
-      'все закрытые позиции', totalPnl>=0?'var(--green)':'var(--red)')
-    + card('Мой депозит', totalDeposit.toLocaleString('ru')+' ₽',
-      'МХ '+mxBal.toLocaleString('ru')+'₽ + FX '+fxBal.toFixed(0)+'$ × '+rate.toFixed(1), 'var(--text)')
-    + card('Позиций закрыто', String(closedPositions.length), '', 'var(--text)');
+  var html = card('% годовых на капитал', (annual>=0?'+':'')+Math.round(annual)+'%',
+      'за '+periodDays+' дн. с '+firstDate+' · P&L '+( totalPnl>=0?'+':'')+totalPnl.toLocaleString('ru')+'₽', gc, true);
 
   cardsEl.innerHTML = html;
   summaryEl.style.display = '';
