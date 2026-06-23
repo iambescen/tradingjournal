@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<!-- v:1782234721 -->
+<!-- v:1782234997 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Торговый журнал</title>
-  <!-- build:1782234721 -->
+  <!-- build:1782234997 -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
@@ -8259,13 +8259,21 @@ function _buildOverviewRoiDashboard(closedPositions) {
     },0);
   var mxBal = mxPdfBal > 0 ? mxPdfBal : mxManual;
 
-  // FX баланс — из движений средств (депозит - вывод)
-  var fxManualUsd = (store.manual||[]).filter(function(m){return m.account==='FX';})
-    .reduce(function(s,m){
-      var amt = m.currency==='USD'?m.amount:(m.amount/rate);
-      return m.type==='deposit'?s+amt:m.type==='withdrawal'?s-amt:s;
-    },0);
-  var fxBal = fxManualUsd; // в USD
+  // FX баланс — из dash-fx-balance DOM или из движений средств
+  // Приоритет: элемент дашборда (там уже правильно считается)
+  var fxBal = 0;
+  var fxDashEl = document.getElementById('dash-fx-balance');
+  if (fxDashEl && fxDashEl.textContent) {
+    var fxDashText = fxDashEl.textContent.replace(/[^0-9.,]/g, '').replace(',', '.');
+    var fxDashVal = parseFloat(fxDashText);
+    if (!isNaN(fxDashVal) && fxDashVal > 0) fxBal = fxDashVal;
+  }
+  // Fallback: из движений средств
+  if (!fxBal) {
+    fxBal = (store.manual||[])
+      .filter(function(m){return (m.account==='FX'||m.account==='both') && (m.type==='deposit'||m.type==='withdrawal');})
+      .reduce(function(s,m){return s + (m.type==='deposit'?1:-1)*Math.abs(parseFloat(m.amount)||0);}, 0);
+  }
   var totalDeposit = mxBal + fxBal * rate;
 
   console.log('[ROI Overview] mxBal='+mxBal+' fxBal='+fxBal+' rate='+rate+' total='+totalDeposit);
