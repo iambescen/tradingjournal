@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782229329 -->
+<!-- v:1782230172 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8185,7 +8185,7 @@ function renderConstructionAnalytics() {
 
   // ROI summary dashboard (async — populated after GO fetch)
   var roiSummaryHtml = '<div id="ov-roi-summary" style="margin-top:20px;padding-top:20px;border-top:1px solid var(--border);display:none">'
-    + '<div style="font-size:14px;font-weight:700;margin-bottom:14px;color:var(--text)">💰 Доходность на капитал</div>'
+    + '<div style="font-size:14px;font-weight:700;margin-bottom:14px;color:var(--text)">💰 Доходность на депозит</div>'
     + '<div id="ov-roi-cards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px"></div>'
     + '</div>';
 
@@ -8224,56 +8224,77 @@ function renderConstructionAnalytics() {
   _buildOverviewRoiDashboard(closed);
 }
 
-async function _buildOverviewRoiDashboard(closedPositions) {
+function _buildOverviewRoiDashboard(closedPositions) {
   var summaryEl = document.getElementById('ov-roi-summary');
   var cardsEl   = document.getElementById('ov-roi-cards');
   if (!summaryEl || !cardsEl) return;
-  var rate = (currentRate && currentRate.value) || 85;
 
-  var results = [];
-  for (var i = 0; i < closedPositions.length; i++) {
-    var pos = closedPositions[i];
+  // ── Депозит: берём из дашборда Обзора (МХ + FX) ──
+  var rate = (currentRate && currentRate.value) || 85;
+  var mxPdfBal = store.mx.length ? (store.mx[store.mx.length-1].balance_end || 0) : 0;
+  var mxDepBal = (store.manual||[]).filter(function(m){return m.account==='MX'&&m.type==='deposit';})
+    .reduce(function(s,m){return s+m.amount;},0)
+    - (store.manual||[]).filter(function(m){return m.account==='MX'&&m.type==='withdrawal';})
+    .reduce(function(s,m){return s+m.amount;},0);
+  var mxBal = mxPdfBal > 0 ? mxPdfBal : mxDepBal;
+
+  var fxDepBal = (store.manual||[]).filter(function(m){return m.account==='FX'&&m.type==='deposit';})
+    .reduce(function(s,m){return s+m.amount;},0)
+    - (store.manual||[]).filter(function(m){return m.account==='FX'&&m.type==='withdrawal';})
+    .reduce(function(s,m){return s+m.amount;},0);
+  var fxBrokerBal = store.fx.length && store.fx[store.fx.length-1].balance_usd
+    ? store.fx[store.fx.length-1].balance_usd : 0;
+  var fxBal = fxBrokerBal > 0 ? fxBrokerBal : fxDepBal;
+  var totalDeposit = mxBal + fxBal * rate;
+
+  if (totalDeposit <= 0) { summaryEl.style.display='none'; return; }
+
+  // ── P&L по всем закрытым позициям ──
+  if (!closedPositions.length) { summaryEl.style.display='none'; return; }
+
+  var totalPnl = 0;
+  closedPositions.forEach(function(pos) {
     var fxRate = (pos.closed_date ? getRateForDate(normDate(pos.closed_date)) : rate) || rate;
-    // P&L
     var mxPF = getPosMxPnlFull(pos);
     var tmx = Object.values(mxPF).reduce(function(s,x){return s+x.pnl;},0);
     var fxTr = getPosFxTrades(pos);
     var tfx = fxTr.reduce(function(s,t){return s+(t.net_pnl_usd||0);},0)*fxRate;
-    var pnl = tmx + tfx;
-    // Capital
-    var cap = await calcPositionCapital(pos);
-    if (!cap || !cap.totalFrozen) continue;
-    var days = (pos.days||[pos.closed_date]).length || 1;
-    var roi = pnl / cap.totalFrozen * 100;
-    var annual = roi * 365 / days;
-    results.push({ tag: pos.tag, pnl: Math.round(pnl), capital: Math.round(cap.totalFrozen), roi: roi, annual: annual, days: days });
-  }
+    totalPnl += Math.round(tmx + tfx);
+  });
 
-  if (!results.length) return;
+  // ── Период: от первой сделки до сегодня ──
+  var allDates = [];
+  closedPositions.forEach(function(pos){
+    (pos.days||[pos.opened_date]).forEach(function(d){ if(d) allDates.push(d); });
+  });
+  allDates.sort(function(a,b){return parseDate(a)-parseDate(b);});
+  var firstDate = allDates[0];
+  var todayMs = Date.now();
+  var firstMs = firstDate ? parseDate(firstDate) : todayMs;
+  var periodDays = Math.max(1, Math.round((todayMs - firstMs) / 86400000) + 1);
 
-  // Aggregates
-  var totalPnl = results.reduce(function(s,r){return s+r.pnl;},0);
-  var totalCap = results.reduce(function(s,r){return s+r.capital;},0);
-  var avgRoi   = totalCap > 0 ? totalPnl / totalCap * 100 : 0;
-  var avgAnnual = results.reduce(function(s,r){return s+r.annual;},0) / results.length;
-  var bestRoi  = results.reduce(function(a,b){return b.roi>a.roi?b:a;});
-  var worstRoi = results.reduce(function(a,b){return b.roi<a.roi?b:a;});
+  // ── Формулы ──
+  var roi = totalPnl / totalDeposit * 100;
+  var annual = roi * (365 / periodDays);
 
-  function card(label, val, sub, color) {
-    return '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px">'
-      + '<div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">'+label+'</div>'
-      + '<div style="font-size:22px;font-weight:800;color:'+(color||'var(--text)')+'">'+val+'</div>'
-      + (sub?'<div style="font-size:11px;color:var(--text2);margin-top:4px">'+sub+'</div>':'')
+  function card(label, val, sub, color, big) {
+    return '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px 18px">'
+      + '<div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">'+label+'</div>'
+      + '<div style="font-size:'+(big?'28':'20')+'px;font-weight:800;color:'+(color||'var(--text)')+'">'+val+'</div>'
+      + (sub?'<div style="font-size:11px;color:var(--text2);margin-top:5px">'+sub+'</div>':'')
       + '</div>';
   }
 
-  var gc = avgRoi>=0?'var(--green)':'var(--red)';
-  var html = card('Ср. доходность', (avgRoi>=0?'+':'')+avgRoi.toFixed(2)+'%', 'на задействованный ГО+маржа', gc)
-    + card('% годовых', (avgAnnual>=0?'+':'')+Math.round(avgAnnual)+'%', 'средн. по всем позициям', gc)
-    + card('Лучшая', (bestRoi.roi>=0?'+':'')+bestRoi.roi.toFixed(2)+'%', bestRoi.tag, 'var(--green)')
-    + (results.length>1 ? card('Худшая', (worstRoi.roi>=0?'+':'')+worstRoi.roi.toFixed(2)+'%', worstRoi.tag, 'var(--red)') : '')
-    + card('Капитал задейств.', Math.round(totalCap).toLocaleString('ru')+' ₽', 'сумма ГО+маржа по позициям', 'var(--text)')
-    + card('Итого P&L', (totalPnl>=0?'+':'')+totalPnl.toLocaleString('ru')+' ₽', 'все закрытые позиции', totalPnl>=0?'var(--green)':'var(--red)');
+  var gc = roi>=0?'var(--green)':'var(--red)';
+  var html = card('Доходность на депозит', (roi>=0?'+':'')+roi.toFixed(2)+'%',
+      'P&L / (МХ + FX) × 100', gc, true)
+    + card('% годовых', (annual>=0?'+':'')+Math.round(annual)+'%',
+      'за '+periodDays+' дн. с '+firstDate, gc, true)
+    + card('Итого P&L', (totalPnl>=0?'+':'')+totalPnl.toLocaleString('ru')+' ₽',
+      'все закрытые позиции', totalPnl>=0?'var(--green)':'var(--red)')
+    + card('Мой депозит', totalDeposit.toLocaleString('ru')+' ₽',
+      'МХ '+mxBal.toLocaleString('ru')+'₽ + FX '+fxBal.toFixed(0)+'$ × '+rate.toFixed(1), 'var(--text)')
+    + card('Позиций закрыто', String(closedPositions.length), '', 'var(--text)');
 
   cardsEl.innerHTML = html;
   summaryEl.style.display = '';
