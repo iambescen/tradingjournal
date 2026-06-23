@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782201866 -->
+<!-- v:1782202106 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8491,47 +8491,44 @@ async function autoTagFromReports(date) {
   const dateISO = normDate(date);
   const fxTrades = store.fx.filter(t => normDate(t.close_date || '') === dateISO);
 
-  // Sort all MX trades by time
   const allMxSorted = [...report.trades].sort((a,b) => timeToMs(a.time)-timeToMs(b.time));
 
-  // Split into time clusters (gap > 7 min = new cluster)
-  const rawClusters = splitIntoSets(allMxSorted, 7);
-  // Further split mixed clusters (SI+EU in same time window)
-  const allClusters = rawClusters.flatMap(cl => splitMixedCluster(cl));
+  // Step 1: Determine entry direction PER INSTRUMENT for the whole day
+  // (first trade per instrument = entry direction)
+  const globalInstrDir = {};
+  for (const t of allMxSorted) {
+    const base = (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
+    if (!globalInstrDir[base]) globalInstrDir[base] = t.direction;
+  }
 
-  // For each cluster determine entry direction per instrument
-  // Entry = first direction seen for that instrument in this cluster
-  const clusterInfos = allClusters.map(cluster => {
-    const instrDir = {};
-    for (const t of cluster) {
-      const base = (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
-      if (!instrDir[base]) instrDir[base] = t.direction;
-    }
-    // Entry trades only
-    const entries = cluster.filter(t => {
-      const base = (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
-      return t.direction === instrDir[base];
-    });
-    // Detect construction from entry cluster
-    const tag = detectConstructionByVolumes(entries, _crossRates || {});
-    return { cluster, entries, instrDir, tag };
+  // Step 2: Keep ONLY entry trades for clustering
+  const entryTradesOnly = allMxSorted.filter(t => {
+    const base = (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
+    return t.direction === globalInstrDir[base];
   });
 
-  // Flatten clusterInfos (each cluster may produce multiple construction tags)
-  const flatInfos = clusterInfos.flat();
+  // Step 3: Split entries into time clusters (gap > 7 min = new cluster)
+  const rawClusters = splitIntoSets(entryTradesOnly, 7);
 
-  // Group by construction tag for set numbering
-  const constrSetCount = {};
+  // Step 4: Split mixed SI+EU clusters into separate sub-clusters
+  const allClusters = rawClusters.flatMap(cl => splitMixedCluster(cl));
+
+  // Step 5: Detect construction for each cluster
   const sets = [];
-  for (const info of flatInfos) {
-    if (!info.tag) continue;
-    if (!constrSetCount[info.tag]) constrSetCount[info.tag] = 0;
-    constrSetCount[info.tag]++;
-    sets.push({ ...info, set: constrSetCount[info.tag] });
+  const constrSetCount = {};
+  for (const cluster of allClusters) {
+    const tagResult = detectConstructionByVolumes(cluster, _crossRates || {});
+    const tags = Array.isArray(tagResult) ? tagResult : (tagResult ? [tagResult] : []);
+    for (const tag of tags) {
+      if (!constrSetCount[tag]) constrSetCount[tag] = 0;
+      constrSetCount[tag]++;
+      sets.push({ cluster, instrDir: globalInstrDir, tag, set: constrSetCount[tag] });
+    }
   }
 
   if (!sets.length) {
-    alert('Не удалось определить конструкции. Проверь данные PDF и кросс-курсы ЦБ.');
+    const bases = [...new Set(entryTradesOnly.map(t => t.instrument.replace(/[-_0-9.]/g,'').toUpperCase()))];
+    alert('Не удалось определить конструкции.\nИнструменты: ' + bases.join(', ') + '\nКросс-курсы: USDCNH=' + (_crossRates?.USDCNH||'?') + ' EURCNH=' + (_crossRates?.EURCNH||'?'));
     return;
   }
 
@@ -8583,11 +8580,12 @@ async function autoTagFromReports(date) {
     const setEnd   = timeToMs(setTrades[setTrades.length-1].time) + 15*60*1000;
 
     const matchedFx = fxTrades.filter(t => {
-      // open_time may be "2026-06-22T09:19:16" or "09:19:16"
       const ot = t.open_time || t.open_date || '';
       const timeStr = ot.includes('T') ? ot.split('T')[1].substring(0,8) : ot.substring(0,8);
       const ft = timeToMs(timeStr || '00:00:00');
-      return ft >= setStart - 5*60*1000 && ft <= setEnd + 30*60*1000;
+      const ok = ft >= setStart - 5*60*1000 && ft <= setEnd + 30*60*1000;
+      console.log('[FX match]', t.instrument, ot, timeStr, ft, setStart, setEnd, ok);
+      return ok;
     });
 
     // Filter FX by instrument relevant to this construction
