@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782210018 -->
+<!-- v:1782210249 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8565,6 +8565,32 @@ async function autoTagFromReports(date) {
     });
     if (allMxForPos.length > 0 || fxForPos.length > 0) {
       updatePositionWithDay(pos, date, allMxForPos, fxForPos);
+    } else {
+      // No trades for this position today — still check if closed
+      // (might have been closed by new position's exits processed above)
+      const mxLegs = Object.values(pos.legs).filter(function(l){return l.platform==='MX';});
+      if (mxLegs.length > 0 && mxLegs.every(function(l){return Math.abs(l.net_volume) < 0.001;})) {
+        if (pos.status !== 'closed') {
+          pos.status = 'closed';
+          pos.closed_date = date;
+          const rep = getMxReportForDate(date);
+          if (rep) {
+            var pnl = 0;
+            var seenL = {};
+            for (var lb in pos.legs) {
+              if (pos.legs[lb].platform !== 'MX' || seenL[lb]) continue;
+              seenL[lb] = true;
+              var instrL = (rep.instruments||[]).find(function(i){
+                return (i.name||'').replace(/[-_0-9.]/g,'').toUpperCase() === lb;
+              });
+              if (instrL) pnl += instrL.pnl || 0;
+            }
+            pos.pnl_rub = pnl;
+          }
+          pos.pnl_usd = (pos.fx_trades||[]).reduce(function(s,t){return s+(t.net_pnl_usd||0);},0);
+          console.log('[POS CLOSED]', pos.tag, 'pnl_rub:', pos.pnl_rub);
+        }
+      }
     }
   }
 
