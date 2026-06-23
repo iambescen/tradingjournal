@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782202661 -->
+<!-- v:1782202798 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -353,6 +353,7 @@
     <button class="nav-btn" onclick="switchTab('funds', event)">Движение средств</button>
     <button class="nav-btn" onclick="switchTab('journal', event); renderLiveJournal()">Журнал</button>
     <button class="nav-btn" onclick="switchTab('constructions', event)">Сделки</button>
+    <button class="nav-btn" onclick="switchTab('autolj', event); renderAutoLj()">Авто-журнал</button>
     <button class="nav-btn" onclick="switchTab('showcase', event); renderShowcase()">Дневник</button>
     <button class="nav-btn" onclick="switchTab('calc', event); renderCalc()">Калькулятор</button>
   </div>
@@ -455,6 +456,7 @@
         </div>
         <div class="section-actions" onclick="event.stopPropagation()">
           <label class="upload-btn" for="pdf-input">📄 Загрузить PDF</label>
+          <button class="upload-btn" onclick="showAutoTagDialog()" style="background:var(--blue);color:#fff;border:none;cursor:pointer">🤖 Авторазнос</button>
           <input type="file" id="pdf-input" accept=".pdf" multiple onchange="handlePDFUpload(event)">
           <button id="mx-clear-btn" class="btn-reject" style="display:none;font-size:12px;padding:4px 10px" onclick="clearAllMX()">✕ Очистить все MX</button>
           <span id="pdf-status"></span>
@@ -1013,7 +1015,7 @@ function loadStore() {
     const raw = localStorage.getItem(STORE_KEY);
     if (raw) return JSON.parse(raw);
   } catch(e) {}
-  return { mx: [], fx: [], manual: [], settings: { mxName: '', fxName: '' }, constructions: [], positions: [] };
+  return { mx: [], fx: [], manual: [], settings: { mxName: '', fxName: '' }, constructions: [], positions: [], autoLj: { rows: [] } };
 }
 
 function saveStore() {
@@ -8079,6 +8081,396 @@ function _ovPeriodRange() {
   return [0, Infinity];
 }
 
+
+// ══════════════════════════════════════════════════════════════
+// AUTO-TAG FROM REPORTS
+// ══════════════════════════════════════════════════════════════
+
+function timeToMs(t) {
+  if (!t) return 0;
+  const s = String(t).includes('T') ? String(t).split('T')[1] : String(t);
+  const [h,m,sec] = s.substring(0,8).split(':').map(Number);
+  return ((h||0)*3600 + (m||0)*60 + (sec||0)) * 1000;
+}
+
+function splitIntoSets(trades, gapMin) {
+  if (!trades.length) return [];
+  const s = [...trades].sort((a,b) => timeToMs(a.time) - timeToMs(b.time));
+  const out = [[s[0]]];
+  for (let i = 1; i < s.length; i++) {
+    if ((timeToMs(s[i].time) - timeToMs(s[i-1].time)) / 60000 > gapMin)
+      out.push([s[i]]);
+    else
+      out[out.length-1].push(s[i]);
+  }
+  return out;
+}
+
+function splitMixedCluster(cl) {
+  // If cluster has both SI and EU — split by which main instr appears first
+  const main = ['SI','EU','UC','ED','GD','SV','PT','PD'];
+  const s = [...cl].sort((a,b) => timeToMs(a.time) - timeToMs(b.time));
+  const seen = [];
+  for (const t of s) {
+    const b = t.instrument.replace(/[-_0-9.]/g,'').toUpperCase();
+    if (main.includes(b) && !seen.includes(b)) seen.push(b);
+  }
+  const mainSeen = seen.filter(b => main.includes(b));
+  if (mainSeen.length <= 1) return [cl];
+  // Split: track current main instr as we iterate
+  const subs = {};
+  let cur = null;
+  for (const t of s) {
+    const b = t.instrument.replace(/[-_0-9.]/g,'').toUpperCase();
+    if (main.includes(b)) cur = b;
+    if (!cur) cur = mainSeen[0];
+    if (!subs[cur]) subs[cur] = [];
+    subs[cur].push(t);
+  }
+  return Object.values(subs);
+}
+
+function detectConstructionByVolumes(cl, cr) {
+  const byI = {};
+  for (const t of cl) {
+    const b = t.instrument.replace(/[-_0-9.]/g,'').toUpperCase();
+    if (!byI[b]) byI[b] = { vol: 0, instr: t.instrument };
+    byI[b].vol += Math.abs(t.volume || 0);
+  }
+  const bases = Object.keys(byI);
+  const usdcnh = (cr && cr.USDCNH) || 6.8;
+  const eurcnh = (cr && cr.EURCNH) || 7.9;
+  const ok = (a, e) => e > 0 && Math.abs(a/e - 1) < 0.20;
+
+  const q = (instr) => {
+    const n = String(instr).toUpperCase();
+    if (n.includes('Z')) return '2';
+    return '1';
+  };
+
+  // CNY = CR (CNY-9.26 in PDF = same as CR futures)
+  const crKey = bases.includes('CR') ? 'CR' : bases.includes('CNY') ? 'CNY' : null;
+  const crVol = crKey ? byI[crKey].vol : 0;
+
+  // Mixed SI+EU cluster
+  if (bases.includes('SI') && bases.includes('EU') && crKey) {
+    const exp = byI['SI'].vol * usdcnh + byI['EU'].vol * eurcnh;
+    if (ok(crVol, exp)) {
+      return [
+        'SI' + q(byI['SI'].instr) + '/CR' + q(byI['SI'].instr) + '/USDCNH',
+        'EU' + q(byI['EU'].instr) + '/CR' + q(byI['EU'].instr) + '/EURCNH',
+      ];
+    }
+  }
+  // SI + CR
+  if (bases.includes('SI') && crKey) {
+    if (ok(crVol / byI['SI'].vol, usdcnh))
+      return 'SI' + q(byI['SI'].instr) + '/CR' + q(byI['SI'].instr) + '/USDCNH';
+  }
+  // EU + CR
+  if (bases.includes('EU') && crKey) {
+    if (ok(crVol / byI['EU'].vol, eurcnh))
+      return 'EU' + q(byI['EU'].instr) + '/CR' + q(byI['EU'].instr) + '/EURCNH';
+  }
+  // EURRUBF + CNYRUBF
+  if (bases.includes('EURRUBF') && bases.includes('CNYRUBF')) {
+    if (ok(byI['CNYRUBF'].vol / byI['EURRUBF'].vol, eurcnh))
+      return 'ERF/CRF/EURCNH';
+    return 'ERF/CRF/EURCNH';
+  }
+  if (bases.includes('USDRUBF') && bases.includes('CNYRUBF'))
+    return 'URF/CRF/USDCNH';
+  // UC
+  if (bases.includes('UC'))
+    return 'UC' + q(byI['UC'].instr) + '/USDCNH';
+  // ED
+  if (bases.includes('ED'))
+    return 'ED' + q(byI['ED'].instr) + '/EURUSD';
+  // Metals
+  if (bases.includes('GD')) {
+    const qs = q(byI['GD'].instr);
+    if (bases.includes('SV')) return 'GD'+qs+'/SV'+qs+'/XAUUSD/XAGUSD';
+    return 'GD'+qs+'/XAUUSD';
+  }
+  if (bases.includes('SV')) return 'SV'+q(byI['SV'].instr)+'/XAGUSD';
+  if (bases.includes('PT')) return 'PT'+q(byI['PT'].instr)+'/XPTUSD';
+  if (bases.includes('PD')) return 'PD'+q(byI['PD'].instr)+'/XPDUSD';
+  return null;
+}
+
+const FX_FOR_TAG = {
+  USDCNH: 'USDCNH', EURCNH: 'EURCNH', EURUSD: 'EURUSD',
+  XAUUSD: 'XAUUSD', XAGUSD: 'XAGUSD', XPTUSD: 'XPTUSD', XPDUSD: 'XPDUSD',
+};
+
+function showAutoTagDialog() {
+  const dates = store.mx.map(r => r.date).filter(Boolean);
+  if (!dates.length) { alert('Сначала загрузи PDF-отчёт МХ'); return; }
+  const existing = document.getElementById('autotag-modal');
+  if (existing) existing.remove();
+  const dlg = document.createElement('div');
+  dlg.id = 'autotag-modal';
+  dlg.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center';
+  dlg.innerHTML = '<div style="background:var(--bg1);border:1px solid var(--border);border-radius:10px;padding:24px;min-width:320px">'
+    + '<div style="font-size:15px;font-weight:700;margin-bottom:16px">🤖 Авторазнос сделок</div>'
+    + '<div style="font-size:12px;color:var(--text2);margin-bottom:12px">Выбери дату из загруженных отчётов:</div>'
+    + '<select id="autotag-date-sel" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1);font-size:13px;margin-bottom:16px">'
+    + dates.map(d => '<option value="'+d+'">'+d+'</option>').join('')
+    + '</select>'
+    + '<div style="display:flex;gap:8px;justify-content:flex-end">'
+    + '<button id="atd-cancel" style="padding:6px 14px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1);cursor:pointer">Отмена</button>'
+    + '<button id="atd-ok" style="padding:6px 14px;border:none;border-radius:6px;background:var(--blue);color:#fff;cursor:pointer;font-weight:600">Разнести</button>'
+    + '</div></div>';
+  document.body.appendChild(dlg);
+  document.getElementById('atd-cancel').onclick = function() { dlg.remove(); };
+  document.getElementById('atd-ok').onclick = function() {
+    const d = document.getElementById('autotag-date-sel').value;
+    dlg.remove();
+    autoTagFromReports(d);
+  };
+}
+
+function autoTagFromReports(date) {
+  const report = getMxReportForDate(date);
+  if (!report || !report.trades || !report.trades.length) {
+    alert('Нет данных PDF за ' + date); return;
+  }
+  const dateISO = normDate(date);
+  const fxAll = store.fx.filter(t => normDate(t.close_date || '') === dateISO);
+
+  // Step 1: entry direction per instrument (first trade globally)
+  const sorted = [...report.trades].sort((a,b) => timeToMs(a.time) - timeToMs(b.time));
+  const entryDir = {};
+  for (const t of sorted) {
+    const b = t.instrument.replace(/[-_0-9.]/g,'').toUpperCase();
+    if (!entryDir[b]) entryDir[b] = t.direction;
+  }
+
+  // Step 2: entry trades only
+  const entries = sorted.filter(t => t.direction === entryDir[t.instrument.replace(/[-_0-9.]/g,'').toUpperCase()]);
+
+  // Step 3: split by time gaps → split mixed clusters
+  const rawCl = splitIntoSets(entries, 7);
+  const clusters = rawCl.flatMap(cl => splitMixedCluster(cl));
+
+  // Step 4: detect construction per cluster
+  const cr = _crossRates || {};
+  const constrCount = {};
+  const sets = [];
+  for (const cl of clusters) {
+    const tagRes = detectConstructionByVolumes(cl, cr);
+    const tags = Array.isArray(tagRes) ? tagRes : (tagRes ? [tagRes] : []);
+    for (const tag of tags) {
+      constrCount[tag] = (constrCount[tag] || 0) + 1;
+      sets.push({ cluster: cl, tag, set: constrCount[tag] });
+    }
+  }
+
+  if (!sets.length) {
+    const bs = [...new Set(entries.map(t => t.instrument.replace(/[-_0-9.]/g,'').toUpperCase()))];
+    alert('Не удалось определить конструкции.\nМХ инструменты: ' + bs.join(', ')
+      + '\nUSDCNH=' + (cr.USDCNH||'?') + ' EURCNH=' + (cr.EURCNH||'?'));
+    return;
+  }
+
+  // Step 5: build rows
+  const newRows = [];
+  for (const { cluster, tag, set: setN } of sets) {
+    // Group entries by instrument
+    const byInstr = {};
+    for (const t of cluster) {
+      const b = t.instrument.replace(/[-_0-9.]/g,'').toUpperCase();
+      if (!byInstr[b]) byInstr[b] = [];
+      byInstr[b].push(t);
+    }
+
+    // MX rows
+    for (const [base, trades] of Object.entries(byInstr)) {
+      const vol = trades.reduce((s,t) => s + Math.abs(t.volume||0), 0);
+      const avgP = trades.reduce((s,t) => s + (t.price||0)*Math.abs(t.volume||0), 0) / (vol||1);
+      const dir = entryDir[base] === 'Long' ? 'Buy' : 'Sell';
+      const lastT = [...sorted].reverse().find(t =>
+        t.instrument.replace(/[-_0-9.]/g,'').toUpperCase() === base
+      );
+      newRows.push({
+        id: 'auto_' + date + '_' + base + '_' + setN + '_' + Date.now() + '_' + Math.random(),
+        date, time: trades[0].time, platform: 'MX',
+        instrument: trades[0].instrument, direction: dir,
+        volume: vol, price: +avgP.toFixed(4),
+        price_close: lastT ? lastT.price : null,
+        time_close: lastT ? lastT.time : null,
+        status: 'closed', tag, set: setN, note: 'авторазнос',
+      });
+    }
+
+    // FX rows — find matching FX trades by time window and instrument
+    const setStart = timeToMs(cluster[0].time);
+    const setEnd   = timeToMs(cluster[cluster.length-1].time) + 20*60*1000;
+    const tagParts = tag.split('/');
+    const fxInstrKey = FX_FOR_TAG[tagParts[tagParts.length-1]];
+
+    const matchedFx = fxAll.filter(t => {
+      if (fxInstrKey) {
+        const ti = (t.instrument||'').replace(/[-_]/g,'').toUpperCase();
+        if (ti !== fxInstrKey) return false;
+      }
+      const ot = t.open_time || t.open_date || '';
+      const ts2 = ot.includes('T') ? ot.split('T')[1].substring(0,8) : ot.substring(0,8);
+      const ft = timeToMs(ts2);
+      return ft >= setStart - 5*60*1000 && ft <= setEnd;
+    });
+
+    const fxByI = {};
+    for (const t of matchedFx) {
+      const k = (t.instrument||'').replace(/[-_]/g,'').toUpperCase();
+      if (!fxByI[k]) fxByI[k] = [];
+      fxByI[k].push(t);
+    }
+
+    for (const [instr, trades] of Object.entries(fxByI)) {
+      const vol = trades.reduce((s,t) => s + Math.abs(parseFloat(t.lots)||0), 0);
+      const avgE = trades.reduce((s,t) => s + (parseFloat(t.open_price)||0)*Math.abs(parseFloat(t.lots)||0), 0) / (vol||1);
+      const avgC = trades.every(t=>t.close_price!=null)
+        ? trades.reduce((s,t) => s + (parseFloat(t.close_price)||0)*Math.abs(parseFloat(t.lots)||0), 0) / (vol||1)
+        : null;
+      const dirFx = (trades[0].direction||'buy').toLowerCase().includes('buy') ? 'Buy' : 'Sell';
+      const ot = trades[0].open_time || trades[0].open_date || '';
+      const openT = ot.includes('T') ? ot.split('T')[1].substring(0,8) : ot.substring(0,8);
+      newRows.push({
+        id: 'auto_' + date + '_FX' + instr + '_' + setN + '_' + Date.now() + '_' + Math.random(),
+        date, time: openT, platform: 'FX',
+        instrument: trades[0].instrument, direction: dirFx,
+        volume: +vol.toFixed(2), price: +avgE.toFixed(5),
+        price_close: avgC ? +avgC.toFixed(5) : null,
+        time_close: trades[0].close_time ? String(trades[0].close_time).split('T')[1].substring(0,8) : null,
+        status: avgC ? 'closed' : 'open', tag, set: setN, note: 'авторазнос',
+      });
+    }
+  }
+
+  if (!newRows.length) {
+    alert('Записи не созданы. Проверь данные.'); return;
+  }
+
+  // Show preview modal
+  const existing2 = document.getElementById('autotag-modal');
+  if (existing2) existing2.remove();
+
+  const lines = newRows.map(function(r) {
+    const pc = r.platform === 'MX' ? 'var(--blue)' : 'var(--purple)';
+    const dc = r.direction === 'Buy' ? 'var(--green)' : 'var(--red)';
+    const dl = r.direction === 'Buy' ? 'Купить' : 'Продать';
+    return '<div style="font-size:11px;padding:3px 0;border-bottom:1px solid var(--border);display:flex;gap:6px;align-items:center">'
+      + '<span style="font-size:10px;font-weight:700;border-radius:3px;padding:1px 4px;background:'+pc+';color:#fff">'+r.platform+'</span>'
+      + '<span style="font-weight:600;min-width:72px">'+r.instrument+'</span>'
+      + '<span style="color:'+dc+';min-width:56px">'+dl+'</span>'
+      + '<span style="color:var(--text2)">'+r.volume+' л</span>'
+      + '<span style="font-family:monospace">@ '+r.price+'</span>'
+      + '<span style="color:var(--blue);margin-left:auto">['+r.tag+' №'+r.set+']</span>'
+      + '</div>';
+  }).join('');
+
+  const modal = document.createElement('div');
+  modal.id = 'autotag-modal';
+  modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center';
+  modal.innerHTML = '<div style="background:var(--bg1);border:1px solid var(--border);border-radius:10px;padding:24px;min-width:460px;max-width:600px;max-height:82vh;display:flex;flex-direction:column;gap:12px">'
+    + '<div style="font-size:15px;font-weight:700">🤖 Авторазнос за ' + date + '</div>'
+    + '<div style="font-size:12px;color:var(--text2)">Наборов: ' + sets.length + ' · Записей: ' + newRows.length + '</div>'
+    + '<div style="overflow-y:auto;border:1px solid var(--border);border-radius:6px;padding:8px;background:var(--bg2)">' + lines + '</div>'
+    + '<div style="display:flex;gap:8px;justify-content:flex-end">'
+    + '<button id="at-cancel" style="padding:6px 16px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1);cursor:pointer">Отмена</button>'
+    + '<button id="at-ok" style="padding:6px 16px;border:none;border-radius:6px;background:var(--blue);color:#fff;cursor:pointer;font-weight:600">✓ Добавить в журнал</button>'
+    + '</div></div>';
+  document.body.appendChild(modal);
+
+  document.getElementById('at-cancel').onclick = function() {
+    document.getElementById('autotag-modal').remove();
+  };
+  document.getElementById('at-ok').onclick = function() {
+    document.getElementById('autotag-modal').remove();
+    if (!store.autoLj) store.autoLj = { rows: [] };
+    store.autoLj.rows = store.autoLj.rows.filter(function(r) { return r.date !== date; });
+    store.autoLj.rows.push.apply(store.autoLj.rows, newRows);
+    saveStore();
+    alert('✅ Добавлено ' + newRows.length + ' записей в Авто-журнал за ' + date);
+    if (document.getElementById('tab-autolj') && document.getElementById('tab-autolj').classList.contains('active'))
+      renderAutoLj();
+  };
+}
+
+
+function renderAutoLj() {
+  const container = document.getElementById('autolj-container');
+  if (!container) return;
+  if (!store.autoLj) store.autoLj = { rows: [] };
+  const rows = store.autoLj.rows;
+  if (!rows.length) {
+    container.innerHTML = '<div class="empty"><div class="icon">🤖</div><p>Нет автоматически разнесённых сделок</p><p style="font-size:12px;color:var(--text2);margin-top:8px">Загрузи PDF и Excel, затем нажми «🤖 Авторазнос» в Движении средств</p></div>';
+    return;
+  }
+  const byDate = {};
+  for (const r of rows) {
+    if (!byDate[r.date]) byDate[r.date] = {};
+    const key = r.tag + '||' + (r.set||1);
+    if (!byDate[r.date][key]) byDate[r.date][key] = { tag:r.tag, set:r.set||1, rows:[] };
+    byDate[r.date][key].rows.push(r);
+  }
+  const rate = currentRate && currentRate.value || 85;
+  let html = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'
+    + '<div style="font-size:16px;font-weight:700">🤖 Авто-журнал</div>'
+    + '<button id="autolj-clear-btn" style="font-size:11px;padding:4px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--red);cursor:pointer">Очистить всё</button>'
+    + '</div>';
+  for (const date of Object.keys(byDate).sort().reverse()) {
+    html += '<div style="margin-bottom:20px"><div style="font-size:13px;font-weight:700;color:var(--text2);margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid var(--border)">' + date + '</div>';
+    for (const [key, g] of Object.entries(byDate[date])) {
+      const mxRows = g.rows.filter(function(r){return r.platform==='MX';});
+      const fxRows = g.rows.filter(function(r){return r.platform==='FX';});
+      let mxPnl=0, mxComm=0;
+      const rep = getMxReportForDate(date);
+      if (rep) {
+        const seen = {};
+        for (const r of mxRows) {
+          const b = r.instrument.replace(/[-_0-9.]/g,'').toUpperCase();
+          if (seen[b]) continue; seen[b] = true;
+          const pd = calcMxLegPnl(r.instrument, r.volume, date);
+          if (pd) { mxPnl += pd.pnl; mxComm += (pd.commissionDisplay||0); }
+        }
+      }
+      let fxPnlUsd = 0;
+      for (const r of fxRows) {
+        const pd = calcFxLegPnl(r.instrument, date);
+        if (pd) fxPnlUsd += pd.pnl;
+      }
+      const fxRate = getRateForDate(normDate(date)) || rate;
+      const total = mxPnl + fxPnlUsd * fxRate;
+      const tc = total>=0?'var(--green)':'var(--red)';
+      html += '<div style="background:var(--bg2);border:1px solid var(--border);border-left:3px solid '+tc+';border-radius:6px;padding:12px 16px;margin-bottom:8px">'
+        + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">'
+        + '<div><span style="font-weight:700;color:var(--blue)">'+g.tag+'</span><span style="margin-left:8px;font-size:11px;color:var(--text2)">Набор №'+g.set+'</span></div>'
+        + '<span style="font-family:monospace;font-weight:700;color:'+tc+'">'+(total>=0?'+':'')+Math.round(total).toLocaleString('ru')+' ₽</span>'
+        + '</div><table style="width:100%;font-size:11px;border-collapse:collapse">'
+        + '<tr style="color:var(--text2);border-bottom:1px solid var(--border)"><th style="text-align:left;padding:2px 6px">Пл.</th><th style="text-align:left;padding:2px 6px">Инструмент</th><th style="text-align:left;padding:2px 6px">Направление</th><th style="text-align:right;padding:2px 6px">Объём</th><th style="text-align:right;padding:2px 6px">Вход</th><th style="text-align:right;padding:2px 6px">Время</th></tr>';
+      for (const r of g.rows) {
+        const pc = r.platform==='MX'?'var(--blue)':'var(--purple)';
+        const dc = r.direction==='Buy'?'var(--green)':'var(--red)';
+        html += '<tr style="border-bottom:1px solid var(--border)">'
+          + '<td style="padding:3px 6px"><span style="font-size:10px;font-weight:700;border-radius:3px;padding:1px 4px;background:'+pc+';color:#fff">'+r.platform+'</span></td>'
+          + '<td style="padding:3px 6px;font-weight:600">'+r.instrument+'</td>'
+          + '<td style="padding:3px 6px;color:'+dc+'">'+(r.direction==='Buy'?'Купить':'Продать')+'</td>'
+          + '<td style="padding:3px 6px;text-align:right">'+r.volume+'</td>'
+          + '<td style="padding:3px 6px;text-align:right;font-family:monospace">'+r.price+'</td>'
+          + '<td style="padding:3px 6px;text-align:right;color:var(--text2)">'+r.time+'</td>'
+          + '</tr>';
+      }
+      html += '</table></div>';
+    }
+    html += '</div>';
+  }
+  container.innerHTML = html;
+  var cb = document.getElementById("autolj-clear-btn");
+  if (cb) cb.onclick = function() { if(confirm("Очистить весь авто-журнал?")) { store.autoLj={rows:[]};saveStore();renderAutoLj(); } };
+}
+
 function renderOverviewTab(force) {
   if (_overviewRendered && !force) return;
   const container = document.getElementById('overview-container');
@@ -8939,6 +9331,9 @@ updateDashboard();
 
 
   <!-- SHOWCASE -->
+  <div id="tab-autolj" class="tab-content">
+    <div id="autolj-container" style="padding:16px"></div>
+  </div>
   <div id="tab-showcase" class="tab-content">
     <div id="showcase-root"></div>
   </div>
