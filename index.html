@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782214207 -->
+<!-- v:1782214390 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8747,27 +8747,27 @@ function renderAutoLj() {
       if (leg.platform !== 'MX' || seen[b]) continue;
       seen[b] = true;
       var posVol = leg.vol_in || 0;
-      var closingMargin = 0, closingComm = 0, closingVol = 0;
+      var closingMargin = 0, totalComm = 0, closingVol = 0;
       var isEntryShort = leg.entry_direction === 'Sell';
       for (var i = 0; i < allDays.length; i++) {
         var rep = getMxReportForDate(allDays[i]);
         if (!rep) continue;
-        // Sum margin_rub from closing trades (exit direction)
         (rep.trades||[]).forEach(function(t){
           var tb = (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
           if (tb !== b) return;
           var isExit = isEntryShort ? t.direction === 'Long' : t.direction === 'Short';
+          // margin_rub only from closing trades
           if (isExit) {
             closingMargin += t.margin_rub || 0;
-            closingComm   += t.commission || 0;
             closingVol    += Math.abs(t.volume || 0);
           }
+          // commission from ALL trades (entry + exit)
+          totalComm += t.commission || 0;
         });
       }
-      // Proportional: if position used posVol lots out of total closingVol
       if (closingVol > 0 && posVol > 0) {
         var ratio = Math.min(posVol / closingVol, 1);
-        pnl += (closingMargin + closingComm) * ratio;
+        pnl += closingMargin * ratio + totalComm * ratio;
       }
     }
     return Math.round(pnl);
@@ -8956,33 +8956,33 @@ function renderAutoLj() {
         // Sum margin_rub from closing trades, proportional to position volume
         var posVol2 = leg2.vol_in || 0;
         var isEntryShort2 = leg2.entry_direction === 'Sell';
-        var closingMargin2 = 0, closingComm2 = 0, closingVol2 = 0;
+        var closingMargin2 = 0, totalComm2 = 0, closingVol2 = 0;
         for (var di3 = 0; di3 < allDays.length; di3++) {
           var rep4 = getMxReportForDate(allDays[di3]);
           if (!rep4) continue;
           (rep4.trades||[]).forEach(function(t){
             var tb = (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
             if (tb !== b2) return;
-            var isExit = isEntryShort2 ? t.direction==='Long' : t.direction==='Short';
-            if (isExit) {
+            var isExit2 = isEntryShort2 ? t.direction==='Long' : t.direction==='Short';
+            if (isExit2) {
               closingMargin2 += t.margin_rub || 0;
-              closingComm2   += t.commission || 0;
               closingVol2    += Math.abs(t.volume||0);
             }
+            totalComm2 += t.commission || 0;
           });
         }
         if (closingVol2 > 0 && posVol2 > 0) {
           var ratio2 = Math.min(posVol2 / closingVol2, 1);
-          var dispPnl2 = (closingMargin2 + closingComm2) * ratio2;
+          var dispPnl2 = closingMargin2 * ratio2 + totalComm2 * ratio2;
           totalMxDisp += dispPnl2;
           var pc2 = dispPnl2>=0?'var(--green)':'var(--red)';
           var margPct = ratio2 < 0.99 ? ' ('+Math.round(ratio2*100)+'% дня)' : '';
           html += '<div style="font-size:11px;display:flex;gap:8px;align-items:center;margin-bottom:4px;padding:4px 8px;background:var(--bg3);border-radius:4px;flex-wrap:wrap">'
             + '<span style="font-weight:600;min-width:80px">'+leg2.instrument+'</span>'
-            + '<span style="color:var(--text2)">вход avg: <span style="font-family:monospace">'+avgEntry2.toFixed(4)+'</span></span>'
-            + '<span style="color:var(--text2)">выход avg: <span style="font-family:monospace">'+avgExit2.toFixed(4)+'</span></span>'
+            + '<span style="color:var(--text2)">вход: <span style="font-family:monospace">'+avgEntry2.toFixed(4)+'</span></span>'
+            + '<span style="color:var(--text2)">выход: <span style="font-family:monospace">'+avgExit2.toFixed(4)+'</span></span>'
             + '<span style="color:var(--text2)">'+posVol2+'л'+margPct+'</span>'
-            + '<span style="color:var(--red);font-size:10px">ком: '+Math.round(closingComm2*ratio2)+' ₽</span>'
+            + '<span style="color:var(--red);font-size:10px">ком: '+Math.round(totalComm2*ratio2)+' ₽</span>'
             + '<span style="font-family:monospace;font-weight:700;color:'+pc2+';margin-left:auto">'+(dispPnl2>=0?'+':'')+Math.round(dispPnl2)+' ₽</span>'
             + '</div>';
         }
