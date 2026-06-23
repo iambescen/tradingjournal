@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782215381 -->
+<!-- v:1782215987 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8949,11 +8949,82 @@ function renderAutoLj() {
       + '<div style="font-size:11px;color:var(--text2);margin-bottom:2px">'+daysStr+'</div>'
       + pnlBadge+'</div></div>';
 
+    // Arbitrage spread: (MOEX_synthetic / FX_spot - 1) × 100%
+    // For Si/CR/USDCNH: synthetic = Si/CR, spot = USDCNH
+    // For EU/CR/EURCNH: synthetic = EU/CR, spot = EURCNH
+    // For ERF/CRF/EURCNH: synthetic = EURRUBF/CNYRUBF, spot = EURCNH
+    function calcArbSpread(legs, mxPnlData, fxTr) {
+      var tag = pos.tag || '';
+      var entrySpread = null, exitSpread = null;
+      // Get avg prices per instrument
+      var prices = {};
+      for (var b in mxPnlData) {
+        prices[b] = { entry: mxPnlData[b].avgEntry, exit: mxPnlData[b].avgExit };
+      }
+      // FX avg entry/exit from fx trades
+      var fxEntryVol = 0, fxEntrySum = 0, fxExitVol = 0, fxExitSum = 0;
+      fxTr.forEach(function(t){
+        var q = Math.abs(t.qty||0);
+        fxEntryVol += q; fxEntrySum += (t.entry_price||0)*q;
+        if (t.close_price) { fxExitVol += q; fxExitSum += (t.close_price||0)*q; }
+      });
+      var fxEntry = fxEntryVol ? fxEntrySum/fxEntryVol : 0;
+      var fxExit  = fxExitVol  ? fxExitSum/fxExitVol   : 0;
+
+      // Тройники Si/CR, EU/CR
+      if (tag.indexOf('SI')>=0 && tag.indexOf('CR')>=0 && fxEntry) {
+        var siE=prices['SI']&&prices['SI'].entry, crE=prices['CR']&&prices['CR'].entry;
+        var siX=prices['SI']&&prices['SI'].exit,  crX=prices['CR']&&prices['CR'].exit;
+        if (siE&&crE) entrySpread = ((siE/crE)/fxEntry - 1)*100;
+        if (siX&&crX&&fxExit) exitSpread  = ((siX/crX)/fxExit  - 1)*100;
+      } else if (tag.indexOf('EU1')>=0 && tag.indexOf('CR')>=0 && fxEntry) {
+        var euE=prices['EU']&&prices['EU'].entry, crE2=prices['CR']&&prices['CR'].entry;
+        var euX=prices['EU']&&prices['EU'].exit,  crX2=prices['CR']&&prices['CR'].exit;
+        if (euE&&crE2) entrySpread = ((euE/crE2)/fxEntry - 1)*100;
+        if (euX&&crX2&&fxExit) exitSpread  = ((euX/crX2)/fxExit  - 1)*100;
+      // Вечники ERF/CRF
+      } else if (tag.indexOf('ERF')>=0 && fxEntry) {
+        var erE=prices['EURRUBF']&&prices['EURRUBF'].entry, crfE=prices['CNYRUBF']&&prices['CNYRUBF'].entry;
+        var erX=prices['EURRUBF']&&prices['EURRUBF'].exit,  crfX=prices['CNYRUBF']&&prices['CNYRUBF'].exit;
+        if (erE&&crfE) entrySpread = ((erE/crfE)/fxEntry - 1)*100;
+        if (erX&&crfX&&fxExit) exitSpread  = ((erX/crfX)/fxExit  - 1)*100;
+      // Вечники URF/CRF
+      } else if (tag.indexOf('URF')>=0 && fxEntry) {
+        var urE=prices['USDRUBF']&&prices['USDRUBF'].entry, crfE2=prices['CNYRUBF']&&prices['CNYRUBF'].entry;
+        var urX=prices['USDRUBF']&&prices['USDRUBF'].exit,  crfX2=prices['CNYRUBF']&&prices['CNYRUBF'].exit;
+        if (urE&&crfE2) entrySpread = ((urE/crfE2)/fxEntry - 1)*100;
+        if (urX&&crfX2&&fxExit) exitSpread  = ((urX/crfX2)/fxExit  - 1)*100;
+      // Двуногие UC/USDCNH
+      } else if (tag.indexOf('UC')>=0 && fxEntry) {
+        var ucE=prices['UC']&&prices['UC'].entry, ucX=prices['UC']&&prices['UC'].exit;
+        if (ucE) entrySpread = (ucE/fxEntry - 1)*100;
+        if (ucX&&fxExit) exitSpread = (ucX/fxExit - 1)*100;
+      }
+      return { entry: entrySpread, exit: exitSpread };
+    }
+
+    var arbSpread = calcArbSpread(pos.legs, mxPnlFull, fxTradesPos);
+
     // Stats row
     if (!isOpen) {
+      var spreadStr = '';
+      if (arbSpread.entry !== null) {
+        var ec = arbSpread.entry>=0?'var(--green)':'var(--red)';
+        spreadStr = '<span style="font-size:11px;color:var(--text2)">📏 Спред вход: '
+          + '<span style="color:'+ec+';font-weight:600">'+(arbSpread.entry>=0?'+':'')+arbSpread.entry.toFixed(3)+'%</span>';
+        if (arbSpread.exit !== null) {
+          var xc = arbSpread.exit>=0?'var(--green)':'var(--red)';
+          spreadStr += ' → выход: <span style="color:'+xc+';font-weight:600">'
+            + (arbSpread.exit>=0?'+':'')+arbSpread.exit.toFixed(3)+'%</span>';
+          var delta = arbSpread.exit - arbSpread.entry;
+          var dc = delta<=0?'var(--green)':'var(--red)'; // схлопывание = хорошо
+          spreadStr += ' <span style="color:'+dc+';font-size:10px">(Δ'+(delta>=0?'+':'')+delta.toFixed(3)+'%)</span>';
+        }
+        spreadStr += '</span>';
+      }
       html += '<div style="display:flex;gap:16px;margin-bottom:8px;flex-wrap:wrap">'
         + '<span style="font-size:11px;color:var(--text2)">💼 Комиссии: <span style="color:var(--red)">'+Math.round(totalCommAll)+' ₽</span></span>'
-        + (spreadParts.length?'<span style="font-size:11px;color:var(--text2)">📏 Спред: '+spreadParts.join(' / ')+'</span>':'')
+        + (spreadStr?spreadStr:'')
         + '<span style="font-size:11px;color:var(--text2)">📊 Наборов: '+((pos.sets||[]).length)+'</span>'
         + '</div>';
     }
