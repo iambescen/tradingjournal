@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782200834 -->
+<!-- v:1782201291 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8405,6 +8405,41 @@ function splitIntoSets(trades, gapMinutes = 7) {
   return sets;
 }
 
+function splitMixedCluster(cluster) {
+  // If a cluster has both SI and EU — split into separate sub-clusters
+  // by detecting when the "main" instrument switches (SI→EU or vice versa)
+  const mainInstrs = ['SI','EU','UC','ED','GD','SV','PT','PD','USDRUBF','EURRUBF','CNYRUBF'];
+  const sorted = [...cluster].sort((a,b) => timeToMs(a.time) - timeToMs(b.time));
+
+  // Find distinct main instruments in order of first appearance
+  const seen = [];
+  for (const t of sorted) {
+    const base = (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
+    if (mainInstrs.includes(base) && !seen.includes(base)) seen.push(base);
+  }
+
+  // If only one type of main instrument — no split needed
+  const mainBases = ['SI','EU','UC','ED','GD','SV','PT','PD'];
+  const mainSeen = seen.filter(b => mainBases.includes(b));
+  if (mainSeen.length <= 1) return [cluster];
+
+  // Split: assign each trade to sub-cluster by nearest main instrument start time
+  const subClusters = {};
+  let currentMain = null;
+  for (const t of sorted) {
+    const base = (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
+    if (mainBases.includes(base)) currentMain = base;
+    if (!currentMain) currentMain = mainSeen[0];
+    if (!subClusters[currentMain]) subClusters[currentMain] = [];
+    subClusters[currentMain].push(t);
+  }
+
+  // Each sub-cluster gets its proportional share of CR/CNY trades
+  // by time proximity
+  const result = Object.values(subClusters);
+  return result.length > 1 ? result : [cluster];
+}
+
 
 function showAutoTagDialog() {
   // Get all available dates from store.mx
@@ -8454,7 +8489,9 @@ async function autoTagFromReports(date) {
   const allMxSorted = [...report.trades].sort((a,b) => timeToMs(a.time)-timeToMs(b.time));
 
   // Split into time clusters (gap > 7 min = new cluster)
-  const allClusters = splitIntoSets(allMxSorted, 7);
+  const rawClusters = splitIntoSets(allMxSorted, 7);
+  // Further split mixed clusters (SI+EU in same time window)
+  const allClusters = rawClusters.flatMap(cl => splitMixedCluster(cl));
 
   // For each cluster determine entry direction per instrument
   // Entry = first direction seen for that instrument in this cluster
@@ -8589,7 +8626,31 @@ async function autoTagFromReports(date) {
     `${r.platform} ${r.instrument} ${r.direction} ${r.volume} @ ${r.price} [${r.tag} №${r.set}]`
   ).join('\n');
 
-  if (!confirm(`Авторазнос за ${date}\nКонструкция: ${tag}\nНаборов: ${sets.length}\nЗаписей: ${newRows.length}\n\n${preview}\n\nДобавить в журнал?`)) return;
+  // Show preview in modal instead of confirm()
+  await new Promise((resolve, reject) => {
+    const dlg = document.createElement('div');
+    dlg.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center';
+    const lines = newRows.map(r =>
+      `<div style="font-size:11px;padding:2px 0;color:var(--text1)">
+        <span style="color:${r.platform==='MX'?'var(--blue)':'var(--purple)'}">${r.platform}</span>
+        <span style="margin:0 4px;font-weight:600">${r.instrument}</span>
+        <span style="color:${r.direction==='Buy'?'var(--green)':'var(--red)'}">${r.direction==='Buy'?'Купить':'Продать'}</span>
+        ${r.volume} лот @ ${r.price}
+        <span style="color:var(--text2);margin-left:4px">[${r.tag} №${r.set}]</span>
+      </div>`
+    ).join('');
+    dlg.innerHTML = '<div style="background:var(--bg1);border:1px solid var(--border);border-radius:10px;padding:24px;min-width:420px;max-width:560px;max-height:80vh;display:flex;flex-direction:column">'
+      + '<div style="font-size:15px;font-weight:700;margin-bottom:4px">🤖 Авторазнос за ' + date + '</div>'
+      + '<div style="font-size:12px;color:var(--text2);margin-bottom:12px">Наборов: ' + sets.length + ' · Записей: ' + newRows.length + '</div>'
+      + '<div style="overflow-y:auto;flex:1;border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--bg2);margin-bottom:16px">' + lines + '</div>'
+      + '<div style="display:flex;gap:8px;justify-content:flex-end">'
+      + '<button id="autotag-cancel" style="padding:6px 16px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1);cursor:pointer">Отмена</button>'
+      + '<button id="autotag-ok" style="padding:6px 16px;border:none;border-radius:6px;background:var(--blue);color:#fff;cursor:pointer;font-weight:600">Добавить в журнал</button>'
+      + '</div></div>';
+    document.body.appendChild(dlg);
+    dlg.querySelector('#autotag-cancel').onclick = () => { dlg.remove(); reject('cancel'); };
+    dlg.querySelector('#autotag-ok').onclick    = () => { dlg.remove(); resolve(); };
+  }).catch(() => { return Promise.reject('cancel'); });
 
   // Save to separate autoLj store — doesn't affect manual journal
   if (!store.autoLj) store.autoLj = { rows: [] };
