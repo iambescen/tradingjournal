@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782207188 -->
+<!-- v:1782207591 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8442,46 +8442,53 @@ function renderAutoLj() {
     for (const [key, g] of Object.entries(byDate[date])) {
       const mxRows = g.rows.filter(function(r){return r.platform==='MX';});
       const fxRows = g.rows.filter(function(r){return r.platform==='FX';});
-      // P&L: from PDF instruments, proportional to set volume
+      // MX P&L from PDF instruments (exact broker result)
       let mxPnl = 0;
       const rep = getMxReportForDate(date);
       if (rep) {
+        const seenMx = {};
         for (const r of mxRows) {
           const b = r.instrument.replace(/[-_0-9.]/g,'').toUpperCase();
-          // Get total day P&L for this instrument from PDF
-          const instr = (rep.instruments||[]).find(i =>
-            (i.name||'').replace(/[-_0-9.]/g,'').toUpperCase() === b
-          );
+          if (seenMx[b]) continue; seenMx[b] = true;
+          const instr = (rep.instruments||[]).find(function(i) {
+            return (i.name||'').replace(/[-_0-9.]/g,'').toUpperCase() === b;
+          });
           if (!instr) continue;
-          // Total entry volume for this instrument in the whole day
-          const totalEntryVol = (rep.trades||[])
-            .filter(t => {
-              const tb = (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
-              const isEntryDir = r.direction === 'Sell' ? t.direction === 'Short' : t.direction === 'Long';
-              return tb === b && isEntryDir;
-            })
-            .reduce((s,t) => s + Math.abs(t.volume||0), 0) || 1;
-          // Proportion: this set volume / total day volume
-          const ratio = r.volume / totalEntryVol;
-          mxPnl += (instr.pnl||0) * ratio;
+          // Count how many sets today have this instrument
+          const setsWithInstr = Object.values(byDate[date]||{}).filter(function(grp) {
+            return grp.rows.some(function(row) {
+              return row.platform==='MX' && row.instrument.replace(/[-_0-9.]/g,'').toUpperCase()===b;
+            });
+          }).length;
+          if (setsWithInstr <= 1) {
+            mxPnl += instr.pnl || 0;
+          } else {
+            // Proportional (approximate)
+            var totalVol = (rep.trades||[]).filter(function(t) {
+              return (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase()===b
+                && t.direction===(r.direction==='Sell'?'Short':'Long');
+            }).reduce(function(s,t){return s+Math.abs(t.volume||0);},0)||1;
+            mxPnl += (instr.pnl||0) * (r.volume/totalVol);
+          }
         }
       }
-      // FX P&L: from net_pnl_usd of matched trades
-      let fxPnlUsd = 0;
-      for (const r of fxRows) {
-        const pd = calcFxLegPnl(r.instrument, date);
-        if (pd) {
-          // proportion by set volume vs total day FX volume
-          const totalFxVol = (store.fx||[])
-            .filter(t => normDate(t.close_date||'')===normDate(date) &&
-              (t.instrument||'').replace(/[-_]/g,'').toUpperCase() ===
-              r.instrument.replace(/[-_]/g,'').toUpperCase())
-            .reduce((s,t)=>s+Math.abs(t.qty||0),0)||1;
-          const ratio = r.volume / totalFxVol;
-          fxPnlUsd += pd.pnl * ratio;
-        }
+      // FX P&L: sum net_pnl_usd of trades matching this set by time
+      var fxPnlUsd = 0;
+      var dateISOnow = normDate(date);
+      for (var fi=0; fi<fxRows.length; fi++) {
+        var fxR = fxRows[fi];
+        var fxKey = (fxR.instrument||'').replace(/[-_]/g,'').toUpperCase();
+        var setMs = fxR.time ? timeToMs(fxR.time) : 0;
+        var fxMatched = (store.fx||[]).filter(function(t) {
+          if (normDate(t.close_date||'')!==dateISOnow) return false;
+          if ((t.instrument||'').replace(/[-_]/g,'').toUpperCase()!==fxKey) return false;
+          var ot=t.open_time||'';
+          var ts3=ot.includes(' ')?ot.split(' ')[1].substring(0,8):ot.includes('T')?ot.split('T')[1].substring(0,8):ot.substring(0,8);
+          return Math.abs(timeToMs(ts3)-setMs)<30*60*1000;
+        });
+        fxPnlUsd += fxMatched.reduce(function(s,t){return s+(t.net_pnl_usd||0);},0);
       }
-      const fxRate = getRateForDate(normDate(date)) || rate;
+      const fxRate = getRateForDate(dateISOnow) || rate;
       const total = mxPnl + fxPnlUsd * fxRate;
       const tc = total>=0?'var(--green)':'var(--red)';
       html += '<div style="background:var(--bg2);border:1px solid var(--border);border-left:3px solid '+tc+';border-radius:6px;padding:12px 16px;margin-bottom:8px">'
