@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782202186 -->
+<!-- v:1782202281 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8472,12 +8472,7 @@ function showAutoTagDialog() {
       </div>
     </div>`;
   document.body.appendChild(dlg);
-  dlg.querySelector('#autotag-cancel-btn').onclick = function() {
-    var m = document.getElementById('autotag-modal'); if (m) m.remove();
-  };
-  dlg.querySelector('#autotag-ok-btn, #autotag-ok-btn2').onclick = function() {
-    _autoTagSave(date, window._autoTagSets, window._autoTagRows);
-  };
+
 }
 
 async function autoTagFromReports(date) {
@@ -8694,6 +8689,11 @@ function _autoTagPreview(date, sets, newRows) {
   window._autoTagSets = sets;
   window._autoTagRows = newRows;
   document.body.appendChild(dlg);
+  // Wire up OK button AFTER dlg is in DOM
+  var okBtn = document.getElementById('autotag-ok-btn2');
+  if (okBtn) okBtn.onclick = function() {
+    _autoTagSave(date, window._autoTagSets, window._autoTagRows);
+  };
 }
 
 function renderOverviewTab(force) {
