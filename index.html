@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782220317 -->
+<!-- v:1782220512 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -9595,7 +9595,8 @@ function renderOverviewTab(force) {
     const canvas = document.getElementById('ch-mx-bal') || document.getElementById('ch-fx-bal') || document.getElementById('ch-daily-pnl');
     if (canvas && typeof Chart !== 'undefined') {
       _drawOverviewCharts(..._args);
-      renderBenchmark();     // async LQDT benchmark
+      renderBenchmark();
+  renderConstructionAnalytics();     // async LQDT benchmark
       renderWeeklyTable();   // weekly/monthly stats
       // Hide chart boxes with no data
       if (!hasMx) { const el=document.getElementById('ch-mx-bal'); if(el) el.closest('div[style*="border"]').style.display='none'; }
@@ -10314,6 +10315,8 @@ function showcaseInstr(instrument) {
 }
 
 
+// renderDiaryPositions called from renderShowcase — injected at top of showcase-root
+
 function openPositionInDiary(posId) {
   positionsInit();
   var pos = (store.positions||[]).find(function(p){return p.id===posId;});
@@ -10334,6 +10337,49 @@ function openPositionInDiary(posId) {
       addBtn.click();
     }
   }, 200);
+}
+
+
+function renderDiaryPositions() {
+  const root = document.getElementById('showcase-root');
+  if (!root) return;
+  positionsInit();
+  const closed = (store.positions||[]).filter(function(p){return p.status==='closed';})
+    .sort(function(a,b){return parseDate(b.closed_date||b.opened_date)-parseDate(a.closed_date||a.opened_date);});
+  if (!closed.length) return;
+
+  let html = '<div style="margin-bottom:24px;padding-bottom:16px;border-bottom:2px solid var(--border)">'
+    + '<div style="font-size:13px;font-weight:700;margin-bottom:12px">📋 Закрытые позиции</div>';
+
+  closed.forEach(function(pos) {
+    const allDays = pos.days || [pos.opened_date];
+    const daysStr = allDays.length>1 ? allDays[0]+' — '+allDays[allDays.length-1] : allDays[0];
+    html += '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:12px 16px;margin-bottom:8px">'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">'
+      + '<span style="font-weight:700;color:var(--blue)">' + pos.tag + '</span>'
+      + '<span style="font-size:11px;color:var(--text2)">' + daysStr + ' · ' + (pos.sets||[]).length + ' набор(а)</span>'
+      + '</div>';
+
+    // Sets without P&L
+    (pos.sets||[]).forEach(function(s) {
+      const mxR = (s.rows||[]).filter(function(r){return r.platform==='MX';});
+      const fxR = (s.rows||[]).filter(function(r){return r.platform==='FX';});
+      html += '<div style="font-size:11px;margin-bottom:4px;color:var(--text2)">Набор №'+s.set_n+' · '+s.date+': ';
+      mxR.forEach(function(r){
+        const dc=r.direction==='Sell'?'var(--red)':'var(--green)';
+        html += '<span style="margin-right:8px"><span style="color:'+dc+'">'+r.direction+'</span> '+r.instrument+' '+r.volume+'л</span>';
+      });
+      fxR.forEach(function(r){
+        const dc=r.direction==='Buy'?'var(--green)':'var(--red)';
+        html += '<span style="margin-right:8px;color:var(--purple)"><span style="color:'+dc+'">'+r.direction+'</span> '+r.instrument+' '+r.volume+'л</span>';
+      });
+      html += '</div>';
+    });
+    html += '</div>';
+  });
+
+  html += '</div>';
+  root.insertAdjacentHTML('afterbegin', html);
 }
 
 function renderShowcase() {
@@ -10613,7 +10659,9 @@ function renderShowcase() {
         ${new Date().toLocaleString('ru-RU')}
       </div>
     </div>`;
+  renderDiaryPositions();
 }
+
 
 </script>
 <script>
