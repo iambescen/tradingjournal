@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782200335 -->
+<!-- v:1782200441 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8263,18 +8263,25 @@ function detectConstructionByVolumes(clusterTrades, crossRates) {
   }
 
   const bases = Object.keys(byInstr);
+  // Use current cross rates — most accurate available
   const cr = crossRates || _crossRates || {};
+  const usdcnh = cr.USDCNH || 6.8;
+  const eurcnh = cr.EURCNH || 7.9;
+  const eurusd = cr.EURUSD || 1.1;
 
-  // Determine quarter: instrument name contains U6 (front) or Z6 (back)
+  // Determine quarter: instrument name contains U (front) or Z (back)
   const getQuarter = (instrName) => {
     const n = instrName.toUpperCase();
-    if (n.includes('U6') || n.includes('U5') || n.includes('U4')) return '1'; // front Sep
-    if (n.includes('Z6') || n.includes('Z5') || n.includes('Z4')) return '2'; // back Dec
-    return '1'; // default front
+    if (/[UHM]\d/.test(n)) return '1'; // front quarter
+    if (/[ZUK]\d/.test(n)) return '2'; // back quarter — actually Z is back
+    // Check explicit
+    if (n.includes('Z6') || n.includes('Z5')) return '2';
+    return '1';
   };
 
-  // Helper: check if ratio ≈ expected within 15%
-  const approx = (actual, expected) => expected > 0 && Math.abs(actual/expected - 1) < 0.15;
+  // Helper: check if ratio ≈ expected within 20% tolerance
+  // 20% allows for: partial fills, price movement during entry, lot rounding
+  const approx = (actual, expected) => expected > 0 && Math.abs(actual/expected - 1) < 0.20;
 
   // ── Tройники с Si ──────────────────────────────────────────
   if (bases.includes('SI') && bases.includes('CR')) {
@@ -8446,7 +8453,7 @@ async function autoTagFromReports(date) {
       return t.direction === instrDir[base];
     });
     // Detect construction from entry cluster
-    const tag = detectConstructionByVolumes(entries, _crossRates);
+    const tag = detectConstructionByVolumes(entries, _crossRates || {});
     return { cluster, entries, instrDir, tag };
   });
 
