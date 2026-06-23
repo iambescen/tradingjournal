@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782225974 -->
+<!-- v:1782226900 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -9038,12 +9038,9 @@ function renderAutoLj() {
       + ';border-radius:6px;padding:14px 16px;margin-bottom:12px">';
 
     // Top row: tag + status | dates + P&L + diary button
-    var diaryBtn = !isOpen
-      ? '<button data-posid="'+pos.id+'" class="diary-from-pos-btn" style="font-size:11px;padding:3px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg3);color:var(--text1);cursor:pointer;margin-left:8px">📓 В дневник</button>'
-      : '';
     html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">'
       + '<div style="display:flex;align-items:center"><span style="font-weight:700;color:var(--blue);font-size:14px">'+pos.tag+'</span>'
-      + ' '+statusLabel+diaryBtn+'</div>'
+      + ' '+statusLabel+'</div>'
       + '<div style="text-align:right">'
       + '<div style="font-size:11px;color:var(--text2);margin-bottom:2px">'+daysStr+'</div>'
       + pnlBadge+'</div></div>';
@@ -9145,9 +9142,9 @@ function renderAutoLj() {
         spreadStr += '</span>';
       }
       html += '<div style="display:flex;gap:16px;margin-bottom:8px;flex-wrap:wrap">'
-        + '<span style="font-size:11px;color:var(--text2)">💼 Комиссии: <span style="color:var(--red)">'+Math.round(totalCommAll)+' ₽</span></span>'
+        + ''
         + (spreadStr?spreadStr:'')
-        + '<span style="font-size:11px;color:var(--text2)">📊 Наборов: '+((pos.sets||[]).length)+'</span>'
+        + ''
         + '</div>';
     }
 
@@ -9223,12 +9220,12 @@ function renderAutoLj() {
         var fxAvgExit  = fxExitVol  ? fxExitSum/fxExitVol   : 0;
         var fxC = fxPnlUsd2>=0?'var(--green)':'var(--red)';
         html += '<div style="font-size:11px;display:flex;gap:6px;align-items:center;margin-bottom:4px;padding:4px 8px;background:var(--bg3);border-radius:4px;flex-wrap:wrap">'
-          + '<span style="font-weight:600;min-width:80px">'+fxInstrList.join(',')+' (FX)</span>'
+          + '<span style="font-weight:600;min-width:80px">'+fxInstrList.join(',')+'</span>'
           + (fxAvgEntry?'<span style="color:var(--text2)">вход: <span style="font-family:monospace">'+fxAvgEntry.toFixed(5)+'</span></span>':'')
           + (fxAvgExit?'<span style="color:var(--text2)">выход: <span style="font-family:monospace">'+fxAvgExit.toFixed(5)+'</span></span>':'')
           + '<span style="color:var(--text2)">'+fxLots.toFixed(2)+'л</span>'
           + '<span style="color:var(--text2)">курс: '+fxRate.toFixed(2)+'</span>'
-          + (fxSwap?'<span style="color:var(--red);font-size:10px">своп: '+fxSwap.toFixed(2)+'$</span>':'')
+          + (fxSwap&&Math.abs(fxSwap)>0.0001?'<span style="color:var(--text2);font-size:10px">своп: <span style="color:var(--red)">'+fxSwap.toFixed(2)+'$</span></span>':'')
           + (fxComm?'<span style="color:var(--red);font-size:10px">ком: '+fxComm.toFixed(2)+'$</span>':'')
           + '<span style="font-family:monospace;font-weight:700;color:'+fxC+';margin-left:auto">'
           + (fxPnlUsd2>=0?'+':'')+fxPnlUsd2.toFixed(2)+'$ = '
@@ -9238,12 +9235,16 @@ function renderAutoLj() {
 
       // Total line
       var tc2 = totalRub>=0?'var(--green)':'var(--red)';
-      html += '<div style="font-size:12px;display:flex;justify-content:space-between;margin-top:8px;padding-top:6px;border-top:1px dashed var(--border)">'
-        + '<span style="color:var(--text2);font-size:11px">Итого позиции:</span>'
-        + '<span style="font-family:monospace;font-weight:700;color:'+tc2+'">'
-        + 'МХ '+(totalMx>=0?'+':'')+Math.round(totalMx)+' ₽'
-        + (fxPnlRub?'  FX '+(fxPnlRub>=0?'+':'')+Math.round(fxPnlRub)+' ₽':'')
-        + '  = '+(totalRub>=0?'+':'')+Math.round(totalRub)+' ₽'
+      var mxC2 = totalMx>=0?'var(--green)':'var(--red)';
+      var fxC3 = fxPnlRub>=0?'var(--green)':'var(--red)';
+      var fxCommTot = fxTradesPos.reduce(function(s,t){return s+(t.commission||0)+(t.swap||0);},0);
+      var commTot = Object.values(mxPnlFull).reduce(function(s,x){return s+(x.totalComm||0)*(x.ratio||1);},0) + fxCommTot*fxRate;
+      html += '<div style="font-size:11px;display:flex;justify-content:space-between;align-items:center;margin-top:8px;padding-top:6px;border-top:1px dashed var(--border);flex-wrap:wrap;gap:4px">'
+        + '<span style="color:var(--text2)">Комиссии: <span style="color:var(--red);font-family:monospace">'+Math.round(commTot)+' ₽</span></span>'
+        + '<span style="font-family:monospace;font-weight:700">'
+        + '<span style="color:'+mxC2+'">МХ '+(totalMx>=0?'+':'')+Math.round(totalMx)+' ₽</span>'
+        + (fxPnlRub?' <span style="color:var(--text2)">+</span> <span style="color:'+fxC3+'">FX '+(fxPnlRub>=0?'+':'')+Math.round(fxPnlRub)+' ₽</span>':'')
+        + ' <span style="color:var(--text2)">=</span> <span style="color:'+tc2+'">'+(totalRub>=0?'+':'')+Math.round(totalRub)+' ₽</span>'
         + '</span></div>';
     }
 
@@ -10545,11 +10546,13 @@ function renderDiaryPositions() {
         var sx = spreadExit.toFixed(3)+'%';
         var delta = spreadExit - spreadEntry;
         var dc = delta<=0 ? green : red;
+        // delta<0 means spread narrowed = profit (good)
+        var incomeColor = delta<=0?green:red;
         spreadHtml = '<div style="display:flex;gap:14px;padding:10px 0 0;font-size:12px;flex-wrap:wrap;align-items:baseline">'
           + '<span style="color:'+text2+'">Спред:</span>'
           + '<span><span style="color:'+text2+'">вход</span> <b style="font-family:monospace;font-size:14px;color:'+text1+'">'+se+'</b></span>'
           + '<span><span style="color:'+text2+'">→ закрытие</span> <span style="font-family:monospace;color:'+text1+'">'+sx+'</span></span>'
-          + '<b style="font-family:monospace;font-size:16px;color:'+dc+'">'+(delta>=0?'+':'')+delta.toFixed(3)+'%</b>'
+          + '<span style="color:'+text2+'">Доход: <b style="font-family:monospace;font-size:16px;color:'+incomeColor+'">'+Math.abs(delta).toFixed(3)+'%</b></span>'
           + '</div>';
       } else {
         spreadHtml = '<div style="display:flex;gap:10px;padding:10px 0 0;font-size:12px;align-items:baseline">'
@@ -10588,9 +10591,12 @@ function renderDiaryPositions() {
       + '<div>'
       + '<div style="font-size:16px;font-weight:800;color:'+text1+'">'+name+'</div>'
       + '</div>'
+      + '<div style="display:flex;align-items:center;gap:8px">'
       + '<div style="text-align:right;font-size:11px;color:'+text2+'">'
       + daysStr+(daysCount>1?' · '+daysCount+' дн':'')
-      + ' <span style="color:'+green+';font-weight:600">✓ Закрыта</span>'
+      + ' <span style="color:'+green+';font-weight:600">✓</span>'
+      + '</div>'
+      + '<button data-delposid="'+pos.id+'" class="diary-del-pos-btn" style="font-size:10px;padding:2px 7px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text2);cursor:pointer">✕</button>'
       + '</div></div>'
       + '<div>'+legHtml+'</div>'
       + spreadHtml
@@ -10610,11 +10616,24 @@ function renderDiaryPositions() {
     + '<div style="font-size:28px;font-weight:700;color:'+text1+'">'+(closed.length+opened.length)+'</div></div>'
     + '</div>';
 
+  html += '</div>';
   if (closed.length || opened.length) {
+    // Replace entire showcase content with diary positions
+    root.innerHTML = '';
     const wrap = document.createElement('div');
-    wrap.style.cssText = 'margin-bottom:24px';
+    wrap.style.cssText = 'padding:4px';
     wrap.innerHTML = dashHtml + html;
-    root.insertBefore(wrap, root.firstChild);
+    root.appendChild(wrap);
+    // Wire up delete buttons
+    root.querySelectorAll('.diary-del-pos-btn').forEach(function(btn){
+      btn.onclick = function(){
+        var pid = this.dataset.delposid;
+        if (!confirm('Удалить позицию из дневника?')) return;
+        store.positions = (store.positions||[]).filter(function(p){return p.id!==pid;});
+        saveStore();
+        renderShowcase();
+      };
+    });
   }
 }
 
