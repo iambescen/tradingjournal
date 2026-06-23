@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782214609 -->
+<!-- v:1782214807 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8997,21 +8997,29 @@ function renderAutoLj() {
             + '</div>';
         }
 
-      // FX breakdown
+      // FX breakdown — search store.fx by date and instrument from position legs
       var fxTrades = pos.fx_trades || [];
+      if (!fxTrades.length) {
+        var fxInstrs = Object.keys(pos.legs).filter(function(b){return pos.legs[b].platform==='FX';});
+        var posDateISO = normDate(pos.closed_date || pos.opened_date || '');
+        fxTrades = (store.fx||[]).filter(function(t){
+          var ti = (t.instrument||'').replace(/[-_]/g,'').toUpperCase();
+          return fxInstrs.indexOf(ti) >= 0 && normDate(t.close_date||'') === posDateISO;
+        });
+      }
       var fxPnlUsd2 = fxTrades.reduce(function(s,t){return s+(t.net_pnl_usd||0);},0);
-      if (fxTrades.length > 0) {
+      var fxInstrList = Object.keys(pos.legs).filter(function(b){return pos.legs[b].platform==='FX';});
+      if (fxInstrList.length > 0) {
         var fxC = fxPnlUsd2>=0?'var(--green)':'var(--red)';
         html += '<div style="font-size:11px;display:flex;gap:8px;align-items:center;margin-bottom:4px;padding:4px 8px;background:var(--bg3);border-radius:4px">'
-          + '<span style="font-weight:600;min-width:80px">FX</span>'
+          + '<span style="font-weight:600;min-width:80px">'+fxInstrList.join(',')+' (FX)</span>'
           + '<span style="color:var(--text2)">'+fxTrades.length+' сделок</span>'
           + '<span style="color:var(--text2)">курс: '+fxRate.toFixed(2)+' ₽/$</span>'
-          + '<span style="font-family:monospace;color:'+fxC+';margin-left:auto">'
+          + '<span style="font-family:monospace;font-weight:700;color:'+fxC+';margin-left:auto">'
           + (fxPnlUsd2>=0?'+':'')+fxPnlUsd2.toFixed(2)+'$ = '
           + (fxPnlUsd2>=0?'+':'')+Math.round(fxPnlUsd2*fxRate)+' ₽</span>'
           + '</div>';
       }
-
       // Total line
       var fxRubDisp = fxPnlUsd2 * fxRate;
       var totalDisp = totalMxDisp + fxRubDisp;
