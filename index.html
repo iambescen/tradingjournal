@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782212061 -->
+<!-- v:1782212424 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8837,30 +8837,114 @@ function renderAutoLj() {
       + '</div>'
       + '<div style="margin-bottom:10px">'+legsHtml+'</div>';
 
-    // Sets
-    if (pos.sets && pos.sets.length) {
-      html += '<div style="border-top:1px solid var(--border);padding-top:8px">'
-        + '<div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Наборы</div>';
+    // Detailed breakdown
+    html += '<div style="border-top:1px solid var(--border);padding-top:10px;margin-top:4px">';
 
+    // Show sets
+    if (pos.sets && pos.sets.length) {
+      html += '<div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Наборы (входы)</div>';
       for (const s of pos.sets) {
         const mxR = (s.rows||[]).filter(function(r){return r.platform==='MX';});
         const fxR = (s.rows||[]).filter(function(r){return r.platform==='FX';});
-        html += '<div style="margin-bottom:6px;font-size:11px">'
-          + '<span style="color:var(--text2);margin-right:8px">Набор №'+s.set_n+' · '+s.date+'</span>';
+        html += '<div style="margin-bottom:6px;background:var(--bg3);border-radius:4px;padding:6px 10px">'
+          + '<span style="font-size:11px;font-weight:600;color:var(--text2)">Набор №'+s.set_n+' · '+s.date+'</span><br>';
         for (const r of mxR) {
           const dc = r.direction==='Sell'?'var(--red)':'var(--green)';
-          html += '<span style="margin-right:8px"><span style="color:'+dc+'">'+r.direction+'</span> '
-            + r.instrument + ' ' + r.volume + 'л @ ' + r.price + '</span>';
+          html += '<span style="font-size:11px;display:inline-block;margin-right:16px;margin-top:3px">'
+            + '<span style="font-size:10px;background:var(--blue);color:#fff;border-radius:2px;padding:0 3px;margin-right:3px">MX</span>'
+            + '<span style="color:'+dc+'">'+r.direction+'</span> '
+            + '<b>'+r.instrument+'</b> '
+            + r.volume+'л @ <span style="font-family:monospace">'+r.price+'</span>'
+            + '</span>';
         }
         for (const r of fxR) {
           const dc = r.direction==='Buy'?'var(--green)':'var(--red)';
-          html += '<span style="margin-right:8px;color:var(--purple)">FX <span style="color:'+dc+'">'+r.direction+'</span> '
-            + r.instrument + ' ' + r.volume + 'л @ ' + r.price + '</span>';
+          html += '<span style="font-size:11px;display:inline-block;margin-right:16px;margin-top:3px">'
+            + '<span style="font-size:10px;background:var(--purple,#7c3aed);color:#fff;border-radius:2px;padding:0 3px;margin-right:3px">FX</span>'
+            + '<span style="color:'+dc+'">'+r.direction+'</span> '
+            + '<b>'+r.instrument+'</b> '
+            + r.volume+'л @ <span style="font-family:monospace">'+r.price+'</span>'
+            + '</span>';
         }
         html += '</div>';
       }
-      html += '</div>';
     }
+
+    // Show P&L breakdown per leg for closed positions
+    if (!isOpen && pos.closed_date) {
+      html += '<div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin:8px 0 6px">Расчёт P&L</div>';
+      const allDaysBr = pos.days || [pos.closed_date];
+      const fxRateCalc = getRateForDate(normDate(pos.closed_date)) || rate;
+      let totalMxBr = 0;
+
+      for (const b in pos.legs) {
+        const leg = pos.legs[b];
+        if (leg.platform !== 'MX') continue;
+        const spec = MX_SPECS[b];
+        if (!spec) continue;
+
+        const allEntries = [], allExits = [];
+        for (const d of allDaysBr) {
+          const rep = getMxReportForDate(d);
+          if (!rep) continue;
+          const instrTrades = (rep.trades||[]).filter(function(t){
+            return (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase() === b;
+          });
+          const isEntryShort = leg.entry_direction === 'Sell';
+          instrTrades.forEach(function(t){
+            if (isEntryShort ? t.direction==='Short' : t.direction==='Long') allEntries.push(t);
+            else allExits.push(t);
+          });
+        }
+
+        const entryVol = allEntries.reduce(function(s,t){return s+Math.abs(t.volume||0);},0);
+        const exitVol  = allExits.reduce(function(s,t){return s+Math.abs(t.volume||0);},0);
+        if (!entryVol || !exitVol) continue;
+
+        const avgEntry = allEntries.reduce(function(s,t){return s+(t.price||0)*Math.abs(t.volume||0);},0)/entryVol;
+        const avgExit  = allExits.reduce(function(s,t){return s+(t.price||0)*Math.abs(t.volume||0);},0)/exitVol;
+        const isLong = leg.entry_direction === 'Buy';
+        const lots = Math.min(entryVol, exitVol);
+        const sign = isLong ? 1 : -1;
+        const pnl = sign * (avgExit - avgEntry) / spec.tick * spec.step * lots;
+        totalMxBr += pnl;
+
+        const pc = pnl>=0?'var(--green)':'var(--red)';
+        html += '<div style="font-size:11px;display:flex;gap:8px;align-items:center;margin-bottom:4px;padding:4px 8px;background:var(--bg3);border-radius:4px">'
+          + '<span style="font-weight:600;min-width:80px">'+leg.instrument+'</span>'
+          + '<span style="color:var(--text2)">вход avg: <span style="font-family:monospace">'+avgEntry.toFixed(4)+'</span></span>'
+          + '<span style="color:var(--text2)">выход avg: <span style="font-family:monospace">'+avgExit.toFixed(4)+'</span></span>'
+          + '<span style="color:var(--text2)">'+lots+'л</span>'
+          + '<span style="color:var(--text2);font-size:10px">÷'+spec.tick+'×'+spec.step+'</span>'
+          + '<span style="font-family:monospace;font-weight:700;color:'+pc+';margin-left:auto">'+(pnl>=0?'+':'')+Math.round(pnl)+' ₽</span>'
+          + '</div>';
+      }
+
+      // FX breakdown
+      const fxPnlBr = (pos.fx_trades||[]).reduce(function(s,t){return s+(t.net_pnl_usd||0);},0);
+      if (fxPnlBr !== 0) {
+        const fxC = fxPnlBr>=0?'var(--green)':'var(--red)';
+        html += '<div style="font-size:11px;display:flex;gap:8px;align-items:center;margin-bottom:4px;padding:4px 8px;background:var(--bg3);border-radius:4px">'
+          + '<span style="font-weight:600;min-width:80px">FX</span>'
+          + '<span style="color:var(--text2)">'+( pos.fx_trades||[]).length+' сделок</span>'
+          + '<span style="color:var(--text2)">курс: '+fxRateCalc.toFixed(2)+'</span>'
+          + '<span style="font-family:monospace;font-weight:700;color:'+fxC+';margin-left:auto">'+(fxPnlBr>=0?'+':'')+fxPnlBr.toFixed(2)+'$ = '+(fxPnlBr>=0?'+':'')+Math.round(fxPnlBr*fxRateCalc)+' ₽</span>'
+          + '</div>';
+      }
+
+      // Total
+      const fxPnlRubBr = fxPnlBr * fxRateCalc;
+      const totalBr = totalMxBr + fxPnlRubBr;
+      const tc2 = totalBr>=0?'var(--green)':'var(--red)';
+      html += '<div style="font-size:12px;display:flex;justify-content:flex-end;margin-top:6px;padding-top:6px;border-top:1px dashed var(--border)">'
+        + '<span style="font-family:monospace;font-weight:700;color:'+tc2+'">'
+        + 'МХ '+(totalMxBr>=0?'+':'')+Math.round(totalMxBr)+' ₽'
+        + (fxPnlBr!==0?' + FX '+(fxPnlBr>=0?'+':'')+Math.round(fxPnlRubBr)+' ₽':'')
+        + ' = '+(totalBr>=0?'+':'')+Math.round(totalBr)+' ₽'
+        + '</span></div>';
+    }
+
+    html += '</div>';
 
     html += '</div>';
   }
