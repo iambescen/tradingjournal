@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782214390 -->
+<!-- v:1782214609 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8340,6 +8340,16 @@ function createPosition(tag, date, entryRows, fxRows) {
     pos.legs[b].vol_in += r.volume;
     pos.legs[b].net_volume += r.volume;
   }
+  // Add FX trades for this date
+  if (!pos.fx_trades) pos.fx_trades = [];
+  var dateISO_cp = normDate(date);
+  (store.fx||[]).forEach(function(t) {
+    if (normDate(t.close_date||'') !== dateISO_cp) return;
+    var b = (t.instrument||'').replace(/[-_]/g,'').toUpperCase();
+    if (pos.legs[b] && !pos.fx_trades.find(function(x){return x.id===t.id;})) {
+      pos.fx_trades.push(t);
+    }
+  });
   // Mark creation date as processed (entries already counted above)
   pos.processedDays = [date];
   pos.days = [date];
