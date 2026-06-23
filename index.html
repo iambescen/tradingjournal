@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782209010 -->
+<!-- v:1782210018 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8296,6 +8296,9 @@ function createPosition(tag, date, entryRows, fxRows) {
     pos.legs[b].vol_in += r.volume;
     pos.legs[b].net_volume += r.volume;
   }
+  // Mark creation date as processed (entries already counted above)
+  pos.processedDays = [date];
+  pos.days = [date];
   store.positions.push(pos);
   return pos;
 }
@@ -8305,29 +8308,39 @@ function createPosition(tag, date, entryRows, fxRows) {
 function updatePositionWithDay(pos, date, allMxTrades, fxTrades) {
   // Guard: don't process same day twice
   if (!pos.days) pos.days = [];
-  if (pos.processedDays && pos.processedDays.includes(date)) return;
   if (!pos.processedDays) pos.processedDays = [];
+  if (pos.processedDays.includes(date)) return;
   pos.processedDays.push(date);
   if (!pos.days.includes(date)) pos.days.push(date);
 
-  // Process all MX trades for this day
+  // Process ALL MX trades (entries AND exits) for this day
+  // For entries: increase net_volume
+  // For exits: decrease net_volume
   for (const t of allMxTrades) {
     const b = (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
     if (!pos.legs[b]) continue;
     const leg = pos.legs[b];
-    // entry_direction 'Sell' → entry trades are Short, exit trades are Long
-    const isEntry = (leg.entry_direction === 'Sell')
-      ? t.direction === 'Short'
-      : t.direction === 'Long';
+    // Determine if this is entry or exit based on entry_direction
+    // entry_direction='Sell' means Short is entry, Long is exit
+    // entry_direction='Buy' means Long is entry, Short is exit
+    const entryIsShort = leg.entry_direction === 'Sell';
+    const isEntry = entryIsShort
+      ? (t.direction === 'Short')
+      : (t.direction === 'Long');
     const vol = Math.abs(t.volume||0);
     if (isEntry) {
       leg.vol_in += vol;
       leg.net_volume += vol;
     } else {
-      leg.vol_out += vol;
-      leg.net_volume = Math.max(0, leg.net_volume - vol);
+      // Exit — only reduce if we have open volume
+      const reduce = Math.min(vol, leg.net_volume);
+      leg.vol_out += reduce;
+      leg.net_volume -= reduce;
+      if (leg.net_volume < 0.001) leg.net_volume = 0;
     }
   }
+  console.log('[POS]', pos.tag, 'after', date, '→', 
+    Object.entries(pos.legs).map(function(e){return e[0]+':'+e[1].net_volume.toFixed(0);}).join(' '));
   // FX trades
   if (!pos.fx_trades) pos.fx_trades = [];
   for (const t of fxTrades) {
@@ -8513,13 +8526,31 @@ async function autoTagFromReports(date) {
     if (!pos) {
       // New position — init from entry rows
       pos = createPosition(tag, date, setMxRows, setFxRows);
+      // Process exits for this day immediately (entries already in createPosition)
+      const exitTrades = sorted.filter(t => {
+        const b = (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
+        if (!pos.legs[b]) return false;
+        const leg = pos.legs[b];
+        const entryIsShort = leg.entry_direction === 'Sell';
+        return entryIsShort ? t.direction === 'Long' : t.direction === 'Short';
+      });
+      if (exitTrades.length) {
+        for (const t of exitTrades) {
+          const b = (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
+          const leg = pos.legs[b];
+          const vol = Math.abs(t.volume||0);
+          const reduce = Math.min(vol, leg.net_volume);
+          leg.vol_out += reduce;
+          leg.net_volume -= reduce;
+          if (leg.net_volume < 0.001) leg.net_volume = 0;
+        }
+      }
     }
     // Attach set info
     attachSetToPosition(pos, { set_n: setN, date, rows: [...setMxRows, ...setFxRows] });
   }
 
-  // After all sets processed — run ALL trades of the day through each position
-  // This processes both entries AND exits to update net_volume correctly
+  // After all sets processed — run trades through existing (pre-existing) open positions
   for (const pos of store.positions.filter(p => p.status === 'open')) {
     // Get all MX trades for instruments in this position
     const allMxForPos = sorted.filter(t => {
