@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782228091 -->
+<!-- v:1782228853 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8215,6 +8215,127 @@ function renderConstructionAnalytics() {
   el.innerHTML=html;
 }
 
+
+// ── Расчёт задействованного капитала и доходности ──────────────
+// Использует fetchGO из калькулятора + calcFxMargin
+async function calcPositionCapital(pos) {
+  var allDays = pos.days || [pos.closed_date || pos.opened_date];
+  var fxRate = (pos.closed_date ? getRateForDate(normDate(pos.closed_date)) : (currentRate&&currentRate.value||85)) || 85;
+  var goTotal = 0;
+
+  // MX: fetch GO for each leg from MOEX ISS
+  for (var b in pos.legs) {
+    var leg = pos.legs[b];
+    if (leg.platform !== 'MX') continue;
+    // Build secid from instrument name (e.g. Si-9.26 → SIU6 or SIZ6)
+    var instr = leg.instrument || '';
+    // Try to get secid from PDF report
+    var secid = null;
+    for (var i = 0; i < allDays.length; i++) {
+      var rep = getMxReportForDate(allDays[i]);
+      if (!rep) continue;
+      var trade = (rep.trades||[]).find(function(t){
+        return (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase() === b;
+      });
+      if (trade && trade.secid) { secid = trade.secid; break; }
+      if (trade && trade.instrument) {
+        // Parse: Si-9.26 → look for ticker in name
+        var m = (trade.instrument||'').match(/^([A-Za-z]+)[-.](\d+)\.(\d+)$/);
+        if (m) {
+          // Convert to MOEX secid format: Si + month letter + year last digit
+          var base = m[1].toUpperCase();
+          var month = parseInt(m[2]);
+          var year = m[3];
+          var monthLetters = ['','F','G','H','J','K','M','N','Q','U','V','X','Z'];
+          secid = base + (monthLetters[month]||'U') + year.slice(-1);
+          break;
+        }
+        // Perpetuals: EURRUBF, USDRUBF, CNYRUBF
+        if (/RUB[F]/i.test(trade.instrument||'')) {
+          secid = (trade.instrument||'').replace(/[-_]/g,'').toUpperCase();
+          break;
+        }
+      }
+    }
+    if (secid) {
+      try {
+        var info = await fetchGO(secid);
+        if (info && info.go) goTotal += info.go * (leg.vol_in || 0);
+      } catch(e) {}
+    }
+  }
+
+  // FX: calc margin
+  var marginUsd = 0;
+  for (var b2 in pos.legs) {
+    var leg2 = pos.legs[b2];
+    if (leg2.platform !== 'FX') continue;
+    var fxTrades = (pos.fx_trades||[]).length ? pos.fx_trades :
+      (store.fx||[]).filter(function(t){
+        return (t.instrument||'').replace(/[-_]/g,'').toUpperCase()===b2
+          && normDate(t.close_date||'')===normDate(pos.closed_date||pos.opened_date||'');
+      });
+    if (fxTrades.length) {
+      var avgEntry = fxTrades.reduce(function(s,t){return s+(t.entry_price||0)*Math.abs(t.qty||0);},0)
+        / (fxTrades.reduce(function(s,t){return s+Math.abs(t.qty||0);},0)||1);
+      marginUsd += calcFxMargin({
+        instrument: leg2.instrument,
+        price_open: avgEntry,
+        lots: leg2.vol_in || 0
+      });
+    }
+  }
+
+  var marginRub = marginUsd * fxRate;
+  var totalFrozen = goTotal + marginRub;
+  return { goTotal, marginRub, totalFrozen };
+}
+
+async function updatePositionCapitalUI(posId, totalRub, diaryMode, fxRateOverride) {
+  var pos = (store.positions||[]).find(function(p){return p.id===posId;});
+  if (!pos) return;
+
+  var capital = await calcPositionCapital(pos);
+  if (!capital || !capital.totalFrozen) return;
+
+  var rate = fxRateOverride || (pos.closed_date ? getRateForDate(normDate(pos.closed_date)) : (currentRate&&currentRate.value||85)) || 85;
+
+  // Recalc totalRub if not passed
+  if (!totalRub) {
+    var mxPF = getPosMxPnlFull(pos);
+    var tmx = Object.values(mxPF).reduce(function(s,x){return s+x.pnl;},0);
+    var fxTr = getPosFxTrades(pos);
+    var tfx = fxTr.reduce(function(s,t){return s+(t.net_pnl_usd||0);},0)*rate;
+    totalRub = tmx + tfx;
+  }
+
+  var days = (pos.days||[pos.closed_date]).length || 1;
+  var roi = capital.totalFrozen > 0 ? (totalRub / capital.totalFrozen * 100) : 0;
+  var annual = roi * (365 / days);
+  var c = roi >= 0 ? 'var(--green)' : 'var(--red)';
+
+  if (diaryMode) {
+    // Diary: show only % big and % annual, no absolute numbers
+    var elD = document.getElementById('diary-roi-' + posId.replace(/[^a-z0-9]/gi,'_'));
+    if (elD) {
+      elD.innerHTML = '<div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border);display:flex;align-items:baseline;gap:8px">'
+        + '<span style="font-size:22px;font-weight:900;color:'+c+'">'+(roi>=0?'+':'')+roi.toFixed(2)+'%</span>'
+        + '<span style="font-size:12px;color:var(--text2)">'+(annual>=0?'+':'')+Math.round(annual)+'% год.</span>'
+        + '</div>';
+      elD.style.display = '';
+    }
+  } else {
+    // Trades card: show GO+margin + % + annual
+    var el = document.getElementById('pos-capital-' + posId.replace(/[^a-z0-9]/gi,'_'));
+    if (!el) return;
+    el.innerHTML = '<span style="font-size:11px;color:var(--text2)">ГО+маржа: <b style="font-family:monospace">'
+      + Math.round(capital.totalFrozen).toLocaleString('ru') + ' ₽</b></span>'
+      + ' <span style="font-size:15px;font-weight:800;color:'+c+'">'+(roi>=0?'+':'')+roi.toFixed(2)+'%</span>'
+      + ' <span style="font-size:11px;color:var(--text2)">'+(annual>=0?'+':'')+Math.round(annual)+'% год.</span>';
+    el.style.display = '';
+  }
+}
+
 // ══════════════════════════════════════════════════════════════
 // AUTO-TAG FROM REPORTS
 // ══════════════════════════════════════════════════════════════
@@ -9141,10 +9262,10 @@ function renderAutoLj() {
         }
         spreadStr += '</span>';
       }
-      html += '<div style="display:flex;gap:16px;margin-bottom:8px;flex-wrap:wrap">'
-        + ''
+      var roiId = 'pos-capital-' + pos.id.replace(/[^a-z0-9]/gi,'_');
+      html += '<div style="display:flex;gap:16px;margin-bottom:8px;flex-wrap:wrap;align-items:center">'
         + (spreadStr?spreadStr:'')
-        + ''
+        + '<span id="'+roiId+'" style="display:none"></span>'
         + '</div>';
     }
 
@@ -9257,10 +9378,19 @@ function renderAutoLj() {
 
   container.innerHTML = html;
 
-  // Wire up diary buttons
-  container.querySelectorAll('.diary-from-pos-btn').forEach(function(btn){
-    btn.onclick = function(){ openPositionInDiary(this.dataset.posid); };
+  // Trigger async ROI calculation for each closed position
+  filtered.forEach(function(pos) {
+    if (pos.status !== 'closed') return;
+    var rate = (pos.closed_date ? getRateForDate(normDate(pos.closed_date)) : (currentRate&&currentRate.value||85)) || 85;
+    var mxPnlFull2 = getPosMxPnlFull(pos);
+    var totalMx2 = Object.values(mxPnlFull2).reduce(function(s,x){return s+x.pnl;},0);
+    var fxT2 = getPosFxTrades(pos);
+    var fxP2 = fxT2.reduce(function(s,t){return s+(t.net_pnl_usd||0);},0) * rate;
+    var totalRub2 = totalMx2 + fxP2;
+    var roiId = 'pos-capital-' + pos.id.replace(/[^a-z0-9]/gi,'_');
+    updatePositionCapitalUI(roiId.replace('pos-capital-',''), totalRub2);
   });
+
   // Wire up clear button
   var cb = document.getElementById('autolj-clear-btn');
   if (cb) cb.onclick = function(){
@@ -10632,6 +10762,11 @@ function renderDiaryPositions() {
     wrap.style.cssText = 'padding:4px';
     wrap.innerHTML = dashHtml + html;
     root.appendChild(wrap);
+    // Trigger async ROI % for diary cards
+    closed.forEach(function(pos) {
+      var rate = (pos.closed_date ? getRateForDate(normDate(pos.closed_date)) : (currentRate&&currentRate.value||85)) || 85;
+      updatePositionCapitalUI(pos.id, 0, true, rate);
+    });
     // Wire up restore buttons
     root.querySelectorAll('.diary-restore-btn').forEach(function(btn){
       btn.onclick = function(){
