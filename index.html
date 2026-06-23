@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782204470 -->
+<!-- v:1782205108 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8226,11 +8226,15 @@ function showAutoTagDialog() {
   document.getElementById('atd-ok').onclick = function() {
     const d = document.getElementById('autotag-date-sel').value;
     dlg.remove();
-    autoTagFromReports(d);
+    autoTagFromReports(d).catch(function(e) {
+      console.error('[AutoTag] Error:', e);
+      alert('Ошибка авторазноса: ' + e.message);
+    });
   };
 }
 
-function autoTagFromReports(date) {
+async function autoTagFromReports(date) {
+  try {
   const report = getMxReportForDate(date);
   if (!report || !report.trades || !report.trades.length) {
     alert('Нет данных PDF за ' + date); return;
@@ -8402,6 +8406,10 @@ function autoTagFromReports(date) {
     if (document.getElementById('tab-autolj') && document.getElementById('tab-autolj').classList.contains('active'))
       renderAutoLj();
   };
+  } catch(e) {
+    console.error('[AutoTag]', e);
+    alert('Ошибка авторазноса: ' + (e.message || e));
+  }
 }
 
 
