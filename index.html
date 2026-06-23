@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782211204 -->
+<!-- v:1782211532 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8713,16 +8713,33 @@ function renderAutoLj() {
       ? '<span style="color:var(--amber);font-size:11px;font-weight:600">● ОТКРЫТА</span>'
       : '<span style="color:var(--green);font-size:11px;font-weight:600">✓ ЗАКРЫТА</span>';
 
-    // P&L display
+    // P&L: for closed positions use calcMxLegPnl from PDF (exact broker result)
     let pnlHtml = '';
     const fxRate = (pos.closed_date ? getRateForDate(normDate(pos.closed_date)) : rate) || rate;
-    if (!isOpen && pos.pnl_rub !== null) {
-      const total = (pos.pnl_rub||0) + (pos.pnl_usd||0)*fxRate;
+    if (!isOpen && pos.closed_date) {
+      // Get P&L from PDF report on closing day
+      const closedRep = getMxReportForDate(pos.closed_date);
+      let mxPnl = 0;
+      const seenPnl = {};
+      if (closedRep) {
+        for (const b in pos.legs) {
+          if (pos.legs[b].platform !== 'MX' || seenPnl[b]) continue;
+          seenPnl[b] = true;
+          const instr = (closedRep.instruments||[]).find(function(i){
+            return (i.name||'').replace(/[-_0-9.]/g,'').toUpperCase() === b;
+          });
+          if (instr) mxPnl += instr.pnl || 0;
+        }
+      }
+      const fxPnl = (pos.fx_trades||[]).reduce(function(s,t){return s+(t.net_pnl_usd||0);},0);
+      const total = mxPnl + fxPnl * fxRate;
       const tc = total>=0?'var(--green)':'var(--red)';
       pnlHtml = '<span style="font-family:monospace;font-weight:700;color:'+tc+'">'
-        + (total>=0?'+':'')+Math.round(total).toLocaleString('ru')+' ₽</span>';
+        + (pos.pnl_exact===false?'~':'')+(total>=0?'+':'')+Math.round(total).toLocaleString('ru')+' ₽</span>';
+    } else if (isOpen) {
+      pnlHtml = '<span style="font-size:11px;color:var(--text2)">открыта</span>';
     } else {
-      pnlHtml = '<span style="font-size:11px;color:var(--text2)">P&L после закрытия</span>';
+      pnlHtml = '<span style="font-size:11px;color:var(--text2)">—</span>';
     }
 
     // Days range
