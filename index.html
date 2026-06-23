@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782202281 -->
+<!-- v:1782202530 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8531,8 +8531,8 @@ async function autoTagFromReports(date) {
   const newRows = [];
   const dateStr = date; // DD.MM.YYYY
 
-  for (const { entries, instrDir, tag, set: setN } of sets) {
-    const setTrades = entries;
+  for (const { cluster, instrDir, tag, set: setN } of sets) {
+    const setTrades = cluster;
 
     // Group by instrument within set
     const byInstr = {};
