@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782202798 -->
+<!-- v:1782204470 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8315,8 +8315,7 @@ function autoTagFromReports(date) {
         if (ti !== fxInstrKey) return false;
       }
       const ot = t.open_time || t.open_date || '';
-      const ts2 = ot.includes('T') ? ot.split('T')[1].substring(0,8) : ot.substring(0,8);
-      const ft = timeToMs(ts2);
+      const ts2 = ot.includes(' ') ? ot.split(' ')[1].substring(0,8) : ot.includes('T') ? ot.split('T')[1].substring(0,8) : ot.substring(0,8);
       return ft >= setStart - 5*60*1000 && ft <= setEnd;
     });
 
@@ -8328,21 +8327,28 @@ function autoTagFromReports(date) {
     }
 
     for (const [instr, trades] of Object.entries(fxByI)) {
-      const vol = trades.reduce((s,t) => s + Math.abs(parseFloat(t.lots)||0), 0);
-      const avgE = trades.reduce((s,t) => s + (parseFloat(t.open_price)||0)*Math.abs(parseFloat(t.lots)||0), 0) / (vol||1);
-      const avgC = trades.every(t=>t.close_price!=null)
-        ? trades.reduce((s,t) => s + (parseFloat(t.close_price)||0)*Math.abs(parseFloat(t.lots)||0), 0) / (vol||1)
+      // FX fields: qty (lots), entry_price, close_price, dir_open, open_time
+      const vol = trades.reduce((s,t) => s + Math.abs(t.qty||0), 0);
+      const avgE = vol > 0
+        ? trades.reduce((s,t) => s + (t.entry_price||0)*Math.abs(t.qty||0), 0) / vol
+        : 0;
+      const avgC = trades.every(t => t.close_price)
+        ? trades.reduce((s,t) => s + (t.close_price||0)*Math.abs(t.qty||0), 0) / (vol||1)
         : null;
-      const dirFx = (trades[0].direction||'buy').toLowerCase().includes('buy') ? 'Buy' : 'Sell';
-      const ot = trades[0].open_time || trades[0].open_date || '';
-      const openT = ot.includes('T') ? ot.split('T')[1].substring(0,8) : ot.substring(0,8);
+      // dir_open: "Buy"/"Sell"
+      const dirFx = (trades[0].dir_open||trades[0].direction||'Buy');
+      // open_time: "19/06/2026 09:26:12.101" → take part after space
+      const ot = trades[0].open_time || '';
+      const openT = ot.includes(' ') ? ot.split(' ')[1].substring(0,8) : ot.substring(0,8);
+      const ct = trades[0].close_time || '';
+      const closeT = ct.includes(' ') ? ct.split(' ')[1].substring(0,8) : ct.includes('T') ? ct.split('T')[1].substring(0,8) : ct.substring(0,8);
       newRows.push({
         id: 'auto_' + date + '_FX' + instr + '_' + setN + '_' + Date.now() + '_' + Math.random(),
         date, time: openT, platform: 'FX',
         instrument: trades[0].instrument, direction: dirFx,
         volume: +vol.toFixed(2), price: +avgE.toFixed(5),
         price_close: avgC ? +avgC.toFixed(5) : null,
-        time_close: trades[0].close_time ? String(trades[0].close_time).split('T')[1].substring(0,8) : null,
+        time_close: closeT || null,
         status: avgC ? 'closed' : 'open', tag, set: setN, note: 'авторазнос',
       });
     }
