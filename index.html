@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782219281 -->
+<!-- v:1782219780 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8992,40 +8992,45 @@ function renderAutoLj() {
       var ep = function(b){ return prices[b] ? prices[b].entry : 0; };
       var xp = function(b){ return prices[b] ? prices[b].exit  : 0; };
 
-      // Si/CR/USDCNH: spread = (Si/CR) / USDCNH - 1
+      // Квартальные фьючерсы Si и EU котируются в RUB за 1000 единиц
+      // Поэтому Si/1000 = USDRUB, EU/1000 = EURRUB, UC без деления (CNY/USD)
+      // CR (CNY-9.26) котируется в RUB за 1 CNY — без деления
+
+      // Si/CR/USDCNH: синтетик = (Si/1000) / CR → USDCNH
       if (tag.indexOf('SI')>=0 && tag.indexOf('CR')>=0) {
         if (ep('SI')&&ep('CR')&&fxEntry)
-          entrySpread = ((ep('SI')/ep('CR'))/fxEntry - 1)*100;
+          entrySpread = (((ep('SI')/1000)/ep('CR'))/fxEntry - 1)*100;
         if (xp('SI')&&xp('CR')&&fxExit)
-          exitSpread  = ((xp('SI')/xp('CR'))/fxExit  - 1)*100;
+          exitSpread  = (((xp('SI')/1000)/xp('CR'))/fxExit  - 1)*100;
 
-      // EU/CR/EURCNH: spread = (EU/CR) / EURCNH - 1
+      // EU/CR/EURCNH: синтетик = (EU/1000) / CR → EURCNH
       } else if (tag.indexOf('EU1')>=0 && tag.indexOf('CR')>=0) {
         if (ep('EU')&&ep('CR')&&fxEntry)
-          entrySpread = ((ep('EU')/ep('CR'))/fxEntry - 1)*100;
+          entrySpread = (((ep('EU')/1000)/ep('CR'))/fxEntry - 1)*100;
         if (xp('EU')&&xp('CR')&&fxExit)
-          exitSpread  = ((xp('EU')/xp('CR'))/fxExit  - 1)*100;
+          exitSpread  = (((xp('EU')/1000)/xp('CR'))/fxExit  - 1)*100;
 
-      // ERF/CRF/EURCNH: spread = (EURRUBF/CNYRUBF) / EURCNH - 1
+      // ERF/CRF/EURCNH: EURRUBF и CNYRUBF — вечники, котируются в RUB за 1 ед.
+      // Синтетик = EURRUBF / CNYRUBF → EURCNH (без деления на 1000)
       } else if (tag.indexOf('ERF')>=0) {
         if (ep('EURRUBF')&&ep('CNYRUBF')&&fxEntry)
           entrySpread = ((ep('EURRUBF')/ep('CNYRUBF'))/fxEntry - 1)*100;
         if (xp('EURRUBF')&&xp('CNYRUBF')&&fxExit)
           exitSpread  = ((xp('EURRUBF')/xp('CNYRUBF'))/fxExit  - 1)*100;
 
-      // URF/CRF/USDCNH: spread = (USDRUBF/CNYRUBF) / USDCNH - 1
+      // URF/CRF/USDCNH: вечники без деления
       } else if (tag.indexOf('URF')>=0) {
         if (ep('USDRUBF')&&ep('CNYRUBF')&&fxEntry)
           entrySpread = ((ep('USDRUBF')/ep('CNYRUBF'))/fxEntry - 1)*100;
         if (xp('USDRUBF')&&xp('CNYRUBF')&&fxExit)
           exitSpread  = ((xp('USDRUBF')/xp('CNYRUBF'))/fxExit  - 1)*100;
 
-      // UC/USDCNH: spread = UC / USDCNH - 1
+      // UC/USDCNH: UC = USD/CNH фьючерс, цена в CNH за USD → без деления
       } else if (tag.indexOf('UC')>=0) {
         if (ep('UC')&&fxEntry) entrySpread = (ep('UC')/fxEntry - 1)*100;
         if (xp('UC')&&fxExit)  exitSpread  = (xp('UC')/fxExit  - 1)*100;
 
-      // ED/EURUSD: spread = ED / EURUSD - 1
+      // ED/EURUSD: ED = EUR/USD фьючерс → без деления
       } else if (tag.indexOf('ED')>=0) {
         if (ep('ED')&&fxEntry) entrySpread = (ep('ED')/fxEntry - 1)*100;
         if (xp('ED')&&fxExit)  exitSpread  = (xp('ED')/fxExit  - 1)*100;
