@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782220785 -->
+<!-- v:1782221381 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8126,6 +8126,96 @@ function calcSetPnl(instrBase, entryTrades, exitTrades) {
   return { pnl: Math.round(pnl), entryVol, exitVol, avgEntry, avgExit };
 }
 
+
+function renderConstructionAnalytics() {
+  const el = document.getElementById('ov-construction-analytics');
+  if (!el) return;
+  positionsInit();
+  const closed = (store.positions||[]).filter(function(p){return p.status==='closed';});
+  if (!closed.length) { el.innerHTML = ''; return; }
+  const rate = (currentRate && currentRate.value) || 85;
+
+  // Build P&L per position
+  function posPnl(pos) {
+    const fxRate = (pos.closed_date?getRateForDate(normDate(pos.closed_date)):rate)||rate;
+    const allDays = pos.days || [pos.closed_date];
+    let mx = 0;
+    const seen = {};
+    for (const b in pos.legs) {
+      const leg = pos.legs[b];
+      if (leg.platform!=='MX'||seen[b]) continue; seen[b]=true;
+      let cM=0,cC=0,cV=0; const isShort=leg.entry_direction==='Sell';
+      allDays.forEach(function(d){
+        const rep=getMxReportForDate(d); if(!rep) return;
+        (rep.trades||[]).forEach(function(t){
+          const tb=(t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase(); if(tb!==b) return;
+          const isExit=isShort?t.direction==='Long':t.direction==='Short';
+          if(isExit){cM+=t.margin_rub||0;cV+=Math.abs(t.volume||0);} cC+=t.commission||0;
+        });
+      });
+      if(cV>0){const r=Math.min((leg.vol_in||0)/cV,1);mx+=(cM+cC)*r;}
+    }
+    const fxInstrs=Object.keys(pos.legs).filter(function(b){return pos.legs[b].platform==='FX';});
+    const fxTr=(pos.fx_trades||[]).length?pos.fx_trades:(store.fx||[]).filter(function(t){
+      return fxInstrs.indexOf((t.instrument||'').replace(/[-_]/g,'').toUpperCase())>=0
+        && normDate(t.close_date||'')===normDate(pos.closed_date||'');
+    });
+    const fx=fxTr.reduce(function(s,t){return s+(t.net_pnl_usd||0);},0)*fxRate;
+    return Math.round(mx+fx);
+  }
+
+  // Group by tag
+  const byTag={};
+  closed.forEach(function(pos){
+    if(!byTag[pos.tag]) byTag[pos.tag]={tag:pos.tag,pnls:[],days:[]};
+    const p=posPnl(pos); pos._pnl=p;
+    byTag[pos.tag].pnls.push(p);
+    byTag[pos.tag].days.push((pos.days||[pos.closed_date]).length);
+  });
+
+  const tags=Object.values(byTag).map(function(g){
+    const total=g.pnls.reduce(function(s,x){return s+x;},0);
+    const wins=g.pnls.filter(function(x){return x>=0;}).length;
+    const avgD=Math.round(g.days.reduce(function(s,x){return s+x;},0)/g.days.length);
+    return {tag:g.tag,count:g.pnls.length,total:total,avg:Math.round(total/g.pnls.length),
+      wins:wins,best:Math.max.apply(null,g.pnls),worst:Math.min.apply(null,g.pnls),avgDays:avgD};
+  }).sort(function(a,b){return b.total-a.total;});
+
+  const fmt=function(v){return (v>=0?'+':'')+v.toLocaleString('ru')+' ₽';};
+  const col=function(v){return v>=0?'var(--green)':'var(--red)';};
+
+  let html='<div style="margin-top:24px;padding-top:20px;border-top:1px solid var(--border)">'
+    +'<div style="font-size:14px;font-weight:700;margin-bottom:14px;color:var(--text)">📊 Аналитика по конструкциям</div>'
+    +'<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'
+    +'<thead><tr style="border-bottom:2px solid var(--border);color:var(--text2);text-align:right">'
+    +'<th style="text-align:left;padding:6px 12px;font-weight:600">Конструкция</th>'
+    +'<th style="padding:6px 12px;font-weight:600">Сделок</th>'
+    +'<th style="padding:6px 12px;font-weight:600">Win%</th>'
+    +'<th style="padding:6px 12px;font-weight:600">Ср. дней</th>'
+    +'<th style="padding:6px 12px;font-weight:600">Ср. P&L</th>'
+    +'<th style="padding:6px 12px;font-weight:600">Лучшая</th>'
+    +'<th style="padding:6px 12px;font-weight:600">Худшая</th>'
+    +'<th style="padding:6px 12px;font-weight:600">Итого</th>'
+    +'</tr></thead><tbody>';
+
+  tags.forEach(function(g){
+    const wr=Math.round(g.wins/g.count*100);
+    html+='<tr style="border-bottom:1px solid var(--border)">'
+      +'<td style="padding:8px 12px;font-weight:700;color:var(--blue)">'+g.tag+'</td>'
+      +'<td style="padding:8px 12px;text-align:center">'+g.count+'</td>'
+      +'<td style="padding:8px 12px;text-align:center;color:'+(wr>=50?'var(--green)':'var(--red)')+'">'+wr+'%</td>'
+      +'<td style="padding:8px 12px;text-align:center;color:var(--text2)">'+g.avgDays+'</td>'
+      +'<td style="padding:8px 12px;text-align:right;font-family:monospace;color:'+col(g.avg)+'">'+fmt(g.avg)+'</td>'
+      +'<td style="padding:8px 12px;text-align:right;font-family:monospace;color:var(--green)">+'+g.best.toLocaleString('ru')+'</td>'
+      +'<td style="padding:8px 12px;text-align:right;font-family:monospace;color:var(--red)">'+g.worst.toLocaleString('ru')+'</td>'
+      +'<td style="padding:8px 12px;text-align:right;font-family:monospace;font-weight:700;color:'+col(g.total)+'">'+fmt(g.total)+'</td>'
+      +'</tr>';
+  });
+
+  html+='</tbody></table></div></div>';
+  el.innerHTML=html;
+}
+
 // ══════════════════════════════════════════════════════════════
 // AUTO-TAG FROM REPORTS
 // ══════════════════════════════════════════════════════════════
@@ -8880,6 +8970,8 @@ function renderAutoLj() {
     + '<option value="date"'+(sortBy==='date'?' selected':'')+'>По дате</option>'
     + '<option value="pnl"'+(sortBy==='pnl'?' selected':'')+'>По P&L</option>'
     + '</select>'
+    + '<span style="font-size:12px;color:var(--text2);margin-left:4px">Всего: '+positions.length+' · Откр: '+openCount+' · Закр: '+closedCount+'</span>'
+    + '<button id="autolj-clear-btn" style="font-size:11px;padding:4px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--red);cursor:pointer;margin-left:auto">Очистить</button>'
     + '</div>';
 
   // ── Position cards ────────────────────────────────────────────
@@ -10345,7 +10437,6 @@ function renderDiaryPositions() {
   if (!root) return;
   positionsInit();
 
-  // Use same theme vars as renderShowcase
   const bg2   = 'var(--bg2)';
   const bg3   = 'var(--bg3)';
   const border= 'var(--border)';
@@ -10357,9 +10448,11 @@ function renderDiaryPositions() {
   const gold  = 'var(--amber)';
   const purple= 'var(--purple)';
 
-  const closed = (store.positions||[]).filter(function(p){return p.status==='closed';})
+  const allPos = store.positions || [];
+  const closed = allPos.filter(function(p){return p.status==='closed';})
     .sort(function(a,b){return parseDate(b.closed_date||b.opened_date)-parseDate(a.closed_date||a.opened_date);});
-  if (!closed.length) return;
+  const opened = allPos.filter(function(p){return p.status==='open';});
+  if (!closed.length && !opened.length) return;
 
   // Tag → human-readable name
   function tagName(tag) {
@@ -10474,7 +10567,7 @@ function renderDiaryPositions() {
       }
     }
 
-    // Instrument rows
+    // Instrument rows — anonymous (no instrument names, no lots — like old showcase)
     var legHtml = '';
     for (var b in pos.legs) {
       const leg = pos.legs[b];
@@ -10486,38 +10579,48 @@ function renderDiaryPositions() {
       const isShort = leg.entry_direction==='Sell';
       const dirLabel = isShort ? '▼ Шорт' : '▲ Лонг';
       const dirColor = isShort ? red : green;
+      // Anonymous name: just category, no instrument name or lots
+      const anonCat = isFx ? '💱 Форекс' : '💱 Валюта';
       legHtml += '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid '+border+';font-size:12px;flex-wrap:wrap">'
         + '<span style="font-size:10px;font-weight:700;border-radius:3px;padding:2px 7px;background:'+platBg+';color:'+platColor+'">'+leg.platform+'</span>'
-        + '<span style="font-weight:600;color:'+text1+'">'+leg.instrument+'</span>'
+        + '<span style="font-weight:600;color:'+text1+'">'+anonCat+'</span>'
         + '<span style="color:'+dirColor+';font-weight:700;font-size:11px">'+dirLabel+'</span>'
-        + '<span style="font-family:monospace;color:'+text2+'">'+fmtP(entry,isFx)+'</span>'
+        + (entry?'<span style="font-family:monospace;color:'+text2+'">'+fmtP(entry,isFx)+'</span>':'')
         + (exit?'<span style="color:'+text2+'">→</span><span style="font-family:monospace;color:'+text1+'">'+fmtP(exit,isFx)+'</span>':'')
-        + '<span style="margin-left:auto;color:'+text2+';font-size:11px">'+leg.vol_in+'л</span>'
         + '</div>';
     }
 
-    html += '<div style="background:'+bg2+';border:1px solid '+border+';border-radius:10px;padding:16px 18px;margin-bottom:14px">'
-      // Header
-      + '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px">'
+    html += '<div style="background:'+bg2+';border:1px solid '+border+';border-left:3px solid '+green+';border-radius:10px;padding:16px 18px;margin-bottom:14px">'
+      + '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">'
       + '<div>'
-      + '<div style="font-size:15px;font-weight:800;color:'+text1+'">'+name+'</div>'
-      + '<div style="font-size:11px;color:'+text2+';margin-top:2px">'+pos.tag+'</div>'
+      + '<div style="font-size:16px;font-weight:800;color:'+text1+'">'+name+'</div>'
       + '</div>'
       + '<div style="text-align:right;font-size:11px;color:'+text2+'">'
       + daysStr+(daysCount>1?' · '+daysCount+' дн':'')
-      + '<span style="margin-left:8px;color:'+green+';font-size:10px;font-weight:600">✓ закрыта</span>'
+      + ' <span style="color:'+green+';font-weight:600">✓ Закрыта</span>'
       + '</div></div>'
-      // Legs
-      + '<div style="margin-top:10px">'+legHtml+'</div>'
-      // Spread
+      + '<div>'+legHtml+'</div>'
       + spreadHtml
       + '</div>';
   });
 
-  if (html) {
+  // Add dashboard counters at top (like old showcase)
+  const dashHtml = '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px">'
+    + '<div style="background:'+bg2+';border:1px solid '+border+';border-radius:10px;padding:16px;text-align:center">'
+    + '<div style="font-size:11px;color:'+text2+';text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Закрыто</div>'
+    + '<div style="font-size:28px;font-weight:700;color:'+green+'">'+closed.length+'</div></div>'
+    + '<div style="background:'+bg2+';border:1px solid '+border+';border-radius:10px;padding:16px;text-align:center">'
+    + '<div style="font-size:11px;color:'+text2+';text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Открыто</div>'
+    + '<div style="font-size:28px;font-weight:700;color:'+gold+'">'+opened.length+'</div></div>'
+    + '<div style="background:'+bg2+';border:1px solid '+border+';border-radius:10px;padding:16px;text-align:center">'
+    + '<div style="font-size:11px;color:'+text2+';text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Всего</div>'
+    + '<div style="font-size:28px;font-weight:700;color:'+text1+'">'+(closed.length+opened.length)+'</div></div>'
+    + '</div>';
+
+  if (closed.length || opened.length) {
     const wrap = document.createElement('div');
     wrap.style.cssText = 'margin-bottom:24px';
-    wrap.innerHTML = html;
+    wrap.innerHTML = dashHtml + html;
     root.insertBefore(wrap, root.firstChild);
   }
 }
