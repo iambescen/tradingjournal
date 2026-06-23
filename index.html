@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782230402 -->
+<!-- v:1782231853 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -7,7 +7,7 @@
   <meta http-equiv="Pragma" content="no-cache">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Торговый журнал</title>
-  <!-- build:1782230402 -->
+  <!-- build:1782231853 -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
@@ -8379,10 +8379,14 @@ async function calcPositionCapital(pos) {
 
 async function updatePositionCapitalUI(posId, totalRub, diaryMode, fxRateOverride) {
   var pos = (store.positions||[]).find(function(p){return p.id===posId;});
-  if (!pos) return;
+  if (!pos) { console.log('[ROI] pos not found:', posId); return; }
 
   var capital = await calcPositionCapital(pos);
-  if (!capital || !capital.totalFrozen) return;
+  console.log('[ROI] capital for', pos.tag, ':', capital);
+  if (!capital || !capital.totalFrozen) {
+    console.log('[ROI] no capital data, totalFrozen=0');
+    return;
+  }
 
   var rate = fxRateOverride || (pos.closed_date ? getRateForDate(normDate(pos.closed_date)) : (currentRate&&currentRate.value||85)) || 85;
 
@@ -9030,6 +9034,66 @@ async function autoTagFromReports(date) {
 
 
 
+// ── Global P&L helpers (used by calcPositionCapital) ──────────
+// ── P&L helpers (also defined globally below) ───────────────
+function getPosMxPnlFull(pos) {
+  var result = {};
+  var allDays = pos.days || [pos.closed_date || pos.opened_date];
+  for (var b in pos.legs) {
+    var leg = pos.legs[b];
+    if (leg.platform !== 'MX') continue;
+    var posVol = leg.vol_in || 0;
+    var closingMargin = 0, totalComm = 0, closingVol = 0;
+    var isEntryShort = leg.entry_direction === 'Sell';
+    var allEntries = [], allExits = [];
+    for (var i = 0; i < allDays.length; i++) {
+      var rep = getMxReportForDate(allDays[i]);
+      if (!rep) continue;
+      (rep.trades||[]).forEach(function(t){
+        var tb = (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
+        if (tb !== b) return;
+        var isExit = isEntryShort ? t.direction==='Long' : t.direction==='Short';
+        if (isExit) {
+          closingMargin += t.margin_rub || 0;
+          closingVol    += Math.abs(t.volume||0);
+          allExits.push(t);
+        } else {
+          allEntries.push(t);
+        }
+        totalComm += t.commission || 0;
+      });
+    }
+    var ratio = (closingVol > 0 && posVol > 0) ? Math.min(posVol/closingVol, 1) : 0;
+    var pnl = ratio > 0 ? (closingMargin + totalComm) * ratio : 0;
+    var entryVol = allEntries.reduce(function(s,t){return s+Math.abs(t.volume||0);},0)||1;
+    var exitVol  = allExits.reduce(function(s,t){return s+Math.abs(t.volume||0);},0)||1;
+    var avgEntry = allEntries.reduce(function(s,t){return s+(t.price||0)*Math.abs(t.volume||0);},0)/entryVol;
+    var avgExit  = allExits.reduce(function(s,t){return s+(t.price||0)*Math.abs(t.volume||0);},0)/exitVol;
+    result[b] = {
+      pnl: pnl, ratio: ratio, totalComm: totalComm,
+      avgEntry: avgEntry, avgExit: avgExit,
+      posVol: posVol, closingVol: closingVol,
+      instrument: leg.instrument
+    };
+  }
+  return result;
+}
+
+function getPosFxTrades(pos) {
+  var fxTrades = pos.fx_trades || [];
+  if (!fxTrades.length) {
+    var fxInstrs = Object.keys(pos.legs).filter(function(b){return pos.legs[b].platform==='FX';});
+    var posDateISO = normDate(pos.closed_date || pos.opened_date || '');
+    fxTrades = (store.fx||[]).filter(function(t){
+      var ti = (t.instrument||'').replace(/[-_]/g,'').toUpperCase();
+      return fxInstrs.indexOf(ti) >= 0 && normDate(t.close_date||'') === posDateISO;
+    });
+  }
+  return fxTrades;
+}
+
+
+
 function renderAutoLj() {
   const container = document.getElementById('autolj-container');
   if (!container) return;
@@ -9047,7 +9111,7 @@ function renderAutoLj() {
 
   const rate = (currentRate && currentRate.value) || 85;
 
-  // ── P&L helpers ──────────────────────────────────────────────
+  // ── P&L helpers (also defined globally below) ───────────────
   function getPosMxPnlFull(pos) {
     var result = {};
     var allDays = pos.days || [pos.closed_date || pos.opened_date];
