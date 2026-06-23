@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782219780 -->
+<!-- v:1782220317 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -353,7 +353,7 @@
     <button class="nav-btn" onclick="switchTab('funds', event)">Движение средств</button>
     <button class="nav-btn" onclick="switchTab('journal', event); renderLiveJournal()">Журнал</button>
     <button class="nav-btn" onclick="switchTab('constructions', event)">Сделки</button>
-    <button class="nav-btn" onclick="switchTab('autolj', event); renderAutoLj()">Авто-журнал</button>
+    <button class="nav-btn" onclick="switchTab('autolj', event); renderAutoLj()">Сделки</button>
     <button class="nav-btn" onclick="switchTab('showcase', event); renderShowcase()">Дневник</button>
     <button class="nav-btn" onclick="switchTab('calc', event); renderCalc()">Калькулятор</button>
   </div>
@@ -8855,7 +8855,7 @@ function renderAutoLj() {
     + allTags.map(function(t){return '<option value="'+t+'"'+(filterTag===t?' selected':'')+'>'+t+'</option>';}).join('');
 
   var html = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">'
-    + '<div style="font-size:16px;font-weight:700">🤖 Авто-журнал</div>'
+    + '<div style="font-size:16px;font-weight:700">📋 Сделки</div>'
     + '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">'
     + '<span style="font-size:12px;color:var(--text2)">Всего: '+positions.length+' · Открыт: '+openCount+' · Закрыт: '+closedCount+'</span>'
     + '<button id="autolj-clear-btn" style="font-size:11px;padding:4px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--red);cursor:pointer">Очистить</button>'
@@ -8953,10 +8953,13 @@ function renderAutoLj() {
       + (isOpen?'var(--amber)':'var(--green)')
       + ';border-radius:6px;padding:14px 16px;margin-bottom:12px">';
 
-    // Top row: tag + status | dates + P&L
+    // Top row: tag + status | dates + P&L + diary button
+    var diaryBtn = !isOpen
+      ? '<button data-posid="'+pos.id+'" class="diary-from-pos-btn" style="font-size:11px;padding:3px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg3);color:var(--text1);cursor:pointer;margin-left:8px">📓 В дневник</button>'
+      : '';
     html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">'
-      + '<div><span style="font-weight:700;color:var(--blue);font-size:14px">'+pos.tag+'</span>'
-      + ' '+statusLabel+'</div>'
+      + '<div style="display:flex;align-items:center"><span style="font-weight:700;color:var(--blue);font-size:14px">'+pos.tag+'</span>'
+      + ' '+statusLabel+diaryBtn+'</div>'
       + '<div style="text-align:right">'
       + '<div style="font-size:11px;color:var(--text2);margin-bottom:2px">'+daysStr+'</div>'
       + pnlBadge+'</div></div>';
@@ -9169,6 +9172,10 @@ function renderAutoLj() {
 
   container.innerHTML = html;
 
+  // Wire up diary buttons
+  container.querySelectorAll('.diary-from-pos-btn').forEach(function(btn){
+    btn.onclick = function(){ openPositionInDiary(this.dataset.posid); };
+  });
   // Wire up clear button
   var cb = document.getElementById('autolj-clear-btn');
   if (cb) cb.onclick = function(){
@@ -10304,6 +10311,29 @@ function showcaseInstr(instrument) {
   const comm = ['CE','CUC','CUCUSD'];
   if (comm.some(c => i.startsWith(c))) return '🔧 Сырьё';
   return '📊 Актив';
+}
+
+
+function openPositionInDiary(posId) {
+  positionsInit();
+  var pos = (store.positions||[]).find(function(p){return p.id===posId;});
+  if (!pos) return;
+  // Switch to showcase tab and pre-fill with this position's data
+  switchTab('showcase', null);
+  renderShowcase();
+  // After render, trigger add entry with position context
+  setTimeout(function(){
+    var addBtn = document.getElementById('showcase-add-btn');
+    if (addBtn) {
+      // Pre-fill position data
+      window._showcasePreFill = {
+        tag: pos.tag,
+        date: pos.closed_date || pos.opened_date,
+        note: pos.tag + ' — закрыта ' + (pos.closed_date||'') + '. Наборов: ' + (pos.sets||[]).length
+      };
+      addBtn.click();
+    }
+  }, 200);
 }
 
 function renderShowcase() {
