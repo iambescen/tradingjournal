@@ -1,13 +1,11 @@
 <!DOCTYPE html>
-<!-- v:1782234048 -->
+<!-- v:1782234329 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
-  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-  <meta http-equiv="Pragma" content="no-cache">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Торговый журнал</title>
-  <!-- build:1782234048 -->
+  <!-- build:1782234329 -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
@@ -10538,6 +10536,38 @@ renderPositionsTab();
 // Small delay to ensure localStorage is fully read before rendering Journal
 setTimeout(() => { renderLiveJournal(); renderCapitalLoad(); }, 50);
 updateDashboard();
+
+// ── Password gate ──
+const PASS_KEY = 'tj_pass_v1';
+function checkPassword() {
+  const input = document.getElementById('gate-input');
+  const val = (input ? input.value : '').trim();
+  const stored = localStorage.getItem(PASS_KEY);
+  // Accept: correct password OR already unlocked (stored=1) OR empty password set
+  if (val === 'bescen' || val === stored || !stored) {
+    if (val) localStorage.setItem(PASS_KEY, val);
+    unlockApp();
+  } else {
+    const err = document.getElementById('gate-error');
+    if (err) err.textContent = 'Неверный пароль';
+  }
+}
+function unlockApp() {
+  const gate = document.getElementById('password-gate');
+  const app  = document.getElementById('main-app');
+  if (gate) gate.style.display = 'none';
+  if (app)  app.style.display  = '';
+}
+// Auto-unlock on load
+(function() {
+  const stored = localStorage.getItem(PASS_KEY);
+  if (stored || true) { // Always unlock for now — password gate disabled
+    unlockApp();
+  } else {
+    const gate = document.getElementById('password-gate');
+    if (gate) gate.style.display = 'flex';
+  }
+})();
 </script>
 
 
