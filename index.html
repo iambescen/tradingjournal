@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782228853 -->
+<!-- v:1782229157 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -9062,10 +9062,28 @@ function renderAutoLj() {
   var tagOptions = '<option value="">Все конструкции</option>'
     + allTags.map(function(t){return '<option value="'+t+'"'+(filterTag===t?' selected':'')+'>'+t+'</option>';}).join('');
 
-  var html = '';
+  var filterDate = container._filterDate || '';
 
-    // Filters row
-    + '<div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap">'
+  // Apply date filter
+  if (filterDate) {
+    filtered = filtered.filter(function(p){
+      return (p.closed_date && p.closed_date === filterDate) ||
+             (p.opened_date && p.opened_date === filterDate);
+    });
+  }
+
+  // Unique close dates for filter
+  var allDates = [];
+  positions.forEach(function(p){
+    var d = p.closed_date || p.opened_date;
+    if (d && allDates.indexOf(d) < 0) allDates.push(d);
+  });
+  allDates.sort(function(a,b){ return parseDate(b) - parseDate(a); });
+
+  var dateOptions = '<option value="">Все даты</option>'
+    + allDates.map(function(d){return '<option value="'+d+'"'+(filterDate===d?' selected':'')+'>'+d+'</option>';}).join('');
+
+  var html = '<div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap">'
     + '<div style="display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden">'
     + ['all','open','closed'].map(function(v){
         var label = v==='all'?'Все':v==='open'?'Открытые':'Закрытые';
@@ -9078,16 +9096,18 @@ function renderAutoLj() {
     + '<select onchange="document.getElementById(\'autolj-container\')._filterTag=this.value;renderAutoLj()" '
     + 'style="font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1)">'
     + tagOptions + '</select>'
+    + '<select onchange="document.getElementById(\'autolj-container\')._filterDate=this.value;renderAutoLj()" '
+    + 'style="font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1)">'
+    + dateOptions + '</select>'
     + '<select onchange="document.getElementById(\'autolj-container\')._sortBy=this.value;renderAutoLj()" '
     + 'style="font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1)">'
     + '<option value="date"'+(sortBy==='date'?' selected':'')+'>По дате</option>'
     + '<option value="pnl"'+(sortBy==='pnl'?' selected':'')+'>По P&L</option>'
     + '</select>'
-    + '<span style="font-size:12px;color:var(--text2);margin-left:4px">Всего: '+positions.length+' · Откр: '+openCount+' · Закр: '+closedCount+'</span>'
+    + '<span style="font-size:12px;color:var(--text2)">'+filtered.length+' из '+positions.length+' · Откр: '+openCount+' · Закр: '+closedCount+'</span>'
     + '<button id="autolj-clear-btn" style="font-size:11px;padding:4px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--red);cursor:pointer;margin-left:auto">Очистить</button>'
     + '</div>';
 
-  // ── Position cards ────────────────────────────────────────────
   for (var pi = 0; pi < filtered.length; pi++) {
     var pos = filtered[pi];
     var isOpen = pos.status === 'open';
