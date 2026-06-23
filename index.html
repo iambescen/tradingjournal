@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782212908 -->
+<!-- v:1782213124 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -8726,126 +8726,133 @@ function renderAutoLj() {
   if (!store.autoLj) store.autoLj = { rows: [] };
 
   const positions = store.positions || [];
-  if (!positions.length && !store.autoLj.rows.length) {
+  if (!positions.length) {
     container.innerHTML = '<div class="empty"><div class="icon">🤖</div>'
-      + '<p>Нет автоматически разнесённых позиций</p>'
+      + '<p>Нет позиций</p>'
       + '<p style="font-size:12px;color:var(--text2);margin-top:8px">'
-      + 'Загрузи PDF и Excel, затем нажми «🤖 Авторазнос» в Движении средств</p></div>';
+      + 'Загрузи PDF и Excel, затем нажми «🤖 Авторазнос»</p></div>';
     return;
   }
 
-  const rate = currentRate && currentRate.value || 85;
+  const rate = (currentRate && currentRate.value) || 85;
+
+  // Helper: get MX P&L for a position from PDF instruments
+  function getPosMxPnl(pos) {
+    var pnl = 0;
+    var allDays = pos.days || [pos.closed_date || pos.opened_date];
+    var seen = {};
+    for (var b in pos.legs) {
+      var leg = pos.legs[b];
+      if (leg.platform !== 'MX' || seen[b]) continue;
+      seen[b] = true;
+      // Find instruments.pnl in any of the position's days
+      for (var i = 0; i < allDays.length; i++) {
+        var rep = getMxReportForDate(allDays[i]);
+        if (!rep) continue;
+        var instr = (rep.instruments||[]).find(function(x){
+          return (x.name||'').replace(/[-_0-9.]/g,'').toUpperCase() === b;
+        });
+        if (instr && instr.pnl !== undefined) {
+          pnl += instr.pnl;
+          break;
+        }
+      }
+    }
+    return pnl;
+  }
+
+  // Helper: get FX P&L for a position
+  function getPosFxPnl(pos) {
+    return (pos.fx_trades||[]).reduce(function(s,t){ return s+(t.net_pnl_usd||0); }, 0);
+  }
+
+  // Helper: get commission for a position from PDF
+  function getPosComm(pos) {
+    var comm = 0;
+    var allDays = pos.days || [pos.closed_date || pos.opened_date];
+    var seen = {};
+    for (var b in pos.legs) {
+      var leg = pos.legs[b];
+      if (leg.platform !== 'MX' || seen[b]) continue;
+      seen[b] = true;
+      for (var i = 0; i < allDays.length; i++) {
+        var rep = getMxReportForDate(allDays[i]);
+        if (!rep) continue;
+        var instr = (rep.instruments||[]).find(function(x){
+          return (x.name||'').replace(/[-_0-9.]/g,'').toUpperCase() === b;
+        });
+        if (instr && instr.commission !== undefined) {
+          comm += instr.commission;
+          break;
+        }
+      }
+    }
+    return comm;
+  }
 
   let html = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'
     + '<div style="font-size:16px;font-weight:700">🤖 Авто-журнал</div>'
-    + '<div style="display:flex;gap:8px">'
-    + '<span style="font-size:12px;color:var(--text2);align-self:center">Позиций: '
-    + positions.length + ' · Открытых: ' + positions.filter(p=>p.status==='open').length + '</span>'
+    + '<div style="display:flex;gap:8px;align-items:center">'
+    + '<span style="font-size:12px;color:var(--text2)">Позиций: ' + positions.length
+    + ' · Открытых: ' + positions.filter(function(p){return p.status==='open';}).length + '</span>'
     + '<button id="autolj-clear-btn" style="font-size:11px;padding:4px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--red);cursor:pointer">Очистить всё</button>'
     + '</div></div>';
 
-  // Sort: open first, then by opened_date desc
-  const sorted = [...positions].sort(function(a,b) {
+  // Sort: open first, then by date desc
+  var sorted = positions.slice().sort(function(a,b){
     if (a.status==='open' && b.status!=='open') return -1;
     if (a.status!=='open' && b.status==='open') return 1;
     return parseDate(b.opened_date||'') - parseDate(a.opened_date||'');
   });
 
-  for (const pos of sorted) {
-    const isOpen = pos.status === 'open';
-    const statusLabel = isOpen
+  for (var pi = 0; pi < sorted.length; pi++) {
+    var pos = sorted[pi];
+    var isOpen = pos.status === 'open';
+    var fxRate = (pos.closed_date ? getRateForDate(normDate(pos.closed_date)) : rate) || rate;
+    var allDays = pos.days || [pos.opened_date];
+
+    // ── P&L ──────────────────────────────────────────────────
+    var pnlHtml = '';
+    if (!isOpen) {
+      var mxPnl = getPosMxPnl(pos);
+      var fxPnlUsd = getPosFxPnl(pos);
+      var total = mxPnl + fxPnlUsd * fxRate;
+      var tc = total>=0?'var(--green)':'var(--red)';
+      pnlHtml = '<span style="font-family:monospace;font-weight:700;color:'+tc+'">'
+        + (total>=0?'+':'')+Math.round(total).toLocaleString('ru')+' ₽</span>';
+    } else {
+      pnlHtml = '<span style="font-size:11px;color:var(--amber)">открыта</span>';
+    }
+
+    // ── Header ────────────────────────────────────────────────
+    var statusLabel = isOpen
       ? '<span style="color:var(--amber);font-size:11px;font-weight:600">● ОТКРЫТА</span>'
       : '<span style="color:var(--green);font-size:11px;font-weight:600">✓ ЗАКРЫТА</span>';
 
-    // P&L: calculate using broker formula (avg entry vs avg exit prices)
-    let pnlHtml = '';
-    const fxRate = (pos.closed_date ? getRateForDate(normDate(pos.closed_date)) : rate) || rate;
-    if (!isOpen && pos.closed_date) {
-      // Get all MX trades from ALL days this position was active
-      const allDays = pos.days || [pos.closed_date];
-      let mxPnl = 0;
-      const seenInstr = {};
+    var daysStr = allDays.length > 1
+      ? allDays[0]+' — '+allDays[allDays.length-1]
+      : allDays[0] || pos.opened_date;
 
-      for (const b in pos.legs) {
-        const leg = pos.legs[b];
-        if (leg.platform !== 'MX' || seenInstr[b]) continue;
-        seenInstr[b] = true;
-
-        // Collect all entry and exit trades across all days
-        const allEntries = [], allExits = [];
-        for (const d of allDays) {
-          const rep = getMxReportForDate(d);
-          if (!rep) continue;
-          const instrTrades = (rep.trades||[]).filter(function(t){
-            return (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase() === b;
-          });
-          const isEntryShort = leg.entry_direction === 'Sell';
-          instrTrades.forEach(function(t) {
-            if (isEntryShort ? t.direction==='Short' : t.direction==='Long')
-              allEntries.push(t);
-            else
-              allExits.push(t);
-          });
-        }
-
-        // PRIMARY: instruments.pnl from PDF (exact, includes commission)
-        let instrPnlFound = false;
-        for (const d of allDaysBr) {
-          const repD = getMxReportForDate(d);
-          if (!repD) continue;
-          const instrD = (repD.instruments||[]).find(function(i){
-            return (i.name||'').replace(/[-_0-9.]/g,'').toUpperCase() === b;
-          });
-          if (instrD && instrD.pnl !== undefined) {
-            mxPnl += instrD.pnl;
-            instrPnlFound = true;
-            break;
-          }
-        }
-        // FALLBACK: calc from avg prices + commissions
-        if (!instrPnlFound) {
-          const result = calcSetPnl(b, allEntries, allExits);
-          if (result) {
-            mxPnl += result.pnl;
-            mxPnl += allEntries.concat(allExits).reduce(function(s,t){return s+(t.commission||0);},0);
-          }
-        }
-      }
-
-      const fxPnl = (pos.fx_trades||[]).reduce(function(s,t){return s+(t.net_pnl_usd||0);},0);
-      const total = mxPnl + fxPnl * fxRate;
-      const tc = total>=0?'var(--green)':'var(--red)';
-      pnlHtml = '<span style="font-family:monospace;font-weight:700;color:'+tc+'">'
-        + (total>=0?'+':'')+Math.round(total).toLocaleString('ru')+' ₽</span>';
-    } else if (isOpen) {
-      pnlHtml = '<span style="font-size:11px;color:var(--text2)">открыта</span>';
-    } else {
-      pnlHtml = '<span style="font-size:11px;color:var(--text2)">—</span>';
-    }
-
-    // Days range
-    const days = pos.days || [pos.opened_date];
-    const daysStr = days.length > 1
-      ? days[0] + ' — ' + days[days.length-1]
-      : days[0] || pos.opened_date;
-
-    // Net volume per leg
-    const legsHtml = Object.entries(pos.legs||{}).map(function(e) {
-      const b = e[0], leg = e[1];
-      const netVol = Math.abs(leg.net_volume||0);
-      const pc = leg.platform==='MX'?'var(--blue)':'var(--purple)';
-      const vol_str = isOpen && netVol > 0
-        ? '<span style="color:var(--amber)">'+netVol+' л открыто</span>'
-        : '<span style="color:var(--text2)">закрыта</span>';
-      return '<span style="font-size:11px;background:var(--bg3);border-radius:4px;padding:2px 6px;margin-right:4px">'
+    // ── Legs ─────────────────────────────────────────────────
+    var legsHtml = '';
+    for (var b in pos.legs) {
+      var leg = pos.legs[b];
+      var netVol = Math.round(Math.abs(leg.net_volume||0)*100)/100;
+      var pc = leg.platform==='MX'?'var(--blue)':'var(--purple)';
+      var volStr = isOpen && netVol > 0
+        ? '<span style="color:var(--amber)">'+netVol+' л</span>'
+        : 'закрыта';
+      legsHtml += '<span style="font-size:11px;background:var(--bg3);border-radius:4px;padding:2px 8px;margin-right:4px">'
         + '<span style="color:'+pc+';font-weight:700">'+leg.platform+'</span> '
-        + leg.instrument + ' ' + vol_str + '</span>';
-    }).join('');
+        + leg.instrument+' '+volStr+'</span>';
+    }
 
     html += '<div style="background:var(--bg2);border:1px solid var(--border);border-left:3px solid '
       + (isOpen?'var(--amber)':'var(--green)')
-      + ';border-radius:6px;padding:14px 16px;margin-bottom:12px">'
-      + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">'
+      + ';border-radius:6px;padding:14px 16px;margin-bottom:12px">';
+
+    // Top row
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
       + '<div style="display:flex;align-items:center;gap:10px">'
       + '<span style="font-weight:700;color:var(--blue);font-size:14px">'+pos.tag+'</span>'
       + statusLabel
@@ -8853,140 +8860,131 @@ function renderAutoLj() {
       + '<div style="display:flex;align-items:center;gap:12px">'
       + '<span style="font-size:11px;color:var(--text2)">'+daysStr+'</span>'
       + pnlHtml
-      + '</div>'
-      + '</div>'
-      + '<div style="margin-bottom:10px">'+legsHtml+'</div>';
+      + '</div></div>';
 
-    // Detailed breakdown
-    html += '<div style="border-top:1px solid var(--border);padding-top:10px;margin-top:4px">';
+    // Legs row
+    html += '<div style="margin-bottom:10px">'+legsHtml+'</div>';
 
-    // Show sets
+    // ── Detail section ────────────────────────────────────────
+    html += '<div style="border-top:1px solid var(--border);padding-top:10px">';
+
+    // Sets
     if (pos.sets && pos.sets.length) {
-      html += '<div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Наборы (входы)</div>';
-      for (const s of pos.sets) {
-        const mxR = (s.rows||[]).filter(function(r){return r.platform==='MX';});
-        const fxR = (s.rows||[]).filter(function(r){return r.platform==='FX';});
+      html += '<div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Наборы</div>';
+      for (var si = 0; si < pos.sets.length; si++) {
+        var s = pos.sets[si];
+        var mxR = (s.rows||[]).filter(function(r){return r.platform==='MX';});
+        var fxR = (s.rows||[]).filter(function(r){return r.platform==='FX';});
         html += '<div style="margin-bottom:6px;background:var(--bg3);border-radius:4px;padding:6px 10px">'
           + '<span style="font-size:11px;font-weight:600;color:var(--text2)">Набор №'+s.set_n+' · '+s.date+'</span><br>';
-        for (const r of mxR) {
-          const dc = r.direction==='Sell'?'var(--red)':'var(--green)';
-          html += '<span style="font-size:11px;display:inline-block;margin-right:16px;margin-top:3px">'
-            + '<span style="font-size:10px;background:var(--blue);color:#fff;border-radius:2px;padding:0 3px;margin-right:3px">MX</span>'
+        mxR.forEach(function(r){
+          var dc = r.direction==='Sell'?'var(--red)':'var(--green)';
+          html += '<span style="font-size:11px;display:inline-block;margin-right:12px;margin-top:3px">'
+            + '<span style="font-size:10px;background:var(--blue);color:#fff;border-radius:2px;padding:0 3px">MX</span> '
             + '<span style="color:'+dc+'">'+r.direction+'</span> '
-            + '<b>'+r.instrument+'</b> '
-            + r.volume+'л @ <span style="font-family:monospace">'+r.price+'</span>'
+            + '<b>'+r.instrument+'</b> '+r.volume+'л @ <span style="font-family:monospace">'+r.price+'</span>'
             + '</span>';
-        }
-        for (const r of fxR) {
-          const dc = r.direction==='Buy'?'var(--green)':'var(--red)';
-          html += '<span style="font-size:11px;display:inline-block;margin-right:16px;margin-top:3px">'
-            + '<span style="font-size:10px;background:var(--purple,#7c3aed);color:#fff;border-radius:2px;padding:0 3px;margin-right:3px">FX</span>'
+        });
+        fxR.forEach(function(r){
+          var dc = r.direction==='Buy'?'var(--green)':'var(--red)';
+          html += '<span style="font-size:11px;display:inline-block;margin-right:12px;margin-top:3px">'
+            + '<span style="font-size:10px;background:#7c3aed;color:#fff;border-radius:2px;padding:0 3px">FX</span> '
             + '<span style="color:'+dc+'">'+r.direction+'</span> '
-            + '<b>'+r.instrument+'</b> '
-            + r.volume+'л @ <span style="font-family:monospace">'+r.price+'</span>'
+            + '<b>'+r.instrument+'</b> '+r.volume+'л @ <span style="font-family:monospace">'+r.price+'</span>'
             + '</span>';
-        }
+        });
         html += '</div>';
       }
     }
 
-    // Show P&L breakdown per leg for closed positions
-    if (!isOpen && pos.closed_date) {
+    // P&L breakdown for closed positions
+    if (!isOpen) {
       html += '<div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin:8px 0 6px">Расчёт P&L</div>';
-      const allDaysBr = pos.days || [pos.closed_date];
-      const fxRateCalc = getRateForDate(normDate(pos.closed_date)) || rate;
-      let totalMxBr = 0;
+      var totalMxDisp = 0;
 
-      for (const b in pos.legs) {
-        const leg = pos.legs[b];
-        if (leg.platform !== 'MX') continue;
-        const spec = MX_SPECS[b];
-        if (!spec) continue;
+      for (var b2 in pos.legs) {
+        var leg2 = pos.legs[b2];
+        if (leg2.platform !== 'MX') continue;
 
-        const allEntries = [], allExits = [];
-        for (const d of allDaysBr) {
-          const rep = getMxReportForDate(d);
-          if (!rep) continue;
-          const instrTrades = (rep.trades||[]).filter(function(t){
-            return (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase() === b;
+        // Get instruments.pnl and commission from PDF
+        var instrPnl = null, instrComm = 0;
+        for (var di = 0; di < allDays.length; di++) {
+          var rep2 = getMxReportForDate(allDays[di]);
+          if (!rep2) continue;
+          var instrData = (rep2.instruments||[]).find(function(x){
+            return (x.name||'').replace(/[-_0-9.]/g,'').toUpperCase() === b2;
           });
-          const isEntryShort = leg.entry_direction === 'Sell';
-          instrTrades.forEach(function(t){
-            if (isEntryShort ? t.direction==='Short' : t.direction==='Long') allEntries.push(t);
-            else allExits.push(t);
-          });
-        }
-
-        const entryVol = allEntries.reduce(function(s,t){return s+Math.abs(t.volume||0);},0);
-        const exitVol  = allExits.reduce(function(s,t){return s+Math.abs(t.volume||0);},0);
-        if (!entryVol || !exitVol) continue;
-
-        const avgEntry = allEntries.reduce(function(s,t){return s+(t.price||0)*Math.abs(t.volume||0);},0)/entryVol;
-        const avgExit  = allExits.reduce(function(s,t){return s+(t.price||0)*Math.abs(t.volume||0);},0)/exitVol;
-        const isLong = leg.entry_direction === 'Buy';
-        const lots = Math.min(entryVol, exitVol);
-        const sign = isLong ? 1 : -1;
-        const pnl = sign * (avgExit - avgEntry) / spec.tick * spec.step * lots;
-        totalMxBr += pnl;
-
-        // Use instruments.pnl from PDF closing day (includes commission)
-        let pnlDisplay = null;
-        let commDisplay = 0;
-        const closingRep = getMxReportForDate(pos.closed_date);
-        if (closingRep) {
-          const instrDisp = (closingRep.instruments||[]).find(function(i){
-            return (i.name||'').replace(/[-_0-9.]/g,'').toUpperCase() === b;
-          });
-          if (instrDisp) {
-            pnlDisplay = instrDisp.pnl || 0;
-            commDisplay = instrDisp.commission || 0;
+          if (instrData) {
+            instrPnl = instrData.pnl || 0;
+            instrComm = instrData.commission || 0;
+            break;
           }
         }
-        // Fallback to calculated value
-        if (pnlDisplay === null) {
-          const comm = allEntries.concat(allExits).reduce(function(s,t){return s+(t.commission||0);},0);
-          pnlDisplay = pnl + comm;
-          commDisplay = comm;
+
+        // Also calc avg prices for info
+        var allEntries2 = [], allExits2 = [];
+        for (var di2 = 0; di2 < allDays.length; di2++) {
+          var rep3 = getMxReportForDate(allDays[di2]);
+          if (!rep3) continue;
+          var instrTrades2 = (rep3.trades||[]).filter(function(t){
+            return (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase() === b2;
+          });
+          var isEntryShort2 = leg2.entry_direction === 'Sell';
+          instrTrades2.forEach(function(t){
+            if (isEntryShort2 ? t.direction==='Short' : t.direction==='Long') allEntries2.push(t);
+            else allExits2.push(t);
+          });
         }
-        totalMxBr += pnlDisplay;
-        const pc = pnlDisplay>=0?'var(--green)':'var(--red)';
-        html += '<div style="font-size:11px;display:flex;gap:8px;align-items:center;margin-bottom:4px;padding:4px 8px;background:var(--bg3);border-radius:4px;flex-wrap:wrap">'
-          + '<span style="font-weight:600;min-width:80px">'+leg.instrument+'</span>'
-          + '<span style="color:var(--text2)">вход avg: <span style="font-family:monospace">'+avgEntry.toFixed(4)+'</span></span>'
-          + '<span style="color:var(--text2)">выход avg: <span style="font-family:monospace">'+avgExit.toFixed(4)+'</span></span>'
-          + '<span style="color:var(--text2)">'+lots+'л</span>'
-          + '<span style="color:var(--red);font-size:10px">ком: '+Math.round(commDisplay)+' ₽</span>'
-          + '<span style="font-family:monospace;font-weight:700;color:'+pc+';margin-left:auto">'+(pnlDisplay>=0?'+':'')+Math.round(pnlDisplay)+' ₽</span>'
-          + '</div>';
+
+        var entryVol2 = allEntries2.reduce(function(s,t){return s+Math.abs(t.volume||0);},0);
+        var exitVol2  = allExits2.reduce(function(s,t){return s+Math.abs(t.volume||0);},0);
+        var avgEntry2 = entryVol2 ? allEntries2.reduce(function(s,t){return s+(t.price||0)*Math.abs(t.volume||0);},0)/entryVol2 : 0;
+        var avgExit2  = exitVol2  ? allExits2.reduce(function(s,t){return s+(t.price||0)*Math.abs(t.volume||0);},0)/exitVol2 : 0;
+
+        if (instrPnl !== null) {
+          totalMxDisp += instrPnl;
+          var dispPnl = instrPnl; // already includes commission
+          var pc2 = dispPnl>=0?'var(--green)':'var(--red)';
+          html += '<div style="font-size:11px;display:flex;gap:8px;align-items:center;margin-bottom:4px;padding:4px 8px;background:var(--bg3);border-radius:4px;flex-wrap:wrap">'
+            + '<span style="font-weight:600;min-width:80px">'+leg2.instrument+'</span>'
+            + '<span style="color:var(--text2)">вход: <span style="font-family:monospace">'+avgEntry2.toFixed(4)+'</span></span>'
+            + '<span style="color:var(--text2)">выход: <span style="font-family:monospace">'+avgExit2.toFixed(4)+'</span></span>'
+            + '<span style="color:var(--text2)">'+Math.min(entryVol2,exitVol2)+'л</span>'
+            + '<span style="color:var(--red);font-size:10px">ком: '+Math.round(instrComm)+' ₽</span>'
+            + '<span style="font-family:monospace;font-weight:700;color:'+pc2+';margin-left:auto">'+(dispPnl>=0?'+':'')+Math.round(dispPnl)+' ₽</span>'
+            + '</div>';
+        }
       }
 
       // FX breakdown
-      const fxPnlBr = (pos.fx_trades||[]).reduce(function(s,t){return s+(t.net_pnl_usd||0);},0);
-      if (fxPnlBr !== 0) {
-        const fxC = fxPnlBr>=0?'var(--green)':'var(--red)';
+      var fxTrades = pos.fx_trades || [];
+      var fxPnlUsd2 = fxTrades.reduce(function(s,t){return s+(t.net_pnl_usd||0);},0);
+      if (fxTrades.length > 0) {
+        var fxC = fxPnlUsd2>=0?'var(--green)':'var(--red)';
         html += '<div style="font-size:11px;display:flex;gap:8px;align-items:center;margin-bottom:4px;padding:4px 8px;background:var(--bg3);border-radius:4px">'
           + '<span style="font-weight:600;min-width:80px">FX</span>'
-          + '<span style="color:var(--text2)">'+( pos.fx_trades||[]).length+' сделок</span>'
-          + '<span style="color:var(--text2)">курс: '+fxRateCalc.toFixed(2)+'</span>'
-          + '<span style="font-family:monospace;font-weight:700;color:'+fxC+';margin-left:auto">'+(fxPnlBr>=0?'+':'')+fxPnlBr.toFixed(2)+'$ = '+(fxPnlBr>=0?'+':'')+Math.round(fxPnlBr*fxRateCalc)+' ₽</span>'
+          + '<span style="color:var(--text2)">'+fxTrades.length+' сделок</span>'
+          + '<span style="color:var(--text2)">курс: '+fxRate.toFixed(2)+' ₽/$</span>'
+          + '<span style="font-family:monospace;color:'+fxC+';margin-left:auto">'
+          + (fxPnlUsd2>=0?'+':'')+fxPnlUsd2.toFixed(2)+'$ = '
+          + (fxPnlUsd2>=0?'+':'')+Math.round(fxPnlUsd2*fxRate)+' ₽</span>'
           + '</div>';
       }
 
-      // Total
-      const fxPnlRubBr = fxPnlBr * fxRateCalc;
-      const totalBr = totalMxBr + fxPnlRubBr;
-      const tc2 = totalBr>=0?'var(--green)':'var(--red)';
-      html += '<div style="font-size:12px;display:flex;justify-content:flex-end;margin-top:6px;padding-top:6px;border-top:1px dashed var(--border)">'
-        + '<span style="font-family:monospace;font-weight:700;color:'+tc2+'">'
-        + 'МХ '+(totalMxBr>=0?'+':'')+Math.round(totalMxBr)+' ₽'
-        + (fxPnlBr!==0?' + FX '+(fxPnlBr>=0?'+':'')+Math.round(fxPnlRubBr)+' ₽':'')
-        + ' = '+(totalBr>=0?'+':'')+Math.round(totalBr)+' ₽'
+      // Total line
+      var fxRubDisp = fxPnlUsd2 * fxRate;
+      var totalDisp = totalMxDisp + fxRubDisp;
+      var tcDisp = totalDisp>=0?'var(--green)':'var(--red)';
+      html += '<div style="font-size:12px;display:flex;justify-content:space-between;margin-top:8px;padding-top:6px;border-top:1px dashed var(--border)">'
+        + '<span style="color:var(--text2);font-size:11px">Итого позиции:</span>'
+        + '<span style="font-family:monospace;font-weight:700;color:'+tcDisp+'">'
+        + 'МХ '+(totalMxDisp>=0?'+':'')+Math.round(totalMxDisp)+' ₽'
+        + (fxTrades.length?' + FX '+(fxRubDisp>=0?'+':'')+Math.round(fxRubDisp)+' ₽':'')
+        + ' = '+(totalDisp>=0?'+':'')+Math.round(totalDisp)+' ₽'
         + '</span></div>';
     }
 
-    html += '</div>';
-
-    html += '</div>';
+    html += '</div></div>';
   }
 
   container.innerHTML = html;
