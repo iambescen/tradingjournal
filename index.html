@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782232032 -->
+<!-- v:1782232484 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -7,7 +7,7 @@
   <meta http-equiv="Pragma" content="no-cache">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Торговый журнал</title>
-  <!-- build:1782232032 -->
+  <!-- build:1782232484 -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
@@ -8230,23 +8230,30 @@ function _buildOverviewRoiDashboard(closedPositions) {
   var cardsEl   = document.getElementById('ov-roi-cards');
   if (!summaryEl || !cardsEl) return;
 
-  // ── Депозит: берём из дашборда Обзора (МХ + FX) ──
+  // ── Депозит: тот же расчёт что в renderDashboard ──
   var rate = (currentRate && currentRate.value) || 85;
-  var mxPdfBal = store.mx.length ? (store.mx[store.mx.length-1].balance_end || 0) : 0;
-  var mxDepBal = (store.manual||[]).filter(function(m){return m.account==='MX'&&m.type==='deposit';})
-    .reduce(function(s,m){return s+m.amount;},0)
-    - (store.manual||[]).filter(function(m){return m.account==='MX'&&m.type==='withdrawal';})
-    .reduce(function(s,m){return s+m.amount;},0);
-  var mxBal = mxPdfBal > 0 ? mxPdfBal : mxDepBal;
 
-  var fxDepBal = (store.manual||[]).filter(function(m){return m.account==='FX'&&m.type==='deposit';})
-    .reduce(function(s,m){return s+m.amount;},0)
-    - (store.manual||[]).filter(function(m){return m.account==='FX'&&m.type==='withdrawal';})
-    .reduce(function(s,m){return s+m.amount;},0);
-  var fxBrokerBal = store.fx.length && store.fx[store.fx.length-1].balance_usd
-    ? store.fx[store.fx.length-1].balance_usd : 0;
-  var fxBal = fxBrokerBal > 0 ? fxBrokerBal : fxDepBal;
+  // МХ баланс — из последнего PDF (balance_end) или из движений средств
+  var mxPdfBal = 0;
+  for (var ri = store.mx.length-1; ri >= 0; ri--) {
+    if (store.mx[ri].balance_end > 0) { mxPdfBal = store.mx[ri].balance_end; break; }
+  }
+  var mxManual = (store.manual||[]).filter(function(m){return m.account==='MX';})
+    .reduce(function(s,m){
+      return m.type==='deposit'?s+m.amount:m.type==='withdrawal'?s-m.amount:s;
+    },0);
+  var mxBal = mxPdfBal > 0 ? mxPdfBal : mxManual;
+
+  // FX баланс — из движений средств (депозит - вывод)
+  var fxManualUsd = (store.manual||[]).filter(function(m){return m.account==='FX';})
+    .reduce(function(s,m){
+      var amt = m.currency==='USD'?m.amount:(m.amount/rate);
+      return m.type==='deposit'?s+amt:m.type==='withdrawal'?s-amt:s;
+    },0);
+  var fxBal = fxManualUsd; // в USD
   var totalDeposit = mxBal + fxBal * rate;
+
+  console.log('[ROI Overview] mxBal='+mxBal+' fxBal='+fxBal+' rate='+rate+' total='+totalDeposit);
 
   if (totalDeposit <= 0) { summaryEl.style.display='none'; return; }
 
@@ -8288,7 +8295,7 @@ function _buildOverviewRoiDashboard(closedPositions) {
 
   var gc = roi>=0?'var(--green)':'var(--red)';
   var html = card('Доходность на депозит', (roi>=0?'+':'')+roi.toFixed(2)+'%',
-      'P&L / (МХ + FX) × 100', gc, true)
+      'P&L ÷ (МХ '+Math.round(mxBal/1000)+'К + FX '+Math.round(fxBal)+'$) × 100%', gc, true)
     + card('% годовых', (annual>=0?'+':'')+Math.round(annual)+'%',
       'за '+periodDays+' дн. с '+firstDate, gc, true)
     + card('Итого P&L', (totalPnl>=0?'+':'')+totalPnl.toLocaleString('ru')+' ₽',
@@ -8458,9 +8465,12 @@ async function updatePositionCapitalUI(posId, totalRub, diaryMode, fxRateOverrid
     // Diary: show only % big and % annual, no absolute numbers
     var elD = document.getElementById('diary-roi-' + posId.replace(/[^a-z0-9]/gi,'_'));
     if (elD) {
-      elD.innerHTML = '<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);display:flex;align-items:baseline;gap:10px">'
+      elD.innerHTML = '<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">'
+        + '<div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Доходность на ГО+маржу</div>'
+        + '<div style="display:flex;align-items:baseline;gap:10px">'
         + '<span style="font-size:28px;font-weight:900;letter-spacing:-1px;color:'+c+'">'+(roi>=0?'+':'')+roi.toFixed(2)+'%</span>'
-        + '<span style="font-size:13px;font-weight:600;color:var(--text2)">'+(annual>=0?'+':'')+Math.round(annual)+'%<span style="font-weight:400;font-size:11px"> год.</span></span>'
+        + '<span style="font-size:13px;color:var(--text2)">'+(annual>=0?'+':'')+Math.round(annual)+'%<span style="font-size:11px"> год.</span></span>'
+        + '</div>'
         + '</div>';
       elD.style.display = '';
     }
