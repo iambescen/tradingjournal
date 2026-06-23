@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782220512 -->
+<!-- v:1782220785 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -351,8 +351,8 @@
   <div class="nav">
     <button class="nav-btn active" onclick="switchTab('overview', event)">Обзор</button>
     <button class="nav-btn" onclick="switchTab('funds', event)">Движение средств</button>
-    <button class="nav-btn" onclick="switchTab('journal', event); renderLiveJournal()">Журнал</button>
-    <button class="nav-btn" onclick="switchTab('constructions', event)">Сделки</button>
+    <button class="nav-btn" onclick="switchTab('journal', event); renderLiveJournal()" style="display:none">Журнал</button>
+    <button class="nav-btn" onclick="switchTab('constructions', event)" style="display:none">Сделки (старые)</button>
     <button class="nav-btn" onclick="switchTab('autolj', event); renderAutoLj()">Сделки</button>
     <button class="nav-btn" onclick="switchTab('showcase', event); renderShowcase()">Дневник</button>
     <button class="nav-btn" onclick="switchTab('calc', event); renderCalc()">Калькулятор</button>
@@ -10344,42 +10344,182 @@ function renderDiaryPositions() {
   const root = document.getElementById('showcase-root');
   if (!root) return;
   positionsInit();
+
+  // Use same theme vars as renderShowcase
+  const bg2   = 'var(--bg2)';
+  const bg3   = 'var(--bg3)';
+  const border= 'var(--border)';
+  const text1 = 'var(--text)';
+  const text2 = 'var(--text2)';
+  const green = 'var(--green)';
+  const red   = 'var(--red)';
+  const blue  = 'var(--blue)';
+  const gold  = 'var(--amber)';
+  const purple= 'var(--purple)';
+
   const closed = (store.positions||[]).filter(function(p){return p.status==='closed';})
     .sort(function(a,b){return parseDate(b.closed_date||b.opened_date)-parseDate(a.closed_date||a.opened_date);});
   if (!closed.length) return;
 
-  let html = '<div style="margin-bottom:24px;padding-bottom:16px;border-bottom:2px solid var(--border)">'
-    + '<div style="font-size:13px;font-weight:700;margin-bottom:12px">📋 Закрытые позиции</div>';
+  // Tag → human-readable name
+  function tagName(tag) {
+    if (tag.indexOf('SI')>=0 && tag.indexOf('CR')>=0) return '🇺🇸 USD/CNH (Si·CR)';
+    if (tag.indexOf('EU1')>=0 && tag.indexOf('CR')>=0) return '🇪🇺 EUR/CNH (Eu·CR)';
+    if (tag.indexOf('ERF')>=0) return '🇪🇺 EUR/CNH (вечник)';
+    if (tag.indexOf('URF')>=0) return '🇺🇸 USD/CNH (вечник)';
+    if (tag.indexOf('UC')>=0) return '🇺🇸 USD/CNH (UC)';
+    if (tag.indexOf('ED')>=0) return '🇪🇺 EUR/USD (ED)';
+    if (tag.indexOf('GD')>=0) return '🥇 Золото';
+    if (tag.indexOf('SV')>=0) return '🥈 Серебро';
+    if (tag.indexOf('PT')>=0) return '⚙️ Платина';
+    if (tag.indexOf('PD')>=0) return '⚙️ Палладий';
+    return tag;
+  }
+
+  function fmtP(v, isFx) {
+    if (v == null) return '—';
+    var d = isFx ? 5 : 2;
+    return parseFloat(v.toFixed(d)).toString();
+  }
+
+  let html = '';
 
   closed.forEach(function(pos) {
     const allDays = pos.days || [pos.opened_date];
     const daysStr = allDays.length>1 ? allDays[0]+' — '+allDays[allDays.length-1] : allDays[0];
-    html += '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:12px 16px;margin-bottom:8px">'
-      + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">'
-      + '<span style="font-weight:700;color:var(--blue)">' + pos.tag + '</span>'
-      + '<span style="font-size:11px;color:var(--text2)">' + daysStr + ' · ' + (pos.sets||[]).length + ' набор(а)</span>'
-      + '</div>';
+    const daysCount = allDays.length;
+    const name = tagName(pos.tag);
 
-    // Sets without P&L
-    (pos.sets||[]).forEach(function(s) {
-      const mxR = (s.rows||[]).filter(function(r){return r.platform==='MX';});
-      const fxR = (s.rows||[]).filter(function(r){return r.platform==='FX';});
-      html += '<div style="font-size:11px;margin-bottom:4px;color:var(--text2)">Набор №'+s.set_n+' · '+s.date+': ';
-      mxR.forEach(function(r){
-        const dc=r.direction==='Sell'?'var(--red)':'var(--green)';
-        html += '<span style="margin-right:8px"><span style="color:'+dc+'">'+r.direction+'</span> '+r.instrument+' '+r.volume+'л</span>';
+    // Calc arb spread (same logic as in renderAutoLj but here without P&L)
+    // Get avg prices from all sets
+    const mxAvg = {}; // b -> {entry, exit}
+    for (const b in pos.legs) {
+      const leg = pos.legs[b];
+      if (leg.platform !== 'MX') continue;
+      const isEntryShort = leg.entry_direction === 'Sell';
+      let eVol=0,eSum=0,xVol=0,xSum=0;
+      allDays.forEach(function(d){
+        const rep = getMxReportForDate(d);
+        if (!rep) return;
+        (rep.trades||[]).forEach(function(t){
+          if ((t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase() !== b) return;
+          const isExit = isEntryShort ? t.direction==='Long' : t.direction==='Short';
+          const v = Math.abs(t.volume||0);
+          if (!isExit) { eVol+=v; eSum+=(t.price||0)*v; }
+          else          { xVol+=v; xSum+=(t.price||0)*v; }
+        });
       });
-      fxR.forEach(function(r){
-        const dc=r.direction==='Buy'?'var(--green)':'var(--red)';
-        html += '<span style="margin-right:8px;color:var(--purple)"><span style="color:'+dc+'">'+r.direction+'</span> '+r.instrument+' '+r.volume+'л</span>';
+      mxAvg[b] = { entry: eVol?eSum/eVol:0, exit: xVol?xSum/xVol:0 };
+    }
+    // FX avg
+    const fxInstrs = Object.keys(pos.legs).filter(function(b){return pos.legs[b].platform==='FX';});
+    const fxTrades2 = (pos.fx_trades||[]).length ? pos.fx_trades :
+      (store.fx||[]).filter(function(t){
+        return fxInstrs.indexOf((t.instrument||'').replace(/[-_]/g,'').toUpperCase())>=0
+          && normDate(t.close_date||'')===normDate(pos.closed_date||'');
       });
-      html += '</div>';
+    let fxEVol=0,fxESum=0,fxXVol=0,fxXSum=0;
+    fxTrades2.forEach(function(t){
+      var q=Math.abs(t.qty||0);
+      fxEVol+=q; fxESum+=(t.entry_price||0)*q;
+      if(t.close_price){fxXVol+=q; fxXSum+=(t.close_price||0)*q;}
     });
-    html += '</div>';
+    const fxEntry = fxEVol ? fxESum/fxEVol : 0;
+    const fxExit  = fxXVol ? fxXSum/fxXVol : 0;
+
+    // Calc spread
+    const tag = pos.tag;
+    let spreadEntry=null, spreadExit=null;
+    const ep = function(b){return mxAvg[b]?mxAvg[b].entry:0;};
+    const xp = function(b){return mxAvg[b]?mxAvg[b].exit:0;};
+    // alias CNY=CR
+    if (!mxAvg['CR'] && mxAvg['CNY']) { mxAvg['CR']=mxAvg['CNY']; }
+    if (tag.indexOf('SI')>=0 && tag.indexOf('CR')>=0 && fxEntry) {
+      if(ep('SI')&&ep('CR')) spreadEntry=((ep('SI')/1000/ep('CR'))/fxEntry-1)*100;
+      if(xp('SI')&&xp('CR')&&fxExit) spreadExit=((xp('SI')/1000/xp('CR'))/fxExit-1)*100;
+    } else if (tag.indexOf('EU1')>=0 && tag.indexOf('CR')>=0 && fxEntry) {
+      if(ep('EU')&&ep('CR')) spreadEntry=((ep('EU')/1000/ep('CR'))/fxEntry-1)*100;
+      if(xp('EU')&&xp('CR')&&fxExit) spreadExit=((xp('EU')/1000/xp('CR'))/fxExit-1)*100;
+    } else if (tag.indexOf('ERF')>=0 && fxEntry) {
+      if(ep('EURRUBF')&&ep('CNYRUBF')) spreadEntry=((ep('EURRUBF')/ep('CNYRUBF'))/fxEntry-1)*100;
+      if(xp('EURRUBF')&&xp('CNYRUBF')&&fxExit) spreadExit=((xp('EURRUBF')/xp('CNYRUBF'))/fxExit-1)*100;
+    } else if (tag.indexOf('URF')>=0 && fxEntry) {
+      if(ep('USDRUBF')&&ep('CNYRUBF')) spreadEntry=((ep('USDRUBF')/ep('CNYRUBF'))/fxEntry-1)*100;
+      if(xp('USDRUBF')&&xp('CNYRUBF')&&fxExit) spreadExit=((xp('USDRUBF')/xp('CNYRUBF'))/fxExit-1)*100;
+    } else if (tag.indexOf('UC')>=0 && fxEntry) {
+      if(ep('UC')) spreadEntry=(ep('UC')/fxEntry-1)*100;
+      if(xp('UC')&&fxExit) spreadExit=(xp('UC')/fxExit-1)*100;
+    }
+
+    // Spread block
+    var spreadHtml = '';
+    if (spreadEntry !== null) {
+      var se = spreadEntry.toFixed(3)+'%';
+      if (spreadExit !== null) {
+        var sx = spreadExit.toFixed(3)+'%';
+        var delta = spreadExit - spreadEntry;
+        var dc = delta<=0 ? green : red;
+        spreadHtml = '<div style="display:flex;gap:14px;padding:10px 0 0;font-size:12px;flex-wrap:wrap;align-items:baseline">'
+          + '<span style="color:'+text2+'">Спред:</span>'
+          + '<span><span style="color:'+text2+'">вход</span> <b style="font-family:monospace;font-size:14px;color:'+text1+'">'+se+'</b></span>'
+          + '<span><span style="color:'+text2+'">→ закрытие</span> <span style="font-family:monospace;color:'+text1+'">'+sx+'</span></span>'
+          + '<b style="font-family:monospace;font-size:16px;color:'+dc+'">'+(delta>=0?'+':'')+delta.toFixed(3)+'%</b>'
+          + '</div>';
+      } else {
+        spreadHtml = '<div style="display:flex;gap:10px;padding:10px 0 0;font-size:12px;align-items:baseline">'
+          + '<span style="color:'+text2+'">Спред входа:</span>'
+          + '<b style="font-family:monospace;font-size:16px;color:'+text1+'">'+se+'</b>'
+          + '<span style="color:'+gold+';font-size:11px">● в позиции</span>'
+          + '</div>';
+      }
+    }
+
+    // Instrument rows
+    var legHtml = '';
+    for (var b in pos.legs) {
+      const leg = pos.legs[b];
+      const isFx = leg.platform === 'FX';
+      const platColor = isFx ? purple : blue;
+      const platBg = isFx ? 'rgba(167,139,250,.15)' : 'rgba(88,166,255,.15)';
+      const entry = isFx ? fxEntry : (mxAvg[b]?mxAvg[b].entry:0);
+      const exit  = isFx ? fxExit  : (mxAvg[b]?mxAvg[b].exit:0);
+      const isShort = leg.entry_direction==='Sell';
+      const dirLabel = isShort ? '▼ Шорт' : '▲ Лонг';
+      const dirColor = isShort ? red : green;
+      legHtml += '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid '+border+';font-size:12px;flex-wrap:wrap">'
+        + '<span style="font-size:10px;font-weight:700;border-radius:3px;padding:2px 7px;background:'+platBg+';color:'+platColor+'">'+leg.platform+'</span>'
+        + '<span style="font-weight:600;color:'+text1+'">'+leg.instrument+'</span>'
+        + '<span style="color:'+dirColor+';font-weight:700;font-size:11px">'+dirLabel+'</span>'
+        + '<span style="font-family:monospace;color:'+text2+'">'+fmtP(entry,isFx)+'</span>'
+        + (exit?'<span style="color:'+text2+'">→</span><span style="font-family:monospace;color:'+text1+'">'+fmtP(exit,isFx)+'</span>':'')
+        + '<span style="margin-left:auto;color:'+text2+';font-size:11px">'+leg.vol_in+'л</span>'
+        + '</div>';
+    }
+
+    html += '<div style="background:'+bg2+';border:1px solid '+border+';border-radius:10px;padding:16px 18px;margin-bottom:14px">'
+      // Header
+      + '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px">'
+      + '<div>'
+      + '<div style="font-size:15px;font-weight:800;color:'+text1+'">'+name+'</div>'
+      + '<div style="font-size:11px;color:'+text2+';margin-top:2px">'+pos.tag+'</div>'
+      + '</div>'
+      + '<div style="text-align:right;font-size:11px;color:'+text2+'">'
+      + daysStr+(daysCount>1?' · '+daysCount+' дн':'')
+      + '<span style="margin-left:8px;color:'+green+';font-size:10px;font-weight:600">✓ закрыта</span>'
+      + '</div></div>'
+      // Legs
+      + '<div style="margin-top:10px">'+legHtml+'</div>'
+      // Spread
+      + spreadHtml
+      + '</div>';
   });
 
-  html += '</div>';
-  root.insertAdjacentHTML('afterbegin', html);
+  if (html) {
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'margin-bottom:24px';
+    wrap.innerHTML = html;
+    root.insertBefore(wrap, root.firstChild);
+  }
 }
 
 function renderShowcase() {
