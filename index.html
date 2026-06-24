@@ -445,10 +445,10 @@
           <span class="section-badge" style="background:var(--bg3);color:var(--text2)" id="recon-badge">—</span>
         </div>
         <div class="section-actions" onclick="event.stopPropagation()">
-          <span class="chevron open" id="chevron-recon">▼</span>
+          <span class="chevron" id="chevron-recon">▼</span>
         </div>
       </div>
-      <div class="section-body" id="body-recon">
+      <div class="section-body collapsed" id="body-recon">
         <div id="recon-content" style="padding:4px 0"></div>
       </div>
     </div>
@@ -1038,8 +1038,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '24.06 22:01';
-const BUILD_DATE    = '24.06.2026 22:01 МСК';
+const BUILD_VERSION = '24.06 22:08';
+const BUILD_DATE    = '24.06.2026 22:08 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -3056,7 +3056,7 @@ function renderReconciliation() {
 
   // ── Карточка ──
   const card = (label, val, sub, color) =>
-    '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px 16px;flex:1 1 180px;min-width:180px">'
+    '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px 16px">'
     + '<div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">'+label+'</div>'
     + '<div style="font-size:18px;font-weight:700;font-family:monospace;color:'+(color||'var(--text)')+'">'+val+'</div>'
     + (sub?'<div style="font-size:10px;color:var(--text2);margin-top:3px">'+sub+'</div>':'')
@@ -3074,7 +3074,7 @@ function renderReconciliation() {
   // Блок 1: сверка P&L сделок vs отчёты
   if (closed.length || store.mx.length || store.fx.length) {
     html += '<div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">P&L сделок vs данные площадок</div>';
-    html += '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px">'
+    html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-bottom:8px">'
       + card('По сделкам (формула)', fmtRubLocal(tradePnlRub), closed.length+' закрытых конструкций', tradePnlRub>=0?'var(--green)':'var(--red)')
       + card('По отчётам площадок', fmtRubLocal(reportPnlRub), 'МХ '+fmtRubLocal(mxReportPnl)+' + FX '+fmtRubLocal(fxReportPnlRub), reportPnlRub>=0?'var(--green)':'var(--red)')
       + card('Сверка', (diff>=0?'+':'')+Math.round(diff).toLocaleString('ru')+' ₽', reconIcon+' ('+diffPct.toFixed(1)+'%)', reconColor)
@@ -3085,7 +3085,7 @@ function renderReconciliation() {
   // Блок 2: эффективность ребалансировок
   html += '<div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Эффективность ребалансировок MX ⇄ FX</div>';
   if (rebCount>0 || rebComm>0) {
-    html += '<div style="display:flex;gap:10px;flex-wrap:wrap">'
+    html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px">'
       + card('Переложено всего', Math.round(rebVolume).toLocaleString('ru')+' ₽', rebCount+' операций · MX→FX '+Math.round(rebToFx).toLocaleString('ru')+', FX→MX '+Math.round(rebToMx).toLocaleString('ru'), 'var(--text)')
       + card('Комиссии за перекладку', '−'+Math.round(rebComm).toLocaleString('ru')+' ₽', rebCommPct.toFixed(2)+'% от объёма', 'var(--red)')
       + card('Доля комиссий', rebCommPct.toFixed(2)+'%', 'чем меньше — тем эффективнее', rebCommPct<0.5?'var(--green)':rebCommPct<1?'var(--amber)':'var(--red)')
@@ -3101,8 +3101,7 @@ function renderReconciliation() {
   // Бейдж раздела
   const badge = document.getElementById('recon-badge');
   if (badge) {
-    if (closed.length) badge.textContent = reconIcon.replace('✓ ','✓').replace('⚠ ','⚠ ');
-    else badge.textContent = '—';
+    badge.textContent = closed.length ? (diffPct<2?'✓ сходится':diffPct<5?'⚠ ~'+diffPct.toFixed(0)+'%':'⚠ '+diffPct.toFixed(0)+'%') : '—';
   }
 }
 
