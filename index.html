@@ -1038,8 +1038,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '24.06 22:08';
-const BUILD_DATE    = '24.06.2026 22:08 МСК';
+const BUILD_VERSION = '24.06 22:10';
+const BUILD_DATE    = '24.06.2026 22:10 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -10369,6 +10369,11 @@ function renderOverviewTab(force) {
   const mxTotalRollover = hasMx ? mxDays.reduce((s,d)=>s+(d.rollover||0),0) : 0;
   const mxTotalFunding  = hasMx ? mxDays.reduce((s,d)=>s+(d.funding||0),0) : 0;
 
+  // Комиссия за ребалансировку MX⇄FX (из ручных операций)
+  const rebalanceComm = (store.manual||[])
+    .filter(m => m.type==='commission_rebalance')
+    .reduce((s,m) => s + Math.abs(parseFloat(m.amount)||0), 0);
+
   // Combined commissions
   const rate0 = currentRate?.value || 85;
   const totalCommRub = mxTotalComm + fxTotalComm * rate0;
@@ -10502,6 +10507,7 @@ function renderOverviewTab(force) {
       ${hasMx?statCard('Payout',mxTotalPayout,mxTotalPayout/rate0,'MX',mxTotalPayout>=0?'var(--green)':'var(--red)'):''}
       ${hasMx?statCard('Перенос',mxTotalRollover,mxTotalRollover/rate0,'MX',mxTotalRollover>=0?'var(--green)':'var(--red)'):''}
       ${hasMx?statCard('Фандинг',mxTotalFunding,mxTotalFunding/rate0,'MX',mxTotalFunding>=0?'var(--green)':'var(--red)'):''}
+      ${rebalanceComm>0?statCard('Ребалансировка',-Math.abs(rebalanceComm),-Math.abs(rebalanceComm)/rate0,'комиссия MX⇄FX','var(--red)'):''}
     </div>
     <!-- BALANCE CHARTS -->
     <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-bottom:14px" class="charts-grid">
