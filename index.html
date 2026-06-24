@@ -10971,11 +10971,10 @@ if (cached) {
 }
 fetchRate(); // async, updates bar when done
 autoFetchAllRates(); // фоновая подгрузка исторических курсов для всех дат
-// Hide rate bar and dashboard on initial load (journal tab is default)
+// Rate bar hidden initially; dashboard visible since overview is the default active tab
 const _rb = document.getElementById('rate-bar');
 if (_rb) { _rb.style.display = 'none'; _rb.style.marginBottom = '0'; }
-const _db = document.getElementById('main-dashboard');
-if (_db) { _db.style.display = 'none'; _db.style.marginBottom = '0'; }
+// main-dashboard остаётся видимым на старте — вкладка «Обзор» активна по умолчанию
 
 
 renderMXTable();
