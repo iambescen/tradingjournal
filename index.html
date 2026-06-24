@@ -342,6 +342,7 @@
   <div class="header">
     <h1>Торговый журнал</h1>
     <div class="header-right">
+      <span id="app-build" style="font-size:10px;color:var(--text2);opacity:.55;margin-right:8px;font-family:monospace;cursor:default" title="">—</span>
       <span id="header-rate" style="font-size:12px;color:var(--text2);margin-right:4px"></span>
       <button class="theme-toggle" onclick="saveToGithub()" title="Сохранить всё на GitHub" style="color:var(--blue);font-size:14px">☁</button>
       <button class="theme-toggle" onclick="loadFromGithub()" title="Загрузить с GitHub" style="color:var(--blue);font-size:14px">⬇</button>
@@ -1018,6 +1019,18 @@ function toggleTheme() {
 
 // ── Data store ──
 const STORE_KEY = 'trading_journal_v1';
+
+// ── Версия сборки (обновляется при каждом деплое) ──
+const BUILD_VERSION = '24.06 21:30';
+const BUILD_DATE    = '24.06.2026 21:30 МСК';
+function showBuildVersion() {
+  const el = document.getElementById('app-build');
+  if (!el) return;
+  el.textContent = 'v' + BUILD_VERSION;
+  el.title = 'Сборка ' + BUILD_DATE + ' · коммит ' + BUILD_VERSION;
+}
+document.addEventListener('DOMContentLoaded', showBuildVersion);
+setTimeout(showBuildVersion, 100);
 
 function loadStore() {
   try {
