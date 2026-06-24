@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782289520 -->
+<!-- v:1782289709 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -7,7 +7,7 @@
   <meta http-equiv="Pragma" content="no-cache">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Торговый журнал</title>
-  <!-- build:1782289520 -->
+  <!-- build:1782289709 -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
@@ -8952,6 +8952,26 @@ async function autoTagFromReports(date) {
   // Step 6: Create or update master positions
   positionsInit();
   window._exitVolumeUsed = {}; // reset exit volume tracking
+  
+  // Clean up any positions previously created for this exact date
+  // This ensures re-running autotag for same date produces correct results
+  store.positions = store.positions.filter(function(p) {
+    // Remove positions opened on this date (they'll be recreated)
+    if (p.opened_date === date || p.opened_date === dateISO2) return false;
+    // Remove positions that were created by previous autotag for this date
+    // (identified by having this date as their only day)
+    if (p.days && p.days.length === 1 && (p.days[0] === date || p.days[0] === dateISO2)) return false;
+    return true;
+  });
+  // Also reset processedDays for positions that include this date
+  store.positions.forEach(function(p) {
+    if (p.processedDays && p.processedDays.includes(date)) {
+      p.processedDays = p.processedDays.filter(function(d) { return d !== date && d !== dateISO2; });
+    }
+    if (p.processedDays && p.processedDays.includes(dateISO2)) {
+      p.processedDays = p.processedDays.filter(function(d) { return d !== date && d !== dateISO2; });
+    }
+  });
   const dateISO2 = normDate(date);
 
   // Process each detected construction
