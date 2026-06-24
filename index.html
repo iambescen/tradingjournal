@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782296395 -->
+<!-- v:1782297335 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -7,7 +7,7 @@
   <meta http-equiv="Pragma" content="no-cache">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Торговый журнал</title>
-  <!-- build:1782296395 -->
+  <!-- build:1782297335 -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
@@ -8756,19 +8756,11 @@ function checkAndClosePosition(pos, date) {
   if (!allClosed) return;
   pos.status = 'closed';
   pos.closed_date = date;
-  const rep = getMxReportForDate(date);
-  if (rep) {
-    var pnl = 0, seen = {};
-    for (var b in pos.legs) {
-      if (pos.legs[b].platform !== 'MX' || seen[b]) continue;
-      seen[b] = true;
-      var instr = (rep.instruments||[]).find(function(i){
-        return (i.name||'').replace(/[-_0-9.]/g,'').toUpperCase() === b;
-      });
-      if (instr) pnl += instr.pnl || 0;
-    }
-    pos.pnl_rub = pnl;
-  }
+  // P&L считаем через getPosMxPnlFull (по марже сделок), не из сводной таблицы PDF
+  // Сводная таблица показывает только комиссии для незакрытых позиций
+  var mxPF = getPosMxPnlFull(pos);
+  var mxPnl = Object.values(mxPF).reduce(function(s,x){return s+x.pnl;},0);
+  pos.pnl_rub = Math.round(mxPnl * 100) / 100;
   pos.pnl_usd = (pos.fx_trades||[]).reduce(function(s,t){return s+(t.net_pnl_usd||0);},0);
   console.log('[POS CLOSED]', pos.tag, 'pnl_rub:', pos.pnl_rub, 'pnl_usd:', pos.pnl_usd);
 }
