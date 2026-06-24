@@ -9869,15 +9869,17 @@ function renderAutoLj() {
         + '</span></div>';
 
       // ── Блок сверки с PDF ──
-      // Сверка: сравниваем (формула + комиссия) с PDF instr.pnl ПО ОДНИМ И ТЕМ ЖЕ ногам.
-      // PDF instr.pnl включает комиссию, поэтому к формуле тоже добавляем комиссию.
-      // Учитываем только ноги, закрытые в клиринге (где PDF margin != только комиссия).
-      var recFormula = 0, recPdf = 0, pdfAvailable = false;
+      // Сверка: сравниваем (формула + комиссия) с PDF instr.pnl ТОЛЬКО по якорным (не-хедж) ногам.
+      // CNY (хедж) исключаем: его PDF instr.pnl — общий на весь день по всем конструкциям,
+      // а формула делит его по якорю, поэтому посделочная сверка CNY в одной карточке невозможна
+      // (его формульная сумма по ВСЕМ конструкциям сверяется с общим PDF на уровне дня).
+      var recFormula = 0, recPdf = 0, pdfAvailable = false, hasHedge = false;
       (pos.days||[pos.closed_date||pos.opened_date]).forEach(function(d){
         var rep = getMxReportForDate(d);
         (rep && rep.instruments||[]).forEach(function(i){
           var ib=(i.name||'').replace(/[-_0-9.]/g,'').toUpperCase();
           if (!pos.legs[ib]) return;
+          if (HEDGE_BASES.includes(ib)) { hasHedge = true; return; } // CNY не сверяем здесь
           // закрыта в клиринге, если pnl заметно отличается от чистой комиссии
           if (Math.abs((i.pnl||0)-(i.commission||0))>0.01) {
             pdfAvailable = true;
@@ -9892,14 +9894,15 @@ function renderAutoLj() {
         var diffPct = Math.abs(recPdf)>1 ? Math.abs(diff/recPdf*100) : (Math.abs(diff)>1?100:0);
         var okColor = diffPct < 2 ? 'var(--green)' : (diffPct < 5 ? 'var(--orange,#e8a33d)' : 'var(--red)');
         var okIcon = diffPct < 2 ? '✓' : '⚠';
+        var hedgeNote = hasHedge ? ' <span style="color:var(--text2)">(CNY сверяется суммой по дню)</span>' : '';
         html += '<div style="font-size:10px;display:flex;justify-content:space-between;align-items:center;margin-top:4px;padding:3px 8px;background:var(--bg2);border-radius:4px;color:var(--text2)">'
-          + '<span>Сверка с PDF (закрытые в клиринге ноги, с комиссией):</span>'
+          + '<span>Сверка с PDF (якорные ноги, с комиссией):</span>'
           + '<span style="font-family:monospace">формула '+Math.round(recFormula)+' / PDF '+Math.round(recPdf)
-          + ' <span style="color:'+okColor+';font-weight:700">'+okIcon+' '+(diff>=0?'+':'')+Math.round(diff)+'₽ ('+diffPct.toFixed(1)+'%)</span></span>'
+          + ' <span style="color:'+okColor+';font-weight:700">'+okIcon+' '+(diff>=0?'+':'')+Math.round(diff)+'₽ ('+diffPct.toFixed(1)+'%)</span>'+hedgeNote+'</span>'
           + '</div>';
       } else {
         html += '<div style="font-size:10px;margin-top:4px;padding:3px 8px;background:var(--bg2);border-radius:4px;color:var(--text2)">'
-          + 'ℹ️ Расчёт по формуле (цены сделок). PDF-клиринг по CNY ещё не финализирован — сверка появится после закрытия позиции в клиринге.'
+          + 'ℹ️ Расчёт по формуле (цены сделок). PDF-клиринг по якорным ногам ещё не финализирован — сверка появится после закрытия в клиринге.'
           + '</div>';
       }
     }
