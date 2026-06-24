@@ -9051,24 +9051,59 @@ async function autoTagFromReports(date) {
   positionsInit();
   const dateISO2 = normDate(date);
 
-  // Process each detected construction
+  // Проход 1: собираем ВСЕ наборы в позиции (только entries), без применения exits.
+  // Это позволяет нескольким наборам одной конструкции (URF/CR1 набор 1+2)
+  // влиться в одну позицию до того как exits её закроют.
+  const touchedPositions = new Set();
   for (const { cluster, tag, set: setN } of sets) {
     const setMxRows = newRows.filter(r => r.platform==='MX' && r.tag===tag && r.set===setN);
     const setFxRows = newRows.filter(r => r.platform==='FX' && r.tag===tag && r.set===setN);
 
     let pos = findOpenPosition(tag);
     if (!pos) {
-      // New position — init from entry rows
+      // Новая позиция — инициализируем entries (без exits!)
       pos = createPosition(tag, date, setMxRows, setFxRows);
-      // Закрытие: CNY — это хедж-нога, она закрывается ТОЛЬКО вместе с якорной ногой
-      // (USDRUBF/CNYRUBF/Si/EU/UC). Если якорь закрыт на X% — CNY закрывается на X%.
-      // Это не даёт Short CNY 680 (закрытие URF/CRF) обнулить CNY в EU1/CR1 и CRF/CR1.
-      applyExitsToPosition(pos, sorted);
-      // Check if position is now closed
-      checkAndClosePosition(pos, date);
+    } else {
+      // Существующая открытая позиция — доливаем entries этого набора в legs
+      for (const r of setMxRows) {
+        const b = r.instrument.replace(/[-_0-9.]/g,'').toUpperCase();
+        if (!pos.legs[b]) {
+          pos.legs[b] = { platform:'MX', instrument:r.instrument, entry_direction:r.direction,
+                          net_volume:0, vol_in:0, vol_out:0 };
+        }
+        pos.legs[b].vol_in += r.volume;
+        pos.legs[b].net_volume += r.volume;
+      }
+      for (const r of setFxRows) {
+        const b = (r.instrument||'').replace(/[-_]/g,'').toUpperCase();
+        if (!pos.legs[b]) {
+          pos.legs[b] = { platform:'FX', instrument:r.instrument, entry_direction:r.direction,
+                          net_volume:0, vol_in:0, vol_out:0 };
+        }
+        pos.legs[b].vol_in += r.volume;
+        pos.legs[b].net_volume += r.volume;
+      }
+      if (!pos.days) pos.days = [];
+      if (!pos.days.includes(date)) pos.days.push(date);
+      // Доливаем FX trades этой даты для ног позиции
+      if (!pos.fx_trades) pos.fx_trades = [];
+      (store.fx||[]).forEach(function(t){
+        if (normDate(t.close_date||'') !== dateISO2) return;
+        const b = (t.instrument||'').replace(/[-_]/g,'').toUpperCase();
+        if (pos.legs[b] && !pos.fx_trades.find(x=>x.id===t.id)) pos.fx_trades.push(t);
+      });
     }
+    touchedPositions.add(pos);
     // Attach set info
     attachSetToPosition(pos, { set_n: setN, date, rows: [...setMxRows, ...setFxRows] });
+  }
+
+  // Проход 2: применяем exits ко всем затронутым позициям (по якорному принципу)
+  for (const pos of touchedPositions) {
+    applyExitsToPosition(pos, sorted);
+    if (!pos.processedDays) pos.processedDays = [];
+    if (!pos.processedDays.includes(date)) pos.processedDays.push(date);
+    checkAndClosePosition(pos, date);
   }
 
   // After all sets processed — run exits through existing (pre-existing) open positions
