@@ -1038,8 +1038,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '24.06 22:16';
-const BUILD_DATE    = '24.06.2026 22:16 МСК';
+const BUILD_VERSION = '24.06 22:24';
+const BUILD_DATE    = '24.06.2026 22:24 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -8592,7 +8592,7 @@ function _buildOverviewRoiDashboard(closedPositions) {
     return;
   }
 
-  // ── P&L по всем закрытым позициям (расчёт по формуле) ──
+  // ── P&L по всем закрытым позициям (расчёт по формуле) — торговый ──
   var totalPnl = 0;
   closedPositions.forEach(function(pos) {
     var fxRate = (pos.closed_date ? getRateForDate(normDate(pos.closed_date)) : rate) || rate;
@@ -8602,6 +8602,15 @@ function _buildOverviewRoiDashboard(closedPositions) {
     var tfx = fxTr.reduce(function(s,t){return s+(t.net_pnl_usd||0);},0)*fxRate;
     totalPnl += Math.round(tmx + tfx);
   });
+
+  // ── Прочие начисления → Общий P&L (как в карточке «Общий P&L») ──
+  var _payout   = store.mx.reduce(function(s,r){return s+(r.payout||0);},0);
+  var _rollover = store.mx.reduce(function(s,r){return s+(r.rollover||0);},0);
+  var _funding  = store.mx.reduce(function(s,r){return s+(r.funding||0);},0);
+  var _rebalance = (store.manual||[]).filter(function(m){return m.type==='commission_rebalance';})
+    .reduce(function(s,m){return s+(parseFloat(m.amount)||0);},0);
+  totalPnl += _payout + _rollover + _funding + _rebalance;
+
 
   // ── Период: от первой сделки до сегодня ──
   var allDates = [];
@@ -8621,7 +8630,7 @@ function _buildOverviewRoiDashboard(closedPositions) {
 
   // ── Заполнить верхний дашборд (главная цель) ──
   if (aEl) { aEl.textContent = (annual>=0?'+':'')+Math.round(annual)+'%'; aEl.style.color = gc; }
-  if (aSubEl) { aSubEl.textContent = (roi>=0?'+':'')+roi.toFixed(2)+'% за '+periodDays+' дн.'; }
+  if (aSubEl) { aSubEl.textContent = (roi>=0?'+':'')+roi.toFixed(2)+'% от общего P&L · '+periodDays+' дн.'; }
 
   // ── Опционально: подробные карточки, если контейнер существует ──
   var cardsEl = document.getElementById('ov-roi-cards');
@@ -10326,8 +10335,15 @@ function renderOverviewTab(force) {
     .filter(m => m.type==='commission_rebalance')
     .reduce((s,m) => s + (parseFloat(m.amount)||0), 0);
 
-  // Combined P&L (days where both have data with RUB conversion) + ребалансировка
-  const combinedPnlRub = mxTotalPnl + fxTotalPnlRub + rebalanceComm;
+  // Доп. начисления MX (payout / перенос / фандинг) — нужны для Общего P&L
+  const _mxPayout   = hasMx ? mxDays.reduce((s,d)=>s+(d.payout||0),0) : 0;
+  const _mxRollover = hasMx ? mxDays.reduce((s,d)=>s+(d.rollover||0),0) : 0;
+  const _mxFunding  = hasMx ? mxDays.reduce((s,d)=>s+(d.funding||0),0) : 0;
+
+  // Торговый P&L — чистый результат торговли MX + FX + ребалансировка
+  const tradingPnlRub = mxTotalPnl + fxTotalPnlRub + rebalanceComm;
+  // Общий P&L — торговый + все прочие начисления (payout, перенос, фандинг)
+  const combinedPnlRub = tradingPnlRub + _mxPayout + _mxRollover + _mxFunding;
 
   // ── Sharpe / Sortino ─────────────────────────────────────────
   const _mean = arr => arr.length ? arr.reduce((s,v)=>s+v,0)/arr.length : 0;
@@ -10370,9 +10386,9 @@ function renderOverviewTab(force) {
   })();
 
   // MX extra fields (payout, rollover/перенос, funding)
-  const mxTotalPayout   = hasMx ? mxDays.reduce((s,d)=>s+(d.payout||0),0) : 0;
-  const mxTotalRollover = hasMx ? mxDays.reduce((s,d)=>s+(d.rollover||0),0) : 0;
-  const mxTotalFunding  = hasMx ? mxDays.reduce((s,d)=>s+(d.funding||0),0) : 0;
+  const mxTotalPayout   = _mxPayout;
+  const mxTotalRollover = _mxRollover;
+  const mxTotalFunding  = _mxFunding;
 
   // Combined commissions
   const rate0 = currentRate?.value || 85;
@@ -10487,7 +10503,8 @@ function renderOverviewTab(force) {
 
     <!-- STAT CARDS ROW 1: Ключевые результаты -->
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
-      ${(hasMx&&hasFx)?statCard('Общий P&L',combinedPnlRub,combinedPnlRub/rate0,'МХ + FX',combinedPnlRub>=0?'var(--green)':'var(--red)'):''}
+      ${(hasMx||hasFx)?statCard('Общий P&L',combinedPnlRub,combinedPnlRub/rate0,'торговый + начисления',combinedPnlRub>=0?'var(--green)':'var(--red)'):''}
+      ${(hasMx&&hasFx)?statCard('Торговый P&L',tradingPnlRub,tradingPnlRub/rate0,'МХ + FX + ребаланс',tradingPnlRub>=0?'var(--green)':'var(--red)'):''}
       ${hasMx?statCard('P&L МХ',mxTotalPnl,mxTotalPnl/rate0,'Moex',mxTotalPnl>=0?'var(--green)':'var(--red)'):''}
       ${hasFx?statCard('P&L FX',fxTotalPnlRub||0,fxTotalPnlUsd,'Forex',fxTotalPnlUsd>=0?'var(--green)':'var(--red)'):''}
       ${(hasMx||hasFx)?statCard('Средний день',combinedAvgDay,combinedAvgDay/rate0,allDaysCount+' торг. дней',combinedAvgDay>=0?'var(--green)':'var(--red)'):''}
