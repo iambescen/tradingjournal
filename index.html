@@ -8689,7 +8689,7 @@ function createPosition(tag, date, entryRows, fxRows) {
 
 // Обновить позицию новыми сделками из PDF
 // allMxTrades — все сделки МХ за день (включая выходы)
-function updatePositionWithDay(pos, date, allMxTrades, fxTrades, exitVolUsed) {
+function updatePositionWithDay(pos, date, allMxTrades, fxTrades, exitVolUsed, exitsOnly) {
   // Guard: don't process same day twice
   if (!pos.days) pos.days = [];
   if (!pos.processedDays) pos.processedDays = [];
@@ -8701,9 +8701,9 @@ function updatePositionWithDay(pos, date, allMxTrades, fxTrades, exitVolUsed) {
   // (e.g. Short CNY 680 closing URF/CRF) from also reducing other positions (EU1/CR1, CRF/CR1)
   if (!exitVolUsed) exitVolUsed = {};
 
-  // Process ALL MX trades (entries AND exits) for this day
-  // For entries: increase net_volume
-  // For exits: decrease net_volume, but respect exitVolUsed tracker
+  // Process MX trades for this day
+  // exitsOnly=true: only apply exits (used for pre-existing positions to avoid
+  // accumulating foreign entry trades in vol_in)
   for (const t of allMxTrades) {
     const b = (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
     if (!pos.legs[b]) continue;
@@ -8714,6 +8714,7 @@ function updatePositionWithDay(pos, date, allMxTrades, fxTrades, exitVolUsed) {
       : (t.direction === 'Long');
     const vol = Math.abs(t.volume||0);
     if (isEntry) {
+      if (exitsOnly) continue; // не накапливаем чужие entries
       leg.vol_in += vol;
       leg.net_volume += vol;
     } else {
@@ -8993,12 +8994,18 @@ async function autoTagFromReports(date) {
     attachSetToPosition(pos, { set_n: setN, date, rows: [...setMxRows, ...setFxRows] });
   }
 
-  // After all sets processed — run trades through existing (pre-existing) open positions
+  // After all sets processed — run exits through existing (pre-existing) open positions
+  // Важно: передаём только exit-сделки, а не все сделки по инструменту.
+  // Иначе entry-сделки из других конструкций (CRF/CR1, URF/CRF) накапливаются
+  // в vol_in позиций ERF/CRF, SI1/CR1 и т.д.
   for (const pos of store.positions.filter(p => p.status === 'open')) {
-    // Get all MX trades for instruments in this position
-    const allMxForPos = sorted.filter(t => {
+    // Только exits для инструментов этой позиции (противоположное entry_direction)
+    const exitMxForPos = sorted.filter(t => {
       const b = (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
-      return pos.legs[b] !== undefined;
+      if (!pos.legs[b]) return false;
+      const leg = pos.legs[b];
+      const entryIsShort = leg.entry_direction === 'Sell';
+      return entryIsShort ? t.direction === 'Long' : t.direction === 'Short';
     });
     // FX trades for this position
     const fxForPos = (store.fx||[]).filter(t => {
@@ -9006,8 +9013,8 @@ async function autoTagFromReports(date) {
       const b = (t.instrument||'').replace(/[-_]/g,'').toUpperCase();
       return pos.legs[b] !== undefined;
     });
-    if (allMxForPos.length > 0 || fxForPos.length > 0) {
-      updatePositionWithDay(pos, date, allMxForPos, fxForPos, exitVolUsed);
+    if (exitMxForPos.length > 0 || fxForPos.length > 0) {
+      updatePositionWithDay(pos, date, exitMxForPos, fxForPos, exitVolUsed, true);
       checkAndClosePosition(pos, date);
     } else {
       // No trades for this position today — still check if closed
