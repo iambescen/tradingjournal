@@ -88,19 +88,19 @@
   .theme-toggle:hover { color: var(--text); border-color: var(--blue); }
 
   /* Dashboard */
-  .dashboard { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 28px; }
-  .card { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px; box-shadow: var(--shadow); }
-  .card .label { font-size: 12px; color: var(--text2); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
-  .card .label .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .dashboard { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin-bottom: 24px; }
+  .card { background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; padding: 12px 16px; box-shadow: none; }
+  .card .label { font-size: 10px; color: var(--text2); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
+  .card .label .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
   .dot-mx { background: var(--blue); }
   .dot-fx { background: var(--purple); }
   .dot-total { background: var(--green); }
-  .card .value { font-size: 26px; font-weight: 700; letter-spacing: -0.5px; }
+  .card .value { font-size: 17px; font-weight: 700; letter-spacing: -0.3px; font-family: monospace; }
   .card .value.rub { color: var(--blue); }
   .card .value.usd { color: var(--purple); }
   .card .value.total { color: var(--green); }
-  .card .meta { font-size: 12px; color: var(--text2); margin-top: 6px; }
-  .card .pnl { font-size: 13px; font-weight: 600; margin-top: 4px; }
+  .card .meta { font-size: 10px; color: var(--text2); margin-top: 3px; }
+  .card .pnl { font-size: 11px; font-weight: 600; margin-top: 3px; }
   .pnl.pos { color: var(--green); }
   .pnl.neg { color: var(--red); }
 
@@ -403,25 +403,25 @@
       <div class="label"><span class="dot dot-mx"></span>MX</div>
       <div class="value rub" id="dash-mx-balance">— р.</div>
       <div class="card-convert" id="dash-mx-convert"></div>
-      <div id="dash-mx-source" style="font-size:11px;color:var(--text2);margin-top:6px;"></div>
+      <div id="dash-mx-source" style="font-size:10px;color:var(--text2);margin-top:3px"></div>
     </div>
     <div class="card">
       <div class="label"><span class="dot dot-fx"></span>FX</div>
       <div class="value usd" id="dash-fx-balance">— USDT</div>
       <div class="card-convert" id="dash-fx-convert"></div>
-      <div id="dash-fx-source" style="font-size:11px;color:var(--text2);margin-top:6px;"></div>
-      <div id="dash-fx-ref" style="margin-top:6px;font-size:11px;"></div>
+      <div id="dash-fx-source" style="font-size:10px;color:var(--text2);margin-top:3px"></div>
+      <div id="dash-fx-ref" style="margin-top:3px;font-size:10px"></div>
     </div>
     <div class="card">
       <div class="label"><span class="dot dot-total"></span>Итого</div>
       <div class="value total" id="dash-total-pnl">—</div>
       <div class="card-convert" style="font-size:12px;color:var(--text2);margin-top:3px" id="dash-total-sub"></div>
-      <div id="dash-period" style="font-size:11px;color:var(--text2);margin-top:6px;"></div>
+      <div id="dash-period" style="font-size:10px;color:var(--text2);margin-top:3px"></div>
     </div>
     <div class="card">
       <div class="label">% годовых</div>
       <div class="value" id="dash-annual-yield" style="color:var(--green)">—</div>
-      <div id="dash-annual-sub" style="font-size:11px;color:var(--text2);margin-top:6px;"></div>
+      <div id="dash-annual-sub" style="font-size:10px;color:var(--text2);margin-top:3px"></div>
     </div>
   </div>
 
@@ -1021,8 +1021,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '24.06 21:30';
-const BUILD_DATE    = '24.06.2026 21:30 МСК';
+const BUILD_VERSION = '24.06 21:35';
+const BUILD_DATE    = '24.06.2026 21:35 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
