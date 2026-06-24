@@ -449,7 +449,7 @@
         </div>
       </div>
       <div class="section-body collapsed" id="body-recon">
-        <div id="recon-content" style="padding:4px 0"></div>
+        <div id="recon-content" style="padding:18px 20px 20px"></div>
       </div>
     </div>
 
@@ -1038,8 +1038,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '24.06 22:10';
-const BUILD_DATE    = '24.06.2026 22:10 МСК';
+const BUILD_VERSION = '24.06 22:12';
+const BUILD_DATE    = '24.06.2026 22:12 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -3083,7 +3083,7 @@ function renderReconciliation() {
   }
 
   // Блок 2: эффективность ребалансировок
-  html += '<div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Эффективность ребалансировок MX ⇄ FX</div>';
+  html += '<div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;padding-top:8px;border-top:1px solid var(--border)">Эффективность ребалансировок MX ⇄ FX</div>';
   if (rebCount>0 || rebComm>0) {
     html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px">'
       + card('Переложено всего', Math.round(rebVolume).toLocaleString('ru')+' ₽', rebCount+' операций · MX→FX '+Math.round(rebToFx).toLocaleString('ru')+', FX→MX '+Math.round(rebToMx).toLocaleString('ru'), 'var(--text)')
