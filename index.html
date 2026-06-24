@@ -8963,7 +8963,8 @@ async function autoTagFromReports(date) {
       // New position — init from entry rows
       pos = createPosition(tag, date, setMxRows, setFxRows);
       // Process exits for this day immediately (entries already in createPosition)
-      // Используем exitVolUsed чтобы не применять один и тот же exit к нескольким позициям
+      // Ограничиваем exits объёмом vol_in каждой ноги — чтобы Short CNY 680 (URF/CRF)
+      // не "перетекал" в CRF/CR1 у которой CNY vol_in=50
       const exitTrades = sorted.filter(t => {
         const b = (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
         if (!pos.legs[b]) return false;
@@ -8972,16 +8973,19 @@ async function autoTagFromReports(date) {
         return entryIsShort ? t.direction === 'Long' : t.direction === 'Short';
       });
       if (exitTrades.length) {
+        // Per-position tracker: каждая нога может получить exits не более vol_in
+        const posExitUsed = {};
         for (const t of exitTrades) {
           const b = (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
           const leg = pos.legs[b];
           if (!leg) continue;
           const totalVol = Math.abs(t.volume||0);
-          const alreadyUsed = exitVolUsed[b] || 0;
+          const alreadyUsed = posExitUsed[b] || 0;
           const available = Math.max(0, totalVol - alreadyUsed);
           const reduce = Math.min(available, leg.net_volume);
           if (reduce <= 0) continue;
-          exitVolUsed[b] = alreadyUsed + reduce;
+          posExitUsed[b] = alreadyUsed + reduce;
+          exitVolUsed[b] = (exitVolUsed[b] || 0) + reduce; // обновляем глобальный тоже
           leg.vol_out += reduce;
           leg.net_volume -= reduce;
           if (leg.net_volume < 0.001) leg.net_volume = 0;
@@ -8995,9 +8999,9 @@ async function autoTagFromReports(date) {
   }
 
   // After all sets processed — run exits through existing (pre-existing) open positions
-  // Важно: передаём только exit-сделки, а не все сделки по инструменту.
-  // Иначе entry-сделки из других конструкций (CRF/CR1, URF/CRF) накапливаются
-  // в vol_in позиций ERF/CRF, SI1/CR1 и т.д.
+  // Важно: каждая позиция трекает свой exitVolUsed независимо (per-position),
+  // иначе Short CNY 680 (закрытие URF/CRF) "съедает" квоту exits для EU1/CR1 и CRF/CR1.
+  // Глобальный exitVolUsed нужен только внутри блока createPosition выше.
   for (const pos of store.positions.filter(p => p.status === 'open')) {
     // Только exits для инструментов этой позиции (противоположное entry_direction)
     const exitMxForPos = sorted.filter(t => {
@@ -9014,7 +9018,9 @@ async function autoTagFromReports(date) {
       return pos.legs[b] !== undefined;
     });
     if (exitMxForPos.length > 0 || fxForPos.length > 0) {
-      updatePositionWithDay(pos, date, exitMxForPos, fxForPos, exitVolUsed, true);
+      // Per-position exitVolUsed: ограничиваем exits объёмом vol_in каждой ноги
+      const posExitVolUsed = {};
+      updatePositionWithDay(pos, date, exitMxForPos, fxForPos, posExitVolUsed, true);
       checkAndClosePosition(pos, date);
     } else {
       // No trades for this position today — still check if closed
