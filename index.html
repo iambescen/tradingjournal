@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782236857 -->
+<!-- v:1782288118 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -7,7 +7,7 @@
   <meta http-equiv="Pragma" content="no-cache">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Торговый журнал</title>
-  <!-- build:1782236857 -->
+  <!-- build:1782288118 -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
@@ -8458,8 +8458,9 @@ function splitIntoSets(trades, gapMin) {
 }
 
 function splitMixedCluster(cl) {
-  // If cluster has both SI and EU — split by which main instr appears first
-  const main = ['SI','EU','UC','ED','GD','SV','PT','PD'];
+  // Split cluster by leading instrument — each main instrument starts a new sub-cluster
+  // USDRUBF/CNYRUBF are also "main" — they define their own construction
+  const main = ['SI','EU','UC','UCNY','ED','GD','SV','PT','PD','USDRUBF','CNYRUBF','EURRUBF'];
   const s = [...cl].sort((a,b) => timeToMs(a.time) - timeToMs(b.time));
   const seen = [];
   for (const t of s) {
@@ -8529,8 +8530,20 @@ function detectConstructionByVolumes(cl, cr) {
       return 'ERF/CRF/EURCNH';
     return 'ERF/CRF/EURCNH';
   }
+  // USDRUBF + CNYRUBF (вечники обоих)
   if (bases.includes('USDRUBF') && bases.includes('CNYRUBF'))
     return 'URF/CRF/USDCNH';
+  // USDRUBF + CR/CNY (вечник USD + квартальный юань)
+  if (bases.includes('USDRUBF') && crKey && !bases.includes('CNYRUBF')) {
+    return 'URF/CR' + q(byI[crKey].instr) + '/USDCNH';
+  }
+  // CNYRUBF + CR/CNY (вечник юаня + квартальный юань — спред CNY)
+  if (bases.includes('CNYRUBF') && crKey && !bases.includes('USDRUBF')) {
+    return 'CRF/CR' + q(byI[crKey].instr);
+  }
+  // UCNY (UC quarterly) — двуногая с USDCNH
+  if (bases.includes('UCNY'))
+    return 'UCNY' + q(byI['UCNY'].instr) + '/USDCNH';
   // UC
   if (bases.includes('UC'))
     return 'UC' + q(byI['UC'].instr) + '/USDCNH';
@@ -8553,6 +8566,20 @@ const FX_FOR_TAG = {
   USDCNH: 'USDCNH', EURCNH: 'EURCNH', EURUSD: 'EURUSD',
   XAUUSD: 'XAUUSD', XAGUSD: 'XAGUSD', XPTUSD: 'XPTUSD', XPDUSD: 'XPDUSD',
 };
+// Tags that use USDCNH on FX side
+const TAG_FX_INSTR = {
+  'USDCNH': 'USDCNH',
+  'EURCNH': 'EURCNH',
+  'EURUSD': 'EURUSD',
+};
+function getFxInstrForTag(tag) {
+  if (!tag) return null;
+  if (tag.includes('EURCNH') || tag.includes('EURUSD') && tag.includes('ERF')) return 'EURCNH';
+  if (tag.includes('EURUSD') || tag.includes('ED')) return 'EURUSD';
+  if (tag.includes('XAUUSD')) return 'XAUUSD';
+  if (tag.includes('XAGUSD')) return 'XAGUSD';
+  return 'USDCNH'; // default: USDCNH for USD/CNY constructions
+}
 
 function showAutoTagDialog() {
   const dates = store.mx.map(r => r.date).filter(Boolean);
@@ -9400,13 +9427,30 @@ function renderAutoLj() {
         if (xp('EURRUBF')&&xp('CNYRUBF')&&fxExit)
           exitSpread  = ((xp('EURRUBF')/xp('CNYRUBF'))/fxExit  - 1)*100;
 
-      // URF/CRF/USDCNH: вечники без деления
-      } else if (tag.indexOf('URF')>=0) {
+      // URF/CRF/USDCNH: USDRUBF + CNYRUBF (вечники)
+      } else if (tag.indexOf('URF')>=0 && tag.indexOf('CRF')>=0) {
         if (ep('USDRUBF')&&ep('CNYRUBF')&&fxEntry)
           entrySpread = ((ep('USDRUBF')/ep('CNYRUBF'))/fxEntry - 1)*100;
         if (xp('USDRUBF')&&xp('CNYRUBF')&&fxExit)
           exitSpread  = ((xp('USDRUBF')/xp('CNYRUBF'))/fxExit  - 1)*100;
+      // URF/CR: USDRUBF + квартальный CNY
+      } else if (tag.indexOf('URF')>=0 && tag.indexOf('CR')>=0) {
+        if (ep('USDRUBF')&&ep('CNY')&&fxEntry)
+          entrySpread = (ep('USDRUBF')/ep('CNY')/fxEntry - 1)*100;
+        if (xp('USDRUBF')&&xp('CNY')&&fxExit)
+          exitSpread  = (xp('USDRUBF')/xp('CNY')/fxExit  - 1)*100;
+      // CRF/CR: CNYRUBF + квартальный CNY (спред на юань, FX нет)
+      } else if (tag.indexOf('CRF')>=0 && tag.indexOf('CR')>=0) {
+        // Спред = CNYRUBF / CNY - 1 (без FX)
+        if (ep('CNYRUBF')&&ep('CNY'))
+          entrySpread = (ep('CNYRUBF')/ep('CNY') - 1)*100;
+        if (xp('CNYRUBF')&&xp('CNY'))
+          exitSpread  = (xp('CNYRUBF')/xp('CNY') - 1)*100;
 
+      // CRF/CR: CNYRUBF + квартальный CNY
+      } else if (tag.indexOf('CRF')>=0 && tag.indexOf('CR')>=0 && !tag.indexOf('URF')>=0) {
+        if (ep('CNYRUBF')&&ep('CNY')) entrySpread = (ep('CNYRUBF')/ep('CNY') - 1)*100;
+        if (xp('CNYRUBF')&&xp('CNY')) exitSpread  = (xp('CNYRUBF')/xp('CNY') - 1)*100;
       // UC/USDCNH: UC = USD/CNH фьючерс, цена в CNH за USD → без деления
       } else if (tag.indexOf('UC')>=0) {
         if (ep('UC')&&fxEntry) entrySpread = (ep('UC')/fxEntry - 1)*100;
