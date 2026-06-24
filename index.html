@@ -8458,12 +8458,35 @@ function splitIntoSets(trades, gapMin) {
 }
 
 function splitMixedCluster(cl) {
-  // isPerpPair: EURRUBF+CNYRUBF не разбиваются никогда
-  const bases = cl.map(t => t.instrument.replace(/[-_0-9.]/g,'').toUpperCase());
-  if (bases.includes('EURRUBF') && bases.includes('CNYRUBF')) return [cl];
+  // isPerpPair: EURRUBF+CNYRUBF не разбиваются никогда (это одна конструкция ERF/CRF)
+  const allBases = cl.map(t => t.instrument.replace(/[-_0-9.]/g,'').toUpperCase());
+  if (allBases.includes('EURRUBF') && allBases.includes('CNYRUBF')) return [cl];
+
+  // Разделение URF/CR1 vs CRF/CR1: если в кластере и USDRUBF, и CNYRUBF —
+  // это две разные конструкции (USDRUBF+CNY и CNYRUBF+CNY), идущие вперемешку.
+  // Разбиваем по перп-якорю: CNY следует за ближайшим предшествующим якорем.
+  if (allBases.includes('USDRUBF') && allBases.includes('CNYRUBF')) {
+    const sorted = [...cl].sort((a,b) => timeToMs(a.time) - timeToMs(b.time));
+    const perpAnchors = ['USDRUBF','CNYRUBF'];
+    const subs = { USDRUBF: [], CNYRUBF: [] };
+    let cur = null;
+    for (const t of sorted) {
+      const b = t.instrument.replace(/[-_0-9.]/g,'').toUpperCase();
+      if (perpAnchors.includes(b)) { cur = b; subs[cur].push(t); continue; }
+      // CNY и прочие ноги (USDCNH FX) идут к текущему якорю
+      if (!cur) cur = 'USDRUBF'; // если CNY раньше якоря — к USDRUBF по умолчанию
+      subs[cur].push(t);
+    }
+    const out = [];
+    if (subs.USDRUBF.length) out.push(subs.USDRUBF);
+    if (subs.CNYRUBF.length) out.push(subs.CNYRUBF);
+    // Рекурсивно прогоняем под-кластеры (вдруг внутри ещё SI/EU)
+    return out.flatMap(sub => splitMixedCluster(sub));
+  }
 
   // If cluster has both SI and EU — split by which main instr appears first
   // UCNY added as alias for UC (UCNY-9.26 парсится как UCNY)
+  const bases = allBases;
   const main = ['SI','EU','UC','UCNY','ED','GD','SV','PT','PD'];
   const s = [...cl].sort((a,b) => timeToMs(a.time) - timeToMs(b.time));
   const seen = [];
@@ -8535,18 +8558,24 @@ function detectConstructionByVolumes(cl, cr) {
   if (bases.includes('EURRUBF') && bases.includes('CNYRUBF')) {
     return 'ERF/CRF/EURCNH';
   }
-  // USDRUBF + CNYRUBF (URF/CRF — с FX USDCNH)
-  // Важно: CNYRUBF может быть одновременно в URF/CRF и CRF/CR1.
-  // Трекер _exitVolumeUsed предотвращает двойной учёт.
-  if (bases.includes('USDRUBF') && bases.includes('CNYRUBF'))
+  // URF/CR1 — USDRUBF + CNY-9.26 (вечник + квартал) + USDCNH
+  // Срабатывает когда есть CNY (квартал), но НЕТ CNYRUBF в кластере
+  if (bases.includes('USDRUBF') && crKey && !bases.includes('CNYRUBF')) {
+    return 'URF/CR' + q(byI[crKey].instr) + '/USDCNH';
+  }
+  // URF/CRF — USDRUBF + CNYRUBF (два вечника) + USDCNH
+  if (bases.includes('USDRUBF') && bases.includes('CNYRUBF') && !crKey)
     return 'URF/CRF/USDCNH';
-  // CRF/CR1 — CNYRUBF Short + CNY/CR Long (без FX ноги)
-  // Срабатывает только если нет USDRUBF и EURRUBF в том же кластере
+  // CRF/CR1 — CNYRUBF + CNY/CR (вечник + квартал, без FX ноги)
+  // Срабатывает когда есть CNYRUBF + CNY, но НЕТ USDRUBF/EURRUBF
   if (bases.includes('CNYRUBF') && crKey &&
       !bases.includes('USDRUBF') && !bases.includes('EURRUBF')) {
     const crqInstr = byI[crKey].instr;
     return 'CRF/CR' + q(crqInstr);
   }
+  // URF/CRF fallback (USDRUBF + CNYRUBF + CNY одновременно — если splitMixedCluster не разделил)
+  if (bases.includes('USDRUBF') && bases.includes('CNYRUBF'))
+    return 'URF/CRF/USDCNH';
   // UC / UCNY → USDCNH
   if (ucKey)
     return 'UC' + q(byI[ucKey].instr) + '/USDCNH';
@@ -8790,6 +8819,80 @@ function checkAndClosePosition(pos, date) {
   console.log('[POS CLOSED]', pos.tag, 'pnl_rub:', pos.pnl_rub, 'pnl_usd:', pos.pnl_usd);
 }
 
+// Применяет exits к позиции с учётом "якорной" ноги.
+// Якорь = основная нога конструкции (первая в теге): USDRUBF для URF/CRF,
+// CNYRUBF для CRF/CR1, Si для SI1/CR1, EU для EU1/CR1 и т.д.
+// Остальные MX-ноги (хеджи: CNY, в URF/CRF также CNYRUBF) закрываются ПРОПОРЦИОНАЛЬНО якорю.
+// Якорь закрывается напрямую по своему exit-объёму.
+// Это не даёт Short CNY 680 (закрытие URF/CRF) обнулить CNY в EU1/CR1 и CRF/CR1.
+function applyExitsToPosition(pos, sorted) {
+  // exit-объём по ноге из sorted (противоположное entry_direction), огранич. vol_in
+  function exitVolForLeg(b, leg) {
+    const entryIsShort = leg.entry_direction === 'Sell';
+    let vol = 0;
+    for (const t of sorted) {
+      const tb = (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
+      if (tb !== b) continue;
+      const isExit = entryIsShort ? t.direction === 'Long' : t.direction === 'Short';
+      if (isExit) vol += Math.abs(t.volume||0);
+    }
+    return Math.min(vol, leg.vol_in);
+  }
+
+  // Якорная нога = первая база из тега, которая есть среди MX-ног.
+  // tag вида 'URF/CRF/USDCNH', 'CRF/CR1', 'SI1/CR1/USDCNH', 'EU1/CR1/EURCNH'
+  const TAG_TO_BASE = {
+    'URF':'USDRUBF', 'CRF':'CNYRUBF', 'ERF':'EURRUBF',
+    'SI1':'SI', 'SI2':'SI', 'EU1':'EU', 'EU2':'EU',
+    'ED1':'ED', 'ED2':'ED', 'UC1':'UCNY', 'UC2':'UCNY',
+    'CR1':'CNY', 'CR2':'CNY',
+  };
+  const mxBases = Object.keys(pos.legs).filter(b => pos.legs[b].platform === 'MX');
+  const tagParts = (pos.tag||'').split('/');
+  let anchorBase = null;
+  for (const part of tagParts) {
+    const base = TAG_TO_BASE[part];
+    if (base && pos.legs[base] && pos.legs[base].platform === 'MX') { anchorBase = base; break; }
+  }
+  // Фолбэк: если якорь не определён — берём первую не-CNY MX-ногу
+  if (!anchorBase) anchorBase = mxBases.find(b => b !== 'CNY') || mxBases[0] || null;
+
+  // 1) Закрываем якорь напрямую
+  let anchorRatio = 1; // если якоря нет — закрываем хеджи напрямую
+  if (anchorBase) {
+    const leg = pos.legs[anchorBase];
+    const exitVol = exitVolForLeg(anchorBase, leg);
+    const reduce = Math.min(exitVol, leg.net_volume);
+    if (reduce > 0) {
+      leg.vol_out += reduce;
+      leg.net_volume -= reduce;
+      if (leg.net_volume < 0.001) leg.net_volume = 0;
+    }
+    anchorRatio = leg.vol_in > 0 ? leg.vol_out / leg.vol_in : 0;
+  }
+
+  // 2) Остальные MX-ноги (хеджи) закрываются пропорционально якорю
+  for (const b of mxBases) {
+    if (b === anchorBase) continue;
+    const leg = pos.legs[b];
+    let reduce;
+    if (anchorBase) {
+      // Пропорция якоря, но не больше реального exit-объёма этой ноги
+      const targetOut = leg.vol_in * anchorRatio;
+      const wanted = Math.max(0, targetOut - leg.vol_out);
+      const availableExit = exitVolForLeg(b, leg);
+      reduce = Math.min(wanted, availableExit, leg.net_volume);
+    } else {
+      reduce = Math.min(exitVolForLeg(b, leg), leg.net_volume);
+    }
+    if (reduce > 0) {
+      leg.vol_out += reduce;
+      leg.net_volume -= reduce;
+      if (leg.net_volume < 0.001) leg.net_volume = 0;
+    }
+  }
+}
+
 // Attach a set to position
 function attachSetToPosition(pos, setInfo) {
   if (!pos.sets) pos.sets = [];
@@ -8948,11 +9051,6 @@ async function autoTagFromReports(date) {
   positionsInit();
   const dateISO2 = normDate(date);
 
-  // Трекер использованных объёмов exits за день по инструменту.
-  // Нужен чтобы одна сделка закрытия (напр. Short CNY 680 = закрытие URF/CRF)
-  // не засчитывалась как exit сразу для нескольких позиций (EU1/CR1, CRF/CR1 и др.)
-  const exitVolUsed = {}; // { instrBase: totalVolAlreadyUsedAsExit }
-
   // Process each detected construction
   for (const { cluster, tag, set: setN } of sets) {
     const setMxRows = newRows.filter(r => r.platform==='MX' && r.tag===tag && r.set===setN);
@@ -8962,35 +9060,10 @@ async function autoTagFromReports(date) {
     if (!pos) {
       // New position — init from entry rows
       pos = createPosition(tag, date, setMxRows, setFxRows);
-      // Process exits for this day immediately (entries already in createPosition)
-      // Ограничиваем exits объёмом vol_in каждой ноги — чтобы Short CNY 680 (URF/CRF)
-      // не "перетекал" в CRF/CR1 у которой CNY vol_in=50
-      const exitTrades = sorted.filter(t => {
-        const b = (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
-        if (!pos.legs[b]) return false;
-        const leg = pos.legs[b];
-        const entryIsShort = leg.entry_direction === 'Sell';
-        return entryIsShort ? t.direction === 'Long' : t.direction === 'Short';
-      });
-      if (exitTrades.length) {
-        // Per-position tracker: каждая нога может получить exits не более vol_in
-        const posExitUsed = {};
-        for (const t of exitTrades) {
-          const b = (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
-          const leg = pos.legs[b];
-          if (!leg) continue;
-          const totalVol = Math.abs(t.volume||0);
-          const alreadyUsed = posExitUsed[b] || 0;
-          const available = Math.max(0, totalVol - alreadyUsed);
-          const reduce = Math.min(available, leg.net_volume);
-          if (reduce <= 0) continue;
-          posExitUsed[b] = alreadyUsed + reduce;
-          exitVolUsed[b] = (exitVolUsed[b] || 0) + reduce; // обновляем глобальный тоже
-          leg.vol_out += reduce;
-          leg.net_volume -= reduce;
-          if (leg.net_volume < 0.001) leg.net_volume = 0;
-        }
-      }
+      // Закрытие: CNY — это хедж-нога, она закрывается ТОЛЬКО вместе с якорной ногой
+      // (USDRUBF/CNYRUBF/Si/EU/UC). Если якорь закрыт на X% — CNY закрывается на X%.
+      // Это не даёт Short CNY 680 (закрытие URF/CRF) обнулить CNY в EU1/CR1 и CRF/CR1.
+      applyExitsToPosition(pos, sorted);
       // Check if position is now closed
       checkAndClosePosition(pos, date);
     }
@@ -8999,12 +9072,14 @@ async function autoTagFromReports(date) {
   }
 
   // After all sets processed — run exits through existing (pre-existing) open positions
-  // Важно: каждая позиция трекает свой exitVolUsed независимо (per-position),
-  // иначе Short CNY 680 (закрытие URF/CRF) "съедает" квоту exits для EU1/CR1 и CRF/CR1.
-  // Глобальный exitVolUsed нужен только внутри блока createPosition выше.
+  // Используем applyExitsToPosition (якорный принцип): CNY закрывается пропорционально якорю.
   for (const pos of store.positions.filter(p => p.status === 'open')) {
-    // Только exits для инструментов этой позиции (противоположное entry_direction)
-    const exitMxForPos = sorted.filter(t => {
+    // Guard: не обрабатывать день дважды
+    if (!pos.processedDays) pos.processedDays = [];
+    if (pos.processedDays.includes(date)) continue;
+
+    // Есть ли вообще exits для этой позиции сегодня?
+    const hasMxExit = sorted.some(t => {
       const b = (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
       if (!pos.legs[b]) return false;
       const leg = pos.legs[b];
@@ -9017,10 +9092,18 @@ async function autoTagFromReports(date) {
       const b = (t.instrument||'').replace(/[-_]/g,'').toUpperCase();
       return pos.legs[b] !== undefined;
     });
-    if (exitMxForPos.length > 0 || fxForPos.length > 0) {
-      // Per-position exitVolUsed: ограничиваем exits объёмом vol_in каждой ноги
-      const posExitVolUsed = {};
-      updatePositionWithDay(pos, date, exitMxForPos, fxForPos, posExitVolUsed, true);
+
+    if (hasMxExit || fxForPos.length > 0) {
+      pos.processedDays.push(date);
+      if (!pos.days) pos.days = [];
+      if (!pos.days.includes(date)) pos.days.push(date);
+      // Применяем exits по якорному принципу
+      applyExitsToPosition(pos, sorted);
+      // FX trades
+      if (!pos.fx_trades) pos.fx_trades = [];
+      for (const t of fxForPos) {
+        if (!pos.fx_trades.find(x => x.id === t.id)) pos.fx_trades.push(t);
+      }
       checkAndClosePosition(pos, date);
     } else {
       // No trades for this position today — still check if closed
