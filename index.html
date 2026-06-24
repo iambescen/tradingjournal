@@ -1038,8 +1038,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '24.06 22:31';
-const BUILD_DATE    = '24.06.2026 22:31 МСК';
+const BUILD_VERSION = '24.06 23:00';
+const BUILD_DATE    = '24.06.2026 23:00 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -12247,6 +12247,44 @@ function goKeyToSecid(key) {
 }
 
 
+// Цена 1% спреда в рублях — из реальных закрытых сделок.
+// Возвращает Map<tag, {pricePerPct, samples}>: сколько рублей P&L даёт сжатие спреда на 1%.
+// Это эмпирическая величина, учитывающая реальную лотность и кросс-курсы.
+function calcSpreadPriceFromHistory() {
+  positionsInit();
+  const byTag = {}; // tag -> { sumPnl, sumSpread, samples }
+  const rate = (currentRate && currentRate.value) || 85;
+
+  (store.positions||[]).filter(p => p.status==='closed').forEach(pos => {
+    const sp = calcDiarySpread(pos);
+    if (sp.entry == null || sp.exit == null) return;
+    // Сжатие спреда в % (модуль: от входа к выходу к нулю)
+    const compression = Math.abs(sp.entry) - Math.abs(sp.exit);
+    if (Math.abs(compression) < 0.001) return; // спред не двигался — пропускаем
+    // P&L позиции в рублях (формула + комиссия MX + FX)
+    const fxRate = (pos.closed_date ? getRateForDate(normDate(pos.closed_date)) : rate) || rate;
+    const calc = calcPositionPnlByFormula(pos);
+    const mx = calc.mxTotal + calc.totalComm;
+    const fxTr = getPosFxTrades(pos);
+    const fx = fxTr.reduce((s,t)=>s+(t.net_pnl_usd||0),0) * fxRate;
+    const pnl = mx + fx;
+    if (!byTag[pos.tag]) byTag[pos.tag] = { sumPnl:0, sumSpread:0, samples:0 };
+    byTag[pos.tag].sumPnl += pnl;
+    byTag[pos.tag].sumSpread += compression;
+    byTag[pos.tag].samples++;
+  });
+
+  const result = {};
+  for (const tag in byTag) {
+    const b = byTag[tag];
+    // Цена 1% = суммарный P&L / суммарное сжатие (рублей на 1% спреда)
+    if (Math.abs(b.sumSpread) > 0.001) {
+      result[tag] = { pricePerPct: b.sumPnl / b.sumSpread, samples: b.samples };
+    }
+  }
+  return result;
+}
+
 function calcConstruction(con, units, spread, stepPct) {
   // Dynamic CR ratio based on current cross rates
   function getDynRatio(leg) {
@@ -12302,6 +12340,14 @@ function _renderCalcInner(root) {
   }
 
   const state = (() => { try { return JSON.parse(localStorage.getItem('calc_state_v1') || '{}'); } catch { return {}; } })();
+
+  // Цена 1% спреда по каждой конструкции — из реальных закрытых сделок
+  const spreadPrices = (function(){ try { return calcSpreadPriceFromHistory(); } catch(e){ return {}; } })();
+
+  // Настройки сделки: горизонт в днях + издержки за день (carry+swap) на единицу
+  const tradeDays    = parseFloat(state['_tradeDays'] || '1') || 1;       // дней в позиции
+  const carryPerDay  = parseFloat(state['_carryPerDay'] || '0') || 0;     // ₽/день за всю позицию (перенос+своп)
+  const payoutFixed  = parseFloat(state['_payoutFixed'] || '0') || 0;     // ₽ разовый payout на сделку
 
   // MX balance: manual override → last PDF → 0
   // MX balance: from reports first, then from manual deposit entries
@@ -12526,6 +12572,13 @@ function _renderCalcInner(root) {
     const bindingLeg = mxOnly ? 'МХ'
                      : (maxFxUnits > 0 && maxMxUnits > 0) ? (maxFxUnits < maxMxUnits ? 'FX' : 'МХ') : '';
 
+    // Цена 1% спреда из истории (масштабируется на текущий объём через maxUnits)
+    // pricePerPct из истории = на той реальной сделке. Берём пропорционально объёму ступени.
+    const histSp = spreadPrices[con.tag];
+    // Цена 1% на 1 единицу (×0.01 FX лот): если есть история — делим на средний объём истории (нет — оценка)
+    // Упрощённо: цена 1% пропорциональна замороженному капиталу. price_per_pct_per_unit:
+    const pricePerPctFull = histSp ? Math.abs(histSp.pricePerPct) : 0;
+
     // Build steps: from maxPct DOWN to 0, step size = stepPct
     const numSteps = maxPct > 0 && stepPct > 0 ? Math.round(maxPct / stepPct) : 6;
     const steps = [];
@@ -12542,8 +12595,14 @@ function _renderCalcInner(root) {
         mxLots[l.name] = Math.round((mxLotsPerFxMin[l.name] || 0) * fxUnits * 100) / 100;
       });
 
-      steps.push({ spreadLevel, coeff, fxUnits, fxLots, fxMarg, goMx, mxLots,
-        frozen: goMx + fxMarg * rate });
+      // Потенциал прибыли: если на этом уровне войти и спред сойдёт к 0.
+      // frozen/maxFrozen == coeff (всё линейно по объёму), цена масштабируется на долю объёма.
+      const frozen = goMx + fxMarg * rate;
+      const profitPotential = pricePerPctFull
+        ? spreadLevel * pricePerPctFull * coeff
+        : 0;
+
+      steps.push({ spreadLevel, coeff, fxUnits, fxLots, fxMarg, goMx, mxLots, frozen, profitPotential });
     }
 
     // Load at max (step 0)
@@ -12567,8 +12626,13 @@ function _renderCalcInner(root) {
     }).join(' ');
 
     // Steps table
+    const tradeCost = payoutFixed + carryPerDay * tradeDays; // издержки на сделку
     const stepsHtml = steps.map((st, i) => {
       const isMax = i === 0;
+      // Чистый потенциал = прибыль при сходе к 0 минус издержки (масштаб издержек по объёму ступени)
+      const stepCost = tradeCost * st.coeff;
+      const netProfit = st.profitPotential - stepCost;
+      const profitColor = st.profitPotential <= 0 ? 'var(--text2)' : netProfit >= 0 ? 'var(--green)' : 'var(--red)';
       return '<tr style="font-size:11px;border-bottom:1px solid var(--border)' + (isMax ? ';background:var(--bg3)' : '') + '">'
         + '<td style="padding:4px 8px;font-weight:' + (isMax?'700':'400') + ';color:var(--text)">'
         + st.spreadLevel.toFixed(1) + '%' + (isMax ? ' ★' : '') + '</td>'
@@ -12576,12 +12640,10 @@ function _renderCalcInner(root) {
         + (maxUnits > 0 ? st.fxUnits + ' ед.' : 'x' + st.coeff) + '</td>'
         + '<td style="padding:4px 8px;text-align:right;font-family:monospace">'
         + st.fxLots.toFixed(2) + ' лот</td>'
-        + '<td style="padding:4px 8px;text-align:right;font-family:monospace">'
-        + (st.goMx > 0 ? Math.round(st.goMx).toLocaleString('ru') + ' ₽' : '—') + '</td>'
-        + '<td style="padding:4px 8px;text-align:right;font-family:monospace">'
-        + '$' + st.fxMarg.toFixed(0) + '</td>'
         + '<td style="padding:4px 8px;text-align:right;font-family:monospace;color:' + lc + '">'
         + (st.frozen > 0 ? Math.round(st.frozen).toLocaleString('ru') + ' ₽' : '—') + '</td>'
+        + '<td style="padding:4px 8px;text-align:right;font-family:monospace;font-weight:600;color:' + profitColor + '">'
+        + (st.profitPotential > 0 ? (netProfit>=0?'+':'')+Math.round(netProfit).toLocaleString('ru') + ' ₽' : '—') + '</td>'
         + '</tr>';
     }).join('');
 
@@ -12609,15 +12671,25 @@ function _renderCalcInner(root) {
       + (maxUnits > 0 ? ' · Макс ед: <strong style="color:var(--text)">' + maxUnits + '</strong>'
         + (bindingLeg ? ' <span style="color:var(--amber)">(' + bindingLeg + ')</span>' : '') : '')
       + '</div>'
+      // Break-even строка
+      + (function(){
+          if (!pricePerPctFull) return '<div style="font-size:11px;color:var(--text2);margin-bottom:8px;padding:6px 10px;background:var(--bg3);border-radius:6px">📊 Цена спреда: <span style="color:var(--amber)">нет истории сделок по этой связке</span> — потенциал не рассчитан</div>';
+          const tradeCostFull = payoutFixed + carryPerDay * tradeDays;
+          const breakEven = tradeCostFull > 0 ? tradeCostFull / pricePerPctFull : 0;
+          return '<div style="font-size:11px;color:var(--text2);margin-bottom:8px;padding:6px 10px;background:var(--bg3);border-radius:6px">'
+            + '📊 Цена 1% спреда: <b style="color:var(--text);font-family:monospace">' + Math.round(pricePerPctFull).toLocaleString('ru') + ' ₽</b> '
+            + '<span style="color:var(--text2)">(из ' + histSp.samples + ' сделок)</span>'
+            + (breakEven > 0 ? ' · Безубыток: <b style="color:var(--amber);font-family:monospace">' + breakEven.toFixed(3) + '%</b> <span style="color:var(--text2)">сжатия за ' + tradeDays + ' дн.</span>' : '')
+            + '</div>';
+        })()
       // Steps table
       + '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:500px">'
       + '<thead><tr style="font-size:10px;color:var(--text2);text-transform:uppercase;border-bottom:2px solid var(--border)">'
       + '<th style="padding:3px 8px;text-align:left">Разлёт</th>'
       + '<th style="padding:3px 8px;text-align:right">Ед. (×0.01)</th>'
       + '<th style="padding:3px 8px;text-align:right">FX лот</th>'
-      + '<th style="padding:3px 8px;text-align:right">ГО МХ</th>'
-      + '<th style="padding:3px 8px;text-align:right">Маржа FX</th>'
       + '<th style="padding:3px 8px;text-align:right">Заморожено</th>'
+      + '<th style="padding:3px 8px;text-align:right">Потенциал ₽</th>'
       + '</tr></thead>'
       + '<tbody>' + stepsHtml + '</tbody>'
       + '</table></div>'
@@ -12757,6 +12829,19 @@ function _renderCalcInner(root) {
     </div>
 
     <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin-bottom:16px">
+      <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Параметры сделки <span style="font-weight:400;text-transform:none">— для расчёта потенциала и безубытка</span></div>
+      <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:flex-end">
+        <label style="font-size:11px;color:var(--text2)">Горизонт, дней<br>
+          <input type="number" step="0.5" min="0" value="${tradeDays}" data-tag="_tradeDays" data-field="" onchange="calcUpdateGlobal('_tradeDays',this.value)" style="width:80px;font-size:13px;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:3px 6px;margin-top:3px;font-family:monospace"></label>
+        <label style="font-size:11px;color:var(--text2)">Перенос+своп, ₽/день<br>
+          <input type="number" step="100" value="${carryPerDay}" onchange="calcUpdateGlobal('_carryPerDay',this.value)" style="width:110px;font-size:13px;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:3px 6px;margin-top:3px;font-family:monospace"></label>
+        <label style="font-size:11px;color:var(--text2)">Payout разовый, ₽<br>
+          <input type="number" step="100" value="${payoutFixed}" onchange="calcUpdateGlobal('_payoutFixed',this.value)" style="width:110px;font-size:13px;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:3px 6px;margin-top:3px;font-family:monospace"></label>
+        <div style="font-size:11px;color:var(--text2);align-self:center">Издержки на сделку: <b style="color:var(--amber);font-family:monospace">${Math.round(payoutFixed + carryPerDay*tradeDays).toLocaleString('ru')} ₽</b></div>
+      </div>
+    </div>
+
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin-bottom:16px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
         <span style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">Текущие балансы</span>
         <span style="font-size:11px;color:var(--text2)">
@@ -12802,6 +12887,15 @@ function calcUpdateState(safeTag, field, val) {
   const state = (() => { try { return JSON.parse(localStorage.getItem('calc_state_v1') || '{}'); } catch { return {}; } })();
   const realTag = safeTag.replace(/_/g, '/');
   state[safeTag + '_' + field] = val;
+  localStorage.setItem('calc_state_v1', JSON.stringify(state));
+  clearTimeout(window._calcTimer);
+  window._calcTimer = setTimeout(renderCalc, 300);
+}
+
+// Глобальные параметры калькулятора (горизонт дней, издержки)
+function calcUpdateGlobal(key, val) {
+  const state = (() => { try { return JSON.parse(localStorage.getItem('calc_state_v1') || '{}'); } catch { return {}; } })();
+  state[key] = val;
   localStorage.setItem('calc_state_v1', JSON.stringify(state));
   clearTimeout(window._calcTimer);
   window._calcTimer = setTimeout(renderCalc, 300);
