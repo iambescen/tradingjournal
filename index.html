@@ -436,6 +436,23 @@
   <!-- FUNDS -->
   <div id="tab-funds" class="tab-content">
 
+    <!-- Сверка денег: P&L сделок vs изменение баланса + эффективность ребалансировок -->
+    <div class="section" id="sec-recon">
+      <div class="section-header" onclick="toggleSection('recon')">
+        <div class="section-title">
+          <span class="dot-inline" style="background:var(--green)"></span>
+          Сверка денег
+          <span class="section-badge" style="background:var(--bg3);color:var(--text2)" id="recon-badge">—</span>
+        </div>
+        <div class="section-actions" onclick="event.stopPropagation()">
+          <span class="chevron open" id="chevron-recon">▼</span>
+        </div>
+      </div>
+      <div class="section-body" id="body-recon">
+        <div id="recon-content" style="padding:4px 0"></div>
+      </div>
+    </div>
+
     <!-- Unified timeline -->
     <div class="section" id="sec-unified">
       <div class="section-header" onclick="toggleSection('unified')">
@@ -1021,8 +1038,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '24.06 21:47';
-const BUILD_DATE    = '24.06.2026 21:47 МСК';
+const BUILD_VERSION = '24.06 22:01';
+const BUILD_DATE    = '24.06.2026 22:01 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -3000,6 +3017,93 @@ function renderUnifiedTable() {
 
   html += '</div>';
   wrap.innerHTML = html;
+  try { renderReconciliation(); } catch(e) { console.warn('[reconciliation]', e); }
+}
+
+// ── Сверка денег: P&L сделок vs изменение баланса + эффективность ребалансировок ──
+function renderReconciliation() {
+  const el = document.getElementById('recon-content');
+  if (!el) return;
+  positionsInit();
+  const rate = (currentRate && currentRate.value) || 85;
+
+  // ── 1. P&L по закрытым сделкам (точный расчёт) ──
+  const closed = (store.positions||[]).filter(p => p.status==='closed');
+  let tradePnlRub = 0;
+  closed.forEach(pos => {
+    const fxRate = (pos.closed_date ? getRateForDate(normDate(pos.closed_date)) : rate) || rate;
+    const calc = calcPositionPnlByFormula(pos);
+    const mx = calc.mxTotal + calc.totalComm;
+    const fx = getPosFxTrades(pos).reduce((s,t)=>s+(t.net_pnl_usd||0),0) * fxRate;
+    tradePnlRub += mx + fx;
+  });
+
+  // ── 2. Изменение баланса по данным площадок ──
+  // MX: P&L из отчётов (equity), FX: сумма net_pnl
+  const mxReportPnl = store.mx.reduce((s,r) => s + (r.equity||0), 0);
+  const fxReportPnlUsd = store.fx.reduce((s,t) => s + (t.net_pnl_usd||t.pnl||0), 0);
+  const fxReportPnlRub = fxReportPnlUsd * rate;
+  const reportPnlRub = mxReportPnl + fxReportPnlRub;
+
+  // ── 3. Ребалансировки: комиссии и объёмы ──
+  const manual = store.manual||[];
+  const rebToFx   = manual.filter(m=>m.type==='rebalance').reduce((s,m)=>s+(parseFloat(m.amount)||0),0);
+  const rebToMx   = manual.filter(m=>m.type==='rebalance_rev').reduce((s,m)=>s+(parseFloat(m.amount)||0),0);
+  const rebComm   = manual.filter(m=>m.type==='commission_rebalance').reduce((s,m)=>s+(parseFloat(m.amount)||0),0);
+  const rebCount  = manual.filter(m=>m.type==='rebalance'||m.type==='rebalance_rev').length;
+  const rebVolume = rebToFx + rebToMx;
+  const rebCommPct = rebVolume>0 ? (rebComm/rebVolume*100) : 0;
+
+  // ── Карточка ──
+  const card = (label, val, sub, color) =>
+    '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px 16px;flex:1 1 180px;min-width:180px">'
+    + '<div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">'+label+'</div>'
+    + '<div style="font-size:18px;font-weight:700;font-family:monospace;color:'+(color||'var(--text)')+'">'+val+'</div>'
+    + (sub?'<div style="font-size:10px;color:var(--text2);margin-top:3px">'+sub+'</div>':'')
+    + '</div>';
+  const fmtRubLocal = v => (v>=0?'+':'')+Math.round(v).toLocaleString('ru')+' ₽';
+
+  // Сверка P&L: разница между расчётом по сделкам и P&L из отчётов
+  const diff = tradePnlRub - reportPnlRub;
+  const diffPct = Math.abs(reportPnlRub)>1 ? Math.abs(diff/reportPnlRub*100) : (Math.abs(diff)>1?100:0);
+  const reconColor = diffPct<2 ? 'var(--green)' : diffPct<5 ? 'var(--amber)' : 'var(--red)';
+  const reconIcon = diffPct<2 ? '✓ сходится' : diffPct<5 ? '⚠ небольшое расхождение' : '⚠ расходится';
+
+  let html = '';
+
+  // Блок 1: сверка P&L сделок vs отчёты
+  if (closed.length || store.mx.length || store.fx.length) {
+    html += '<div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">P&L сделок vs данные площадок</div>';
+    html += '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px">'
+      + card('По сделкам (формула)', fmtRubLocal(tradePnlRub), closed.length+' закрытых конструкций', tradePnlRub>=0?'var(--green)':'var(--red)')
+      + card('По отчётам площадок', fmtRubLocal(reportPnlRub), 'МХ '+fmtRubLocal(mxReportPnl)+' + FX '+fmtRubLocal(fxReportPnlRub), reportPnlRub>=0?'var(--green)':'var(--red)')
+      + card('Сверка', (diff>=0?'+':'')+Math.round(diff).toLocaleString('ru')+' ₽', reconIcon+' ('+diffPct.toFixed(1)+'%)', reconColor)
+      + '</div>';
+    html += '<div style="font-size:11px;color:var(--text2);margin-bottom:18px">Расчёт по сделкам учитывает только закрытые конструкции. Данные площадок — весь P&L из отчётов (включая ещё не разнесённое). Расхождение ожидаемо если есть открытые позиции или сделки вне конструкций.</div>';
+  }
+
+  // Блок 2: эффективность ребалансировок
+  html += '<div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Эффективность ребалансировок MX ⇄ FX</div>';
+  if (rebCount>0 || rebComm>0) {
+    html += '<div style="display:flex;gap:10px;flex-wrap:wrap">'
+      + card('Переложено всего', Math.round(rebVolume).toLocaleString('ru')+' ₽', rebCount+' операций · MX→FX '+Math.round(rebToFx).toLocaleString('ru')+', FX→MX '+Math.round(rebToMx).toLocaleString('ru'), 'var(--text)')
+      + card('Комиссии за перекладку', '−'+Math.round(rebComm).toLocaleString('ru')+' ₽', rebCommPct.toFixed(2)+'% от объёма', 'var(--red)')
+      + card('Доля комиссий', rebCommPct.toFixed(2)+'%', 'чем меньше — тем эффективнее', rebCommPct<0.5?'var(--green)':rebCommPct<1?'var(--amber)':'var(--red)')
+      + '</div>';
+  } else {
+    html += '<div style="background:var(--bg2);border:1px dashed var(--border);border-radius:8px;padding:16px;text-align:center;color:var(--text2);font-size:12px">'
+      + 'Нет данных о ребалансировках. Когда будешь перекладывать средства между MX и FX, добавляй операции типа «Ребалансировка MX→FX» / «FX→MX» и «Комиссия за ребалансировку» — здесь появится анализ сколько съедают комиссии за перекладку.'
+      + '</div>';
+  }
+
+  el.innerHTML = html;
+
+  // Бейдж раздела
+  const badge = document.getElementById('recon-badge');
+  if (badge) {
+    if (closed.length) badge.textContent = reconIcon.replace('✓ ','✓').replace('⚠ ','⚠ ');
+    else badge.textContent = '—';
+  }
 }
 
 // ── Manual balance adjustments ──
@@ -10945,6 +11049,7 @@ function switchTab(name, e) {
   const dash = document.getElementById('main-dashboard');
   if (dash) { dash.style.display = name === 'overview' ? '' : 'none'; dash.style.marginBottom = name === 'overview' ? '' : '0'; }
   if (name === 'overview') renderOverviewTab();
+  if (name === 'funds') { try { renderReconciliation(); } catch(e){} }
   if (name === 'feed')     renderFeedTab();
   if (name === 'constructions') renderPositionsTab();
   if (name === 'journal') renderLiveJournal();
