@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782288273 -->
+<!-- v:1782288741 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -7,7 +7,7 @@
   <meta http-equiv="Pragma" content="no-cache">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Торговый журнал</title>
-  <!-- build:1782288273 -->
+  <!-- build:1782288741 -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
@@ -8878,8 +8878,10 @@ async function autoTagFromReports(date) {
     const setEnd   = timeToMs(cluster[cluster.length-1].time) + 20*60*1000;
     const tagParts = tag.split('/');
     const fxInstrKey = FX_FOR_TAG[tagParts[tagParts.length-1]];
+    // CRF/CR1, CRF/CR2 — нет FX ноги. Если последняя часть тега не в FX_FOR_TAG — пропускаем FX
+    const hasFxLeg = !!fxInstrKey;
 
-    const matchedFx = fxAll.filter(t => {
+    const matchedFx = !hasFxLeg ? [] : fxAll.filter(t => {
       if (fxInstrKey) {
         const ti = (t.instrument||'').replace(/[-_]/g,'').toUpperCase();
         if (ti !== fxInstrKey) return false;
@@ -8933,6 +8935,7 @@ async function autoTagFromReports(date) {
 
   // Step 6: Create or update master positions
   positionsInit();
+  window._exitVolumeUsed = {}; // reset exit volume tracking
   const dateISO2 = normDate(date);
 
   // Process each detected construction
@@ -8944,7 +8947,8 @@ async function autoTagFromReports(date) {
     if (!pos) {
       // New position — init from entry rows
       pos = createPosition(tag, date, setMxRows, setFxRows);
-      // Process exits for this day immediately (entries already in createPosition)
+      // Process exits for this day — track remaining exit volume globally
+      // to avoid double-counting shared instruments (e.g. CNY used in multiple constructions)
       const exitTrades = sorted.filter(t => {
         const b = (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
         if (!pos.legs[b]) return false;
@@ -8953,12 +8957,21 @@ async function autoTagFromReports(date) {
         return entryIsShort ? t.direction === 'Long' : t.direction === 'Short';
       });
       if (exitTrades.length) {
+        // Track remaining exit volume per instrument across all positions
+        // Use a global registry keyed by instrument+time to avoid double-counting
+        if (!window._exitVolumeUsed) window._exitVolumeUsed = {};
         for (const t of exitTrades) {
           const b = (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
           const leg = pos.legs[b];
           if (!leg) continue;
-          const vol = Math.abs(t.volume||0);
-          const reduce = Math.min(vol, leg.net_volume);
+          const tKey = b + '_' + (t.time||'') + '_' + (t.volume||'');
+          // Total volume of this trade
+          const totalVol = Math.abs(t.volume||0);
+          const usedSoFar = window._exitVolumeUsed[tKey] || 0;
+          const available = Math.max(0, totalVol - usedSoFar);
+          if (available <= 0) continue;
+          const reduce = Math.min(available, leg.net_volume);
+          window._exitVolumeUsed[tKey] = usedSoFar + reduce;
           leg.vol_out += reduce;
           leg.net_volume -= reduce;
           if (leg.net_volume < 0.001) leg.net_volume = 0;
