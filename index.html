@@ -3097,6 +3097,13 @@ function updateDashboard() {
   }
 
   const _lu = document.getElementById('last-updated'); if (_lu) _lu.textContent = 'Обновлено: ' + new Date().toLocaleTimeString('ru-RU');
+
+  // Заполнить карточку «% годовых» (расчёт от депозита и P&L закрытых позиций)
+  try {
+    positionsInit();
+    var _closedPos = (store.positions||[]).filter(function(p){return p.status==='closed';});
+    _buildOverviewRoiDashboard(_closedPos);
+  } catch(e) { console.warn('[dashboard annual yield]', e); }
 }
 
 // ══════════════════════════════════════════════════
@@ -8453,11 +8460,12 @@ function renderConstructionAnalytics() {
 }
 
 function _buildOverviewRoiDashboard(closedPositions) {
-  var summaryEl = document.getElementById('ov-roi-summary');
-  var cardsEl   = document.getElementById('ov-roi-cards');
-  if (!summaryEl || !cardsEl) return;
+  // Цель: заполнить карточку «% годовых» в верхнем дашборде.
+  // Расчёт простой: P&L закрытых позиций / общий депозит (МХ+FX) × 100, годовых × 365/дней.
+  var aEl = document.getElementById('dash-annual-yield');
+  var aSubEl = document.getElementById('dash-annual-sub');
 
-  // ── Депозит: берём из дашборда Обзора (МХ + FX) ──
+  // ── Депозит: МХ-баланс + FX-баланс × курс ──
   var rate = (currentRate && currentRate.value) || 85;
   var mxPdfBal = store.mx.length ? (store.mx[store.mx.length-1].balance_end || 0) : 0;
   var mxDepBal = (store.manual||[]).filter(function(m){return m.account==='MX'&&m.type==='deposit';})
@@ -8470,21 +8478,25 @@ function _buildOverviewRoiDashboard(closedPositions) {
     .reduce(function(s,m){return s+m.amount;},0)
     - (store.manual||[]).filter(function(m){return m.account==='FX'&&m.type==='withdrawal';})
     .reduce(function(s,m){return s+m.amount;},0);
-  var fxBrokerBal = store.fx.length && store.fx[store.fx.length-1].balance_usd
-    ? store.fx[store.fx.length-1].balance_usd : 0;
+  // FX баланс: пробуем balance, потом balance_usd, потом из пополнений
+  var lastFx = store.fx.length ? store.fx[store.fx.length-1] : null;
+  var fxBrokerBal = lastFx ? (lastFx.balance || lastFx.balance_usd || 0) : 0;
   var fxBal = fxBrokerBal > 0 ? fxBrokerBal : fxDepBal;
   var totalDeposit = mxBal + fxBal * rate;
 
-  if (totalDeposit <= 0) { summaryEl.style.display='none'; return; }
+  // Нет данных — показываем прочерк, не падаем
+  if (totalDeposit <= 0 || !closedPositions.length) {
+    if (aEl) { aEl.textContent = '—'; aEl.style.color = 'var(--text2)'; }
+    if (aSubEl) aSubEl.textContent = '';
+    return;
+  }
 
-  // ── P&L по всем закрытым позициям ──
-  if (!closedPositions.length) { summaryEl.style.display='none'; return; }
-
+  // ── P&L по всем закрытым позициям (расчёт по формуле) ──
   var totalPnl = 0;
   closedPositions.forEach(function(pos) {
     var fxRate = (pos.closed_date ? getRateForDate(normDate(pos.closed_date)) : rate) || rate;
-    var mxPF = getPosMxPnlFull(pos);
-    var tmx = Object.values(mxPF).reduce(function(s,x){return s+x.pnl;},0);
+    var calc = calcPositionPnlByFormula(pos);
+    var tmx = calc.mxTotal + calc.totalComm; // P&L + комиссия MX
     var fxTr = getPosFxTrades(pos);
     var tfx = fxTr.reduce(function(s,t){return s+(t.net_pnl_usd||0);},0)*fxRate;
     totalPnl += Math.round(tmx + tfx);
@@ -8504,34 +8516,30 @@ function _buildOverviewRoiDashboard(closedPositions) {
   // ── Формулы ──
   var roi = totalPnl / totalDeposit * 100;
   var annual = roi * (365 / periodDays);
+  var gc = annual>=0?'var(--green)':'var(--red)';
 
-  function card(label, val, sub, color, big) {
-    return '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px 18px">'
-      + '<div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">'+label+'</div>'
-      + '<div style="font-size:'+(big?'28':'20')+'px;font-weight:800;color:'+(color||'var(--text)')+'">'+val+'</div>'
-      + (sub?'<div style="font-size:11px;color:var(--text2);margin-top:5px">'+sub+'</div>':'')
-      + '</div>';
+  // ── Заполнить верхний дашборд (главная цель) ──
+  if (aEl) { aEl.textContent = (annual>=0?'+':'')+Math.round(annual)+'%'; aEl.style.color = gc; }
+  if (aSubEl) { aSubEl.textContent = (roi>=0?'+':'')+roi.toFixed(2)+'% за '+periodDays+' дн.'; }
+
+  // ── Опционально: подробные карточки, если контейнер существует ──
+  var cardsEl = document.getElementById('ov-roi-cards');
+  if (cardsEl) {
+    function card(label, val, sub, color, big) {
+      return '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px 18px">'
+        + '<div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">'+label+'</div>'
+        + '<div style="font-size:'+(big?'28':'20')+'px;font-weight:800;color:'+(color||'var(--text)')+'">'+val+'</div>'
+        + (sub?'<div style="font-size:11px;color:var(--text2);margin-top:5px">'+sub+'</div>':'')
+        + '</div>';
+    }
+    cardsEl.innerHTML = card('Доходность на депозит', (roi>=0?'+':'')+roi.toFixed(2)+'%', 'P&L / (МХ + FX) × 100', gc, true)
+      + card('% годовых', (annual>=0?'+':'')+Math.round(annual)+'%', 'за '+periodDays+' дн. с '+firstDate, gc, true)
+      + card('Итого P&L', (totalPnl>=0?'+':'')+totalPnl.toLocaleString('ru')+' ₽', 'все закрытые позиции', totalPnl>=0?'var(--green)':'var(--red)')
+      + card('Мой депозит', totalDeposit.toLocaleString('ru')+' ₽', 'МХ '+mxBal.toLocaleString('ru')+'₽ + FX '+fxBal.toFixed(0)+'$ × '+rate.toFixed(1), 'var(--text)')
+      + card('Позиций закрыто', String(closedPositions.length), '', 'var(--text)');
   }
-
-  var gc = roi>=0?'var(--green)':'var(--red)';
-  var html = card('Доходность на депозит', (roi>=0?'+':'')+roi.toFixed(2)+'%',
-      'P&L / (МХ + FX) × 100', gc, true)
-    + card('% годовых', (annual>=0?'+':'')+Math.round(annual)+'%',
-      'за '+periodDays+' дн. с '+firstDate, gc, true)
-    + card('Итого P&L', (totalPnl>=0?'+':'')+totalPnl.toLocaleString('ru')+' ₽',
-      'все закрытые позиции', totalPnl>=0?'var(--green)':'var(--red)')
-    + card('Мой депозит', totalDeposit.toLocaleString('ru')+' ₽',
-      'МХ '+mxBal.toLocaleString('ru')+'₽ + FX '+fxBal.toFixed(0)+'$ × '+rate.toFixed(1), 'var(--text)')
-    + card('Позиций закрыто', String(closedPositions.length), '', 'var(--text)');
-
-  cardsEl.innerHTML = html;
-  // summaryEl hidden - card is in top dashboard now
-  // Update top dashboard card
-  var aEl = document.getElementById('dash-annual-yield');
-  var aSubEl = document.getElementById('dash-annual-sub');
-  if (aEl) { aEl.textContent = (annual>=0?'+':'')+Math.round(annual)+'%'; aEl.style.color = annual>=0?'var(--green)':'var(--red)'; }
-  if (aSubEl) { aSubEl.textContent = 'за '+periodDays+' дн. · '+( totalPnl>=0?'+':'')+Math.round(totalPnl).toLocaleString('ru')+'₽'; }
 }
+
 
 
 // ── Расчёт задействованного капитала и доходности ──────────────
