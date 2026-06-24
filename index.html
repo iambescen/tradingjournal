@@ -218,7 +218,7 @@
   .rate-manual-row input:focus { border-color: var(--blue); }
   .rate-manual-row label { font-size: 12px; color: var(--text2); }
   /* Card sub-line */
-  .card-convert { font-size: 12px; color: var(--text2); margin-top: 3px; }
+  .card-convert { font-size: 10px; color: var(--text2); margin-top: 3px; }
 
   /* Misc */
   input[type="file"] { display: none; }
@@ -415,7 +415,7 @@
     <div class="card">
       <div class="label"><span class="dot dot-total"></span>Итого</div>
       <div class="value total" id="dash-total-pnl">—</div>
-      <div class="card-convert" style="font-size:12px;color:var(--text2);margin-top:3px" id="dash-total-sub"></div>
+      <div class="card-convert" id="dash-total-sub"></div>
       <div id="dash-period" style="font-size:10px;color:var(--text2);margin-top:3px"></div>
     </div>
     <div class="card">
@@ -1038,8 +1038,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '24.06 22:24';
-const BUILD_DATE    = '24.06.2026 22:24 МСК';
+const BUILD_VERSION = '24.06 22:31';
+const BUILD_DATE    = '24.06.2026 22:31 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -10470,7 +10470,7 @@ function renderOverviewTab(force) {
   const statCard = (label, rub, usd, sub='', color='') =>
     `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:12px 16px;min-width:140px;flex:1">
       <div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">${label}</div>
-      <div style="font-size:15px;font-weight:700;font-family:monospace">${fmtDual(rub, usd, color)}</div>
+      <div style="font-size:17px;font-weight:700;font-family:monospace">${fmtDual(rub, usd, color)}</div>
       ${sub?`<div style="font-size:10px;color:var(--text2);margin-top:2px">${sub}</div>`:''}
     </div>`;
   const chartBox = (id, title, height=220) =>
