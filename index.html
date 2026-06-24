@@ -1021,8 +1021,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '24.06 21:35';
-const BUILD_DATE    = '24.06.2026 21:35 МСК';
+const BUILD_VERSION = '24.06 21:42';
+const BUILD_DATE    = '24.06.2026 21:42 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -10578,90 +10578,92 @@ function renderWeeklyTable() {
 async function renderBenchmark() {
   const el = document.getElementById('ov-benchmark');
   if (!el) return;
+  positionsInit();
 
-  // Get data from store
   const rate0 = currentRate?.value || 85;
-  const mxDays = store.mx.map(r => ({ date: normDate(r.date), pnl: r.equity || 0 }));
-  const hasMx = mxDays.length > 0;
-  const hasFx = store.fx.length > 0;
-  if (!hasMx && !hasFx) { el.innerHTML = ''; return; }
 
-  // Capital
+  // ── Депозит: МХ-баланс + FX-баланс × курс (как в верхнем дашборде) ──
   const lastMx = store.mx.length ? store.mx[store.mx.length-1] : null;
   const mxBal = lastMx ? (lastMx.balance_end || 0) : 0;
   const lastFx = store.fx.length ? store.fx[store.fx.length-1] : null;
-  const fxBal = lastFx ? (lastFx.balance || 0) : 0;
+  const fxBal = lastFx ? (lastFx.balance || lastFx.balance_usd || 0) : 0;
   const capital = mxBal + fxBal * rate0;
   if (capital <= 0) { el.innerHTML = ''; return; }
 
-  // Date range
-  const dates = [
-    ...store.mx.map(r => normDate(r.date)),
-    ...store.fx.map(t => normDate(t.close_date || ''))
-  ].filter(Boolean).sort();
-  const from = dates[0], to = dates[dates.length-1];
-  if (!from) { el.innerHTML = ''; return; }
+  // ── Мой P&L: точный расчёт по формуле, накопленно по датам закрытия ──
+  const closed = (store.positions||[]).filter(p => p.status==='closed');
+  if (!closed.length) { el.innerHTML = ''; return; }
 
-  el.innerHTML = '<div style="color:var(--text2);font-size:12px;padding:4px 0">📊 Загружаю бенчмарк LQDT...</div>';
+  const pnlByDate = {}; // дата закрытия → P&L позиции (с комиссией + FX)
+  closed.forEach(pos => {
+    const d = pos.closed_date || pos.opened_date;
+    if (!d) return;
+    const fxRate = (pos.closed_date ? getRateForDate(normDate(pos.closed_date)) : rate0) || rate0;
+    const calc = calcPositionPnlByFormula(pos);
+    const mx = calc.mxTotal + calc.totalComm;
+    const fxTr = getPosFxTrades(pos);
+    const fx = fxTr.reduce((s,t)=>s+(t.net_pnl_usd||0),0) * fxRate;
+    const dISO = normDate(d);
+    pnlByDate[dISO] = (pnlByDate[dISO]||0) + mx + fx;
+  });
 
-  const lqdtPrices = await fetchLqdtPrices(from, to);
-  if (!lqdtPrices.length) { el.innerHTML = ''; return; }
+  // ── Период: от первой сделки до сегодня ──
+  const closedDatesISO = Object.keys(pnlByDate).sort();
+  const fromISO = closedDatesISO[0];
+  const todayISO = new Date().toISOString().slice(0,10);
+  if (!fromISO) { el.innerHTML = ''; return; }
 
-  // My cumulative P&L by date
-  const myPnlByDate = {};
-  let cumMx = 0;
-  for (const r of store.mx) {
-    cumMx += (r.equity || 0);
-    myPnlByDate[normDate(r.date)] = cumMx;
-  }
-  // Add FX
-  const fxByDate = {};
-  for (const t of store.fx) {
-    const d = normDate(t.close_date || '');
-    if (!d) continue;
-    fxByDate[d] = (fxByDate[d] || 0) + (t.net_pnl_usd || t.pnl || 0) * rate0;
-  }
-  let cumFx = 0;
-  for (const d of dates) {
-    cumFx += (fxByDate[d] || 0);
-    myPnlByDate[d] = (myPnlByDate[d] || 0) + cumFx;
-  }
+  el.innerHTML = '<div style="color:var(--text2);font-size:12px;padding:4px 0">📊 Загружаю бенчмарк LQDT…</div>';
+  const lqdtPrices = await fetchLqdtPrices(fromISO, todayISO);
+  if (!lqdtPrices.length) { el.innerHTML = '<div style="color:var(--text2);font-size:12px;padding:4px 0">Не удалось загрузить котировки LQDT</div>'; return; }
 
-  // LQDT benchmark
+  // ── Накопленный мой P&L по дням котировок LQDT ──
+  // Идём по датам LQDT, на каждую дату суммируем все закрытия ≤ этой даты
+  const myData = [];
+  const lqdtData = [];
   const basePrice = lqdtPrices[0].close;
-  const lqdtData = lqdtPrices.map(p => ({ x: p.date, y: capital * (p.close / basePrice - 1) }));
-  const myData   = lqdtPrices.map(p => ({ x: p.date, y: myPnlByDate[p.date] || 0 }));
+  lqdtPrices.forEach(p => {
+    let cum = 0;
+    for (const dISO in pnlByDate) {
+      if (dISO <= p.date) cum += pnlByDate[dISO];
+    }
+    myData.push({ x: p.date, y: Math.round(cum) });
+    // LQDT: весь депозit лежал в фонде с первого дня
+    lqdtData.push({ x: p.date, y: Math.round(capital * (p.close/basePrice - 1)) });
+  });
 
-  const myPnl    = myData[myData.length-1]?.y || 0;
-  const lqdtPnl  = lqdtData[lqdtData.length-1]?.y || 0;
-  // % returns — main metric for comparison
-  const myPct    = capital > 0 ? (myPnl / capital * 100).toFixed(2) : '0.00';
-  const lqdtPct  = capital > 0 ? (lqdtPnl / capital * 100).toFixed(2) : '0.00';
-  // Annualised % (for fair comparison across periods)
-  const nDays    = Math.max(dates.length, 1);
-  const myAnn    = (parseFloat(myPct) / nDays * 365).toFixed(1);
-  const lqdtAnn  = (parseFloat(lqdtPct) / nDays * 365).toFixed(1);
-  const alpha    = myPnl - lqdtPnl;
-  const alphaPct = (parseFloat(myPct) - parseFloat(lqdtPct)).toFixed(2);
+  const myPnl   = myData[myData.length-1]?.y || 0;
+  const lqdtPnl = lqdtData[lqdtData.length-1]?.y || 0;
+  const myPct   = (myPnl / capital * 100);
+  const lqdtPct = (lqdtPnl / capital * 100);
+  // Дней в периоде (календарных) для годовых
+  const nDays = Math.max(1, Math.round((parseDate(todayISO.split('-').reverse().join('.')) - parseDate(fromISO.split('-').reverse().join('.')))/86400000)+1);
+  const myAnn   = myPct / nDays * 365;
+  const lqdtAnn = lqdtPct / nDays * 365;
+  const alpha   = myPnl - lqdtPnl;
+  const alphaPct= myPct - lqdtPct;
   const ac = alpha >= 0 ? 'var(--green)' : 'var(--red)';
-  const sg = alpha >= 0 ? '+' : '';
-  const fmt = v => (v>=0?'+':'')+Math.round(v).toLocaleString('ru')+' ₽';
 
+  const fromDisp = fromISO.split('-').reverse().join('.');
   const card = (l,v,s,c) => `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:12px 16px;min-width:150px;flex:1 1 150px">
     <div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">${l}</div>
-    <div style="font-size:15px;font-weight:700;font-family:monospace;color:${c}">${v}</div>
+    <div style="font-size:17px;font-weight:700;font-family:monospace;color:${c}">${v}</div>
     <div style="font-size:10px;color:var(--text2);margin-top:2px">${s}</div>
   </div>`;
 
+  const verdict = alpha >= 0
+    ? `Опережаю LQDT на ${alphaPct.toFixed(2)}%`
+    : `Отстаю от LQDT на ${Math.abs(alphaPct).toFixed(2)}%`;
+
   el.innerHTML = `
-    <div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">📊 Бенчмарк vs LQDT (ВТБ Ликвидность)</div>
+    <div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">📊 Бенчмарк vs LQDT (ВТБ Ликвидность) · с ${fromDisp}</div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
-      ${card('Мой P&L', fmt(myPnl), myPct+'% · '+myAnn+'% год.', myPnl>=0?'var(--green)':'var(--red)')}
-      ${card('LQDT', fmt(lqdtPnl), lqdtPct+'% · '+lqdtAnn+'% год.', lqdtPnl>=0?'var(--green)':'var(--red)')}
-      ${card('Альфа', sg+Math.round(alpha).toLocaleString('ru')+' ₽', sg+alphaPct+'% над LQDT', ac)}
+      ${card('Моя доходность', (myPct>=0?'+':'')+myPct.toFixed(2)+'%', (myAnn>=0?'+':'')+Math.round(myAnn)+'% годовых', myPnl>=0?'var(--green)':'var(--red)')}
+      ${card('LQDT за период', (lqdtPct>=0?'+':'')+lqdtPct.toFixed(2)+'%', (lqdtAnn>=0?'+':'')+Math.round(lqdtAnn)+'% годовых', 'var(--amber)')}
+      ${card('Альфа', (alphaPct>=0?'+':'')+alphaPct.toFixed(2)+'%', verdict, ac)}
     </div>
     <div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:12px 16px;margin-bottom:4px">
-      <div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">P&L vs LQDT (накопленно, ₽)</div>
+      <div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Накопленный доход: я vs LQDT (₽ на депозит ${Math.round(capital).toLocaleString('ru')} ₽)</div>
       <canvas id="ch-benchmark" height="180"></canvas>
     </div>`;
 
@@ -10670,8 +10672,8 @@ async function renderBenchmark() {
     if (!cv || typeof Chart === 'undefined') return;
     if (cv._chart) cv._chart.destroy();
     cv._chart = new Chart(cv, { type:'line', data:{ datasets:[
-      { label:'Мой P&L', data:myData, borderColor:'rgba(52,211,153,1)', backgroundColor:'rgba(52,211,153,.1)', fill:true, tension:.3, pointRadius:0, borderWidth:2.5 },
-      { label:'LQDT',    data:lqdtData, borderColor:'rgba(251,191,36,1)', backgroundColor:'transparent', tension:.3, pointRadius:0, borderWidth:2, borderDash:[5,4] },
+      { label:'Мой доход', data:myData, borderColor:'rgba(52,211,153,1)', backgroundColor:'rgba(52,211,153,.1)', fill:true, tension:.3, pointRadius:0, borderWidth:2.5 },
+      { label:'LQDT',      data:lqdtData, borderColor:'rgba(251,191,36,1)', backgroundColor:'transparent', tension:.3, pointRadius:0, borderWidth:2, borderDash:[5,4] },
     ]}, options:{ responsive:true,
       plugins:{ legend:{labels:{color:'var(--text1)',font:{size:11}}}, tooltip:{callbacks:{label:c=>' '+Math.round(c.parsed.y).toLocaleString('ru')+' ₽'}} },
       scales:{
@@ -10679,7 +10681,7 @@ async function renderBenchmark() {
         y:{ ticks:{color:'var(--text2)',font:{size:10},callback:v=>Math.round(v/1000)+'K ₽'}, grid:{color:'rgba(128,128,128,.1)'} }
       }
     }});
-  }, 100);
+  }, 50);
 }
 
 function _overviewChart(id, cfg) {
