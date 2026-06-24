@@ -8367,7 +8367,7 @@ function renderConstructionAnalytics() {
   const col=function(v){return v>=0?'var(--green)':'var(--red)';};
 
   // ROI summary dashboard (async — populated after GO fetch)
-  var roiSummaryHt
+  var roiSummaryHtml = '<div id="roi-summary-dash"></div>';
   let html='<div style="margin-top:24px;padding-top:20px;border-top:1px solid var(--border)">'
     + roiSummaryHtml
     +'<div style="font-size:14px;font-weight:700;margin-bottom:14px;color:var(--text);margin-top:24px">📊 Аналитика по конструкциям</div>'
