@@ -11106,13 +11106,14 @@ const _diaryRoiCache = {};
 // Человекочитаемое название конструкции
 function diaryConstrName(tag) {
   if (!tag) return 'Связка';
-  if (/SI|USDRUBF|URF|UC/.test(tag) && /CR|CNY/.test(tag)) return 'Доллар → юань';
-  if (/EU1|EU2|EURRUBF|ERF|ED/.test(tag) && /CR|CNY/.test(tag)) return 'Евро → юань';
-  if (/URF/.test(tag) && /CRF/.test(tag)) return 'Доллар → юань';
-  if (/ERF/.test(tag) && /CRF/.test(tag)) return 'Евро → юань';
-  if (/GD/.test(tag)) return 'Золото';
-  if (/SV/.test(tag)) return 'Серебро';
-  if (/PT|PD/.test(tag)) return 'Металлы';
+  const t = tag.toUpperCase();
+  if (/GD/.test(t)) return 'Золотая связка';
+  if (/SV/.test(t)) return 'Серебряная связка';
+  if (/PT|PD/.test(t)) return 'Металлическая связка';
+  if (/SI|USDRUBF|URF|UC/.test(t) && /CR|CNY/.test(t)) return 'Долларовая связка';
+  if (/EU1|EU2|EURRUBF|ERF|ED/.test(t) && /CR|CNY/.test(t)) return 'Евровая связка';
+  if (/URF/.test(t)) return 'Долларовая связка';
+  if (/ERF/.test(t)) return 'Евровая связка';
   return 'Валютная связка';
 }
 
@@ -11137,10 +11138,10 @@ async function calcDiaryRoi(pos) {
   return { roi, annual, days, totalFrozen, isProfit: totalRub >= 0 };
 }
 
-// Расчёт спреда вход/выход для позиции (доходность арбитража)
-function calcDiarySpread(pos) {
+// Средние цены входа/выхода по каждой ноге (MX + FX). Возвращает {base:{entry,exit,isShort,platform}}
+function calcLegPrices(pos) {
   const allDays = pos.days || [pos.opened_date];
-  const mxAvg = {};
+  const legs = {};
   for (const b in pos.legs) {
     const leg = pos.legs[b];
     if (leg.platform !== 'MX') continue;
@@ -11157,24 +11158,37 @@ function calcDiarySpread(pos) {
         else          { xVol+=v; xSum+=(t.price||0)*v; }
       });
     });
-    mxAvg[b] = { entry: eVol?eSum/eVol:0, exit: xVol?xSum/xVol:0 };
+    legs[b] = { entry: eVol?eSum/eVol:0, exit: xVol?xSum/xVol:0, isShort: isEntryShort, platform:'MX', instrument: leg.instrument };
   }
-  if (!mxAvg['CR'] && mxAvg['CNY']) mxAvg['CR']=mxAvg['CNY'];
-
+  // FX
   const fxInstrs = Object.keys(pos.legs).filter(function(b){return pos.legs[b].platform==='FX';});
   const fxTrades2 = (pos.fx_trades||[]).length ? pos.fx_trades :
     (store.fx||[]).filter(function(t){
       return fxInstrs.indexOf((t.instrument||'').replace(/[-_]/g,'').toUpperCase())>=0
         && normDate(t.close_date||'')===normDate(pos.closed_date||'');
     });
-  let fxEVol=0,fxESum=0,fxXVol=0,fxXSum=0;
-  fxTrades2.forEach(function(t){
-    var q=Math.abs(t.qty||0);
-    fxEVol+=q; fxESum+=(t.entry_price||0)*q;
-    if(t.close_price){fxXVol+=q; fxXSum+=(t.close_price||0)*q;}
+  fxInstrs.forEach(function(b){
+    const leg = pos.legs[b];
+    let eVol=0,eSum=0,xVol=0,xSum=0;
+    fxTrades2.forEach(function(t){
+      if ((t.instrument||'').replace(/[-_]/g,'').toUpperCase()!==b) return;
+      const q=Math.abs(t.qty||0);
+      eVol+=q; eSum+=(t.entry_price||0)*q;
+      if(t.close_price){xVol+=q; xSum+=(t.close_price||0)*q;}
+    });
+    legs[b] = { entry: eVol?eSum/eVol:0, exit: xVol?xSum/xVol:0, isShort: leg.entry_direction==='Sell', platform:'FX', instrument: leg.instrument };
   });
-  const fxEntry = fxEVol ? fxESum/fxEVol : 0;
-  const fxExit  = fxXVol ? fxXSum/fxXVol : 0;
+  return legs;
+}
+
+// Спред вход/выход для позиции
+function calcDiarySpread(pos) {
+  const lp = calcLegPrices(pos);
+  const mxAvg = {};
+  for (const b in lp) if (lp[b].platform==='MX') mxAvg[b] = { entry: lp[b].entry, exit: lp[b].exit };
+  if (!mxAvg['CR'] && mxAvg['CNY']) mxAvg['CR']=mxAvg['CNY'];
+  let fxEntry=0, fxExit=0;
+  for (const b in lp) if (lp[b].platform==='FX') { fxEntry=lp[b].entry; fxExit=lp[b].exit; }
 
   const tag = pos.tag;
   let sEntry=null, sExit=null;
@@ -11206,21 +11220,18 @@ function renderShowcase() {
 
   // ── Светлая банковская палитра ──
   const C = {
-    bg:      '#FAFAF8',
-    card:    '#FFFFFF',
-    line:    '#E8E8E3',
-    ink:     '#1A1A18',
-    ink2:    '#8A8A82',
-    profit:  '#0F7A4D',
-    loss:    '#C0392B',
-    gold:    '#B8860B',
+    bg:'#FAFAF8', card:'#FFFFFF', line:'#E8E8E3', ink:'#1A1A18', ink2:'#8A8A82',
+    profit:'#0F7A4D', loss:'#C0392B', gold:'#B8860B',
   };
 
+  // Состояние UI
+  const showMode = root.dataset.showMode || 'public'; // 'public' | 'private'
+  const fTag    = root._dFilterTag  || '';
+  const fStatus = root._dFilterStatus || 'all';
+  const fPeriod = root._dFilterPeriod || 'all'; // all|week|month
+  const fSearch = (root._dFilterSearch || '').toLowerCase();
+
   const allPos = (store.positions||[]).slice();
-  const closed = allPos.filter(function(p){return p.status==='closed';})
-    .sort(function(a,b){return parseDate(b.closed_date||b.opened_date)-parseDate(a.closed_date||a.opened_date);});
-  const opened = allPos.filter(function(p){return p.status!=='closed';})
-    .sort(function(a,b){return parseDate(b.opened_date)-parseDate(a.opened_date);});
 
   if (!allPos.length) {
     root.innerHTML = '<div style="background:'+C.bg+';min-height:100%;padding:60px 20px;text-align:center;color:'+C.ink2+'">'
@@ -11230,32 +11241,89 @@ function renderShowcase() {
     return;
   }
 
-  // Шкала форматирования
+  // Период
+  const now = Date.now();
+  const periodCutoff = fPeriod==='week' ? now-7*864e5 : fPeriod==='month' ? now-30*864e5 : 0;
+
+  function passFilters(p) {
+    if (fTag && p.tag !== fTag) return false;
+    if (fStatus==='closed' && p.status!=='closed') return false;
+    if (fStatus==='open'   && p.status==='closed') return false;
+    if (periodCutoff && parseDate(p.closed_date||p.opened_date) < periodCutoff) return false;
+    if (fSearch) {
+      const hay = (p.tag+' '+diaryConstrName(p.tag)).toLowerCase();
+      if (hay.indexOf(fSearch)<0) return false;
+    }
+    return true;
+  }
+
+  const filtered = allPos.filter(passFilters);
+  const closed = filtered.filter(function(p){return p.status==='closed';})
+    .sort(function(a,b){return parseDate(b.closed_date||b.opened_date)-parseDate(a.closed_date||a.opened_date);});
+  const opened = filtered.filter(function(p){return p.status!=='closed';})
+    .sort(function(a,b){return parseDate(b.opened_date)-parseDate(a.opened_date);});
+
   const fmtPct = function(v){ return (v>=0?'+':'')+v.toFixed(2)+'%'; };
   const fmtAnnual = function(v){ return (v>=0?'+':'')+Math.round(v)+'%'; };
 
-  // ── Карточка сделки (HTML с плейсхолдером для async ROI) ──
+  // ── Карточка сделки ──
   function tradeCard(pos, isOpen) {
     const allDays = pos.days || [pos.opened_date];
     const dateStr = (pos.closed_date || pos.opened_date || '');
     const daysCount = allDays.length;
-    const name = diaryConstrName(pos.tag);
+    const name = showMode==='private' ? esc(pos.tag) : diaryConstrName(pos.tag);
     const sp = calcDiarySpread(pos);
+    const lp = calcLegPrices(pos);
     const roiId = 'droi_' + pos.id.replace(/[^a-z0-9]/gi,'_');
+
+    // Ноги: нумеруем MX как Фьючерс 1/2..., FX как Спот
+    let mxIdx = 0;
+    const legRows = Object.keys(lp).map(function(b){
+      const L = lp[b];
+      let legLabel;
+      if (showMode==='private') {
+        legLabel = L.instrument;
+      } else {
+        if (L.platform==='FX') legLabel = 'Спот';
+        else { mxIdx++; legLabel = 'Фьючерс '+mxIdx; }
+      }
+      const dirLabel = L.isShort ? 'Шорт' : 'Лонг';
+      const dirColor = L.isShort ? C.loss : C.profit;
+      // Движение ноги в %: насколько цена сдвинулась вход→выход
+      let moveHtml = '';
+      if (showMode==='private') {
+        const fmtP = function(v){return L.platform==='FX'?v.toFixed(5):(Number.isInteger(v)?v:v.toFixed(3));};
+        moveHtml = L.exit ? '<span style="font-family:monospace;color:'+C.ink2+'">'+fmtP(L.entry)+' → '+fmtP(L.exit)+'</span>'
+                          : '<span style="font-family:monospace;color:'+C.ink2+'">'+fmtP(L.entry)+'</span>';
+      } else if (L.exit && L.entry) {
+        const movePct = (L.exit - L.entry) / L.entry * 100;
+        const favorable = L.isShort ? movePct < 0 : movePct > 0;
+        const mc = favorable ? C.profit : C.loss;
+        moveHtml = '<span style="font-variant-numeric:tabular-nums;color:'+mc+';font-weight:600">'+(movePct>=0?'+':'')+movePct.toFixed(2)+'%</span>';
+      } else {
+        moveHtml = '<span style="color:'+C.gold+';font-size:11px">в позиции</span>';
+      }
+      return '<div style="display:flex;align-items:center;gap:10px;padding:6px 0;font-size:12px">'
+        + '<span style="color:'+C.ink2+';min-width:80px">'+legLabel+'</span>'
+        + '<span style="color:'+dirColor+';font-weight:600;font-size:11px;min-width:42px">'+dirLabel+'</span>'
+        + moveHtml
+        + '</div>';
+    }).join('');
 
     // Спред-блок
     let spreadHtml = '';
     if (sp.entry != null) {
       if (sp.exit != null) {
         const delta = Math.abs(sp.entry) - Math.abs(sp.exit);
-        spreadHtml = '<div style="display:flex;align-items:baseline;gap:18px;margin-top:14px;font-size:12px;color:'+C.ink2+'">'
+        const dc = delta>=0 ? C.profit : C.loss;
+        spreadHtml = '<div style="display:flex;align-items:baseline;gap:16px;margin-top:14px;padding-top:14px;border-top:1px dashed '+C.line+';font-size:12px;color:'+C.ink2+';flex-wrap:wrap">'
           + '<span style="text-transform:uppercase;letter-spacing:.8px;font-size:10px">Спред</span>'
           + '<span>вход <b style="color:'+C.ink+';font-variant-numeric:tabular-nums">'+sp.entry.toFixed(3)+'%</b></span>'
-          + '<span style="color:'+C.ink2+'">→</span>'
           + '<span>закрытие <b style="color:'+C.ink+';font-variant-numeric:tabular-nums">'+sp.exit.toFixed(3)+'%</b></span>'
+          + '<span style="margin-left:auto">сжатие <b style="color:'+dc+';font-variant-numeric:tabular-nums;font-size:13px">'+(delta>=0?'+':'')+delta.toFixed(3)+'%</b></span>'
           + '</div>';
       } else {
-        spreadHtml = '<div style="display:flex;align-items:baseline;gap:18px;margin-top:14px;font-size:12px;color:'+C.ink2+'">'
+        spreadHtml = '<div style="display:flex;align-items:baseline;gap:16px;margin-top:14px;padding-top:14px;border-top:1px dashed '+C.line+';font-size:12px;color:'+C.ink2+'">'
           + '<span style="text-transform:uppercase;letter-spacing:.8px;font-size:10px">Спред входа</span>'
           + '<b style="color:'+C.ink+';font-variant-numeric:tabular-nums">'+sp.entry.toFixed(3)+'%</b>'
           + '</div>';
@@ -11270,22 +11338,25 @@ function renderShowcase() {
       ? allDays[allDays.length-1]+' — '+allDays[0]+' · '+daysCount+' дн'
       : dateStr;
 
-    return '<article style="background:'+C.card+';border:1px solid '+C.line+';border-radius:14px;padding:22px 24px;display:flex;justify-content:space-between;align-items:center;gap:24px;flex-wrap:wrap">'
-      + '<div style="flex:1;min-width:200px">'
-      +   '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">'
-      +     '<h3 style="margin:0;font-size:19px;font-weight:700;color:'+C.ink+';letter-spacing:-.3px">'+name+'</h3>'
-      +     statusBadge
+    return '<article style="background:'+C.card+';border:1px solid '+C.line+';border-radius:14px;padding:22px 24px">'
+      + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:24px;flex-wrap:wrap">'
+      +   '<div style="flex:1;min-width:200px">'
+      +     '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">'
+      +       '<h3 style="margin:0;font-size:19px;font-weight:700;color:'+C.ink+';letter-spacing:-.3px">'+name+'</h3>'
+      +       statusBadge
+      +     '</div>'
+      +     '<div style="font-size:12px;color:'+C.ink2+';margin-top:5px;font-variant-numeric:tabular-nums">'+periodStr+'</div>'
       +   '</div>'
-      +   '<div style="font-size:12px;color:'+C.ink2+';margin-top:5px;font-variant-numeric:tabular-nums">'+periodStr+'</div>'
-      +   spreadHtml
+      +   '<div id="'+roiId+'" style="text-align:right;min-width:150px">'
+      +     '<div style="font-size:11px;color:'+C.ink2+'">расчёт…</div>'
+      +   '</div>'
       + '</div>'
-      + '<div id="'+roiId+'" style="text-align:right;min-width:150px">'
-      +   '<div style="font-size:11px;color:'+C.ink2+'">расчёт…</div>'
-      + '</div>'
+      + '<div style="margin-top:14px">'+legRows+'</div>'
+      + spreadHtml
       + '</article>';
   }
 
-  // ── Сборка ленты ──
+  // ── Лента ──
   let feedHtml = '';
   if (opened.length) {
     feedHtml += '<div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:'+C.ink2+';margin:8px 0 12px">Открытые позиции</div>';
@@ -11297,75 +11368,125 @@ function renderShowcase() {
     feedHtml += '<div style="display:flex;flex-direction:column;gap:12px">'
       + closed.map(function(p){return tradeCard(p, false);}).join('') + '</div>';
   }
+  if (!opened.length && !closed.length) {
+    feedHtml = '<div style="text-align:center;padding:40px;color:'+C.ink2+'">Нет сделок по выбранным фильтрам</div>';
+  }
 
-  // ── Шапка со сводкой (плейсхолдеры, заполнятся async) ──
-  const headerHtml = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:'+C.line+';border:1px solid '+C.line+';border-radius:14px;overflow:hidden;margin-bottom:32px">'
-    + '<div style="background:'+C.card+';padding:22px 24px">'
-    +   '<div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:'+C.ink2+';margin-bottom:10px">Средняя доходность</div>'
-    +   '<div id="diary-avg-roi" style="font-size:30px;font-weight:800;letter-spacing:-1.5px;color:'+C.ink2+';font-variant-numeric:tabular-nums">—</div>'
-    +   '<div id="diary-avg-annual" style="font-size:13px;color:'+C.ink2+';margin-top:2px"></div>'
+  // ── Фильтры ──
+  const allTags = [...new Set(allPos.map(function(p){return p.tag;}))].sort();
+  const tagOpts = '<option value="">Все связки</option>'
+    + allTags.map(function(t){
+        const label = showMode==='private' ? t : diaryConstrName(t)+' ('+t+')';
+        return '<option value="'+t+'"'+(fTag===t?' selected':'')+'>'+label+'</option>';
+      }).join('');
+
+  const selStyle = 'font-size:12px;padding:6px 10px;border:1px solid '+C.line+';border-radius:8px;background:'+C.card+';color:'+C.ink+';cursor:pointer';
+  const setF = function(prop,val){return "document.getElementById('showcase-root')._dFilter"+prop+"='"+val+"';renderShowcase()";};
+
+  const filterBar = '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:20px">'
+    + '<input type="text" placeholder="Поиск связки…" value="'+esc(root._dFilterSearch||'')+'" '
+    +   'oninput="document.getElementById(\'showcase-root\')._dFilterSearch=this.value;clearTimeout(window._dSearchT);window._dSearchT=setTimeout(renderShowcase,250)" '
+    +   'style="'+selStyle+';min-width:160px">'
+    + '<select onchange="document.getElementById(\'showcase-root\')._dFilterTag=this.value;renderShowcase()" style="'+selStyle+'">'+tagOpts+'</select>'
+    + '<select onchange="document.getElementById(\'showcase-root\')._dFilterStatus=this.value;renderShowcase()" style="'+selStyle+'">'
+    +   '<option value="all"'+(fStatus==='all'?' selected':'')+'>Все статусы</option>'
+    +   '<option value="closed"'+(fStatus==='closed'?' selected':'')+'>Закрытые</option>'
+    +   '<option value="open"'+(fStatus==='open'?' selected':'')+'>Открытые</option>'
+    + '</select>'
+    + '<select onchange="document.getElementById(\'showcase-root\')._dFilterPeriod=this.value;renderShowcase()" style="'+selStyle+'">'
+    +   '<option value="all"'+(fPeriod==='all'?' selected':'')+'>Всё время</option>'
+    +   '<option value="week"'+(fPeriod==='week'?' selected':'')+'>Неделя</option>'
+    +   '<option value="month"'+(fPeriod==='month'?' selected':'')+'>Месяц</option>'
+    + '</select>'
+    + ((fTag||fStatus!=='all'||fPeriod!=='all'||fSearch)
+        ? '<button onclick="var r=document.getElementById(\'showcase-root\');r._dFilterTag=\'\';r._dFilterStatus=\'all\';r._dFilterPeriod=\'all\';r._dFilterSearch=\'\';renderShowcase()" style="'+selStyle+';color:'+C.ink2+'">✕ Сбросить</button>'
+        : '')
+    + '<span style="margin-left:auto;font-size:12px;color:'+C.ink2+'">'+filtered.length+' из '+allPos.length+'</span>'
+    + '</div>';
+
+  // Переключатель режима
+  const modeToggle = '<div style="display:inline-flex;border:1px solid '+C.line+';border-radius:8px;overflow:hidden">'
+    + '<button onclick="document.getElementById(\'showcase-root\').dataset.showMode=\'public\';renderShowcase()" '
+    +   'style="font-size:11px;padding:6px 12px;border:none;cursor:pointer;background:'+(showMode==='public'?C.ink:C.card)+';color:'+(showMode==='public'?'#fff':C.ink2)+'">Для показа</button>'
+    + '<button onclick="document.getElementById(\'showcase-root\').dataset.showMode=\'private\';renderShowcase()" '
+    +   'style="font-size:11px;padding:6px 12px;border:none;cursor:pointer;background:'+(showMode==='private'?C.ink:C.card)+';color:'+(showMode==='private'?'#fff':C.ink2)+'">Для себя</button>'
+    + '</div>';
+
+  // ── Sticky шапка ──
+  const headerHtml = '<div style="position:sticky;top:0;z-index:10;background:'+C.bg+';padding-top:8px;padding-bottom:16px;margin:0 -24px;padding-left:24px;padding-right:24px">'
+    + '<div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:16px;flex-wrap:wrap;gap:12px">'
+    +   '<div>'
+    +     '<h1 style="margin:0;font-size:24px;font-weight:800;color:'+C.ink+';letter-spacing:-.5px">Дневник сделок</h1>'
+    +     '<p style="margin:4px 0 0;font-size:13px;color:'+C.ink2+'">Арбитраж — доходность на вложенный капитал</p>'
+    +   '</div>'
+    +   modeToggle
     + '</div>'
-    + '<div style="background:'+C.card+';padding:22px 24px">'
-    +   '<div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:'+C.ink2+';margin-bottom:10px">Лучшая сделка</div>'
-    +   '<div id="diary-best-roi" style="font-size:30px;font-weight:800;letter-spacing:-1.5px;color:'+C.ink2+';font-variant-numeric:tabular-nums">—</div>'
-    +   '<div id="diary-best-name" style="font-size:13px;color:'+C.ink2+';margin-top:2px"></div>'
-    + '</div>'
-    + '<div style="background:'+C.card+';padding:22px 24px">'
-    +   '<div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:'+C.ink2+';margin-bottom:10px">Закрыто</div>'
-    +   '<div style="font-size:30px;font-weight:800;letter-spacing:-1.5px;color:'+C.ink+';font-variant-numeric:tabular-nums">'+closed.length+'</div>'
-    +   (opened.length?'<div style="font-size:13px;color:'+C.gold+';margin-top:2px">+ '+opened.length+' в работе</div>':'')
+    + '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:1px;background:'+C.line+';border:1px solid '+C.line+';border-radius:12px;overflow:hidden">'
+    +   '<div style="background:'+C.card+';padding:16px 18px">'
+    +     '<div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:'+C.ink2+';margin-bottom:8px">Средняя доходность</div>'
+    +     '<div id="diary-avg-roi" style="font-size:26px;font-weight:800;letter-spacing:-1px;color:'+C.ink2+';font-variant-numeric:tabular-nums">—</div>'
+    +     '<div id="diary-avg-annual" style="font-size:12px;color:'+C.ink2+';margin-top:2px"></div>'
+    +   '</div>'
+    +   '<div style="background:'+C.card+';padding:16px 18px">'
+    +     '<div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:'+C.ink2+';margin-bottom:8px">Лучшая сделка</div>'
+    +     '<div id="diary-best-roi" style="font-size:26px;font-weight:800;letter-spacing:-1px;color:'+C.ink2+';font-variant-numeric:tabular-nums">—</div>'
+    +     '<div id="diary-best-name" style="font-size:12px;color:'+C.ink2+';margin-top:2px"></div>'
+    +   '</div>'
+    +   '<div style="background:'+C.card+';padding:16px 18px">'
+    +     '<div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:'+C.ink2+';margin-bottom:8px">Средний срок</div>'
+    +     '<div id="diary-avg-days" style="font-size:26px;font-weight:800;letter-spacing:-1px;color:'+C.ink+';font-variant-numeric:tabular-nums">—</div>'
+    +     '<div style="font-size:12px;color:'+C.ink2+';margin-top:2px">дней в сделке</div>'
+    +   '</div>'
+    +   '<div style="background:'+C.card+';padding:16px 18px">'
+    +     '<div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:'+C.ink2+';margin-bottom:8px">Сделок</div>'
+    +     '<div style="font-size:26px;font-weight:800;letter-spacing:-1px;color:'+C.ink+';font-variant-numeric:tabular-nums">'+closed.length+'</div>'
+    +     (opened.length?'<div style="font-size:12px;color:'+C.gold+';margin-top:2px">+ '+opened.length+' в работе</div>':'<div style="font-size:12px;color:'+C.ink2+';margin-top:2px">закрыто</div>')
+    +   '</div>'
     + '</div>'
     + '</div>';
 
   root.innerHTML = '<div style="background:'+C.bg+';min-height:100%">'
-    + '<div style="max-width:840px;margin:0 auto;padding:40px 24px 60px">'
-    +   '<header style="margin-bottom:32px">'
-    +     '<h1 style="margin:0;font-size:26px;font-weight:800;color:'+C.ink+';letter-spacing:-.5px">Дневник сделок</h1>'
-    +     '<p style="margin:6px 0 0;font-size:14px;color:'+C.ink2+'">Арбитраж MOEX × Forex — доходность на вложенный капитал</p>'
-    +   '</header>'
+    + '<div style="max-width:860px;margin:0 auto;padding:0 24px 60px">'
     +   headerHtml
-    +   feedHtml
+    +   '<div style="padding-top:20px">'
+    +     filterBar
+    +     feedHtml
+    +   '</div>'
     + '</div>'
     + '</div>';
 
-  // ── Async: посчитать ROI каждой карточки и сводку ──
+  // ── Async ROI ──
   (async function(){
-    const allForStats = closed.slice(); // статистика по закрытым
-    let sumRoi=0, sumAnnual=0, nRoi=0, bestRoi=null, bestName='';
-
-    // Сначала закрытые (для статистики), потом открытые
+    let sumRoi=0, sumAnnual=0, sumDays=0, nRoi=0, bestRoi=null, bestName='';
     for (const pos of [].concat(opened, closed)) {
       const r = await calcDiaryRoi(pos);
       const el = document.getElementById('droi_' + pos.id.replace(/[^a-z0-9]/gi,'_'));
       if (el) {
         if (r.roi != null) {
           const col = r.isProfit ? C.profit : C.loss;
-          el.innerHTML = '<div style="font-size:34px;font-weight:800;letter-spacing:-1.5px;color:'+col+';line-height:1;font-variant-numeric:tabular-nums">'+fmtPct(r.roi)+'</div>'
+          el.innerHTML = '<div style="font-size:32px;font-weight:800;letter-spacing:-1.5px;color:'+col+';line-height:1;font-variant-numeric:tabular-nums">'+fmtPct(r.roi)+'</div>'
             + '<div style="font-size:13px;font-weight:600;color:'+C.ink2+';margin-top:5px;font-variant-numeric:tabular-nums">'+fmtAnnual(r.annual)+' <span style="font-weight:400">годовых</span></div>';
         } else {
-          el.innerHTML = '<div style="font-size:13px;color:'+C.ink2+'">нет данных ГО</div>';
+          el.innerHTML = '<div style="font-size:12px;color:'+C.ink2+'">нет данных ГО</div>';
         }
       }
-      // Статистика только по закрытым с валидным ROI
       if (pos.status==='closed' && r.roi != null) {
-        sumRoi += r.roi; sumAnnual += r.annual; nRoi++;
-        if (bestRoi == null || r.roi > bestRoi) { bestRoi = r.roi; bestName = diaryConstrName(pos.tag); }
+        sumRoi += r.roi; sumAnnual += r.annual; sumDays += r.days; nRoi++;
+        if (bestRoi == null || r.roi > bestRoi) { bestRoi = r.roi; bestName = (showMode==='private'?pos.tag:diaryConstrName(pos.tag)); }
       }
     }
-
     if (nRoi > 0) {
-      const avgRoi = sumRoi/nRoi, avgAnnual = sumAnnual/nRoi;
-      const avgEl = document.getElementById('diary-avg-roi');
-      const avgAnnEl = document.getElementById('diary-avg-annual');
-      if (avgEl) { avgEl.textContent = fmtPct(avgRoi); avgEl.style.color = avgRoi>=0?C.profit:C.loss; }
-      if (avgAnnEl) avgAnnEl.textContent = fmtAnnual(avgAnnual)+' годовых';
-      const bestEl = document.getElementById('diary-best-roi');
-      const bestNmEl = document.getElementById('diary-best-name');
-      if (bestEl && bestRoi != null) { bestEl.textContent = fmtPct(bestRoi); bestEl.style.color = C.profit; }
-      if (bestNmEl) bestNmEl.textContent = bestName;
+      const avgRoi=sumRoi/nRoi, avgAnnual=sumAnnual/nRoi, avgDays=sumDays/nRoi;
+      const set = function(id,txt,col){const e=document.getElementById(id);if(e){e.textContent=txt;if(col)e.style.color=col;}};
+      set('diary-avg-roi', fmtPct(avgRoi), avgRoi>=0?C.profit:C.loss);
+      set('diary-avg-annual', fmtAnnual(avgAnnual)+' годовых');
+      if (bestRoi!=null) set('diary-best-roi', fmtPct(bestRoi), C.profit);
+      set('diary-best-name', bestName);
+      set('diary-avg-days', avgDays<1.5?'1':String(Math.round(avgDays)));
     }
   })();
 }
+
 
 
 
