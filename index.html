@@ -8854,17 +8854,22 @@ async function autoTagFromReports(date) {
       const vol = trades.reduce((s,t) => s + Math.abs(t.volume||0), 0);
       const avgP = trades.reduce((s,t) => s + (t.price||0)*Math.abs(t.volume||0), 0) / (vol||1);
       const dir = entryDir[base] === 'Long' ? 'Buy' : 'Sell';
-      const lastT = [...sorted].reverse().find(t =>
-        t.instrument.replace(/[-_0-9.]/g,'').toUpperCase() === base
+      // Ищем exit только среди сделок противоположного направления в том же кластере
+      const exitDir = entryDir[base] === 'Long' ? 'Short' : 'Long';
+      const exitTrades = cluster.filter(t =>
+        t.instrument.replace(/[-_0-9.]/g,'').toUpperCase() === base &&
+        t.direction === exitDir
       );
+      const hasExit = exitTrades.length > 0;
+      const lastExitT = hasExit ? exitTrades[exitTrades.length - 1] : null;
       newRows.push({
         id: 'auto_' + date + '_' + base + '_' + setN + '_' + Date.now() + '_' + Math.random(),
         date, time: trades[0].time, platform: 'MX',
         instrument: trades[0].instrument, direction: dir,
         volume: vol, price: +avgP.toFixed(4),
-        price_close: lastT ? lastT.price : null,
-        time_close: lastT ? lastT.time : null,
-        status: 'closed', tag, set: setN, note: 'авторазнос',
+        price_close: lastExitT ? lastExitT.price : null,
+        time_close: lastExitT ? lastExitT.time : null,
+        status: hasExit ? 'closed' : 'open', tag, set: setN, note: 'авторазнос',
       });
     }
 
