@@ -1038,8 +1038,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '24.06 22:12';
-const BUILD_DATE    = '24.06.2026 22:12 МСК';
+const BUILD_VERSION = '24.06 22:16';
+const BUILD_DATE    = '24.06.2026 22:16 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -10321,8 +10321,13 @@ function renderOverviewTab(force) {
   const fxTotalSwap  = hasFx ? fxDays.reduce((s,d)=>s+d.swapUsd,0) : 0;
   const fxWinDays    = hasFx ? fxDays.filter(d=>d.pnlUsd>0).length : 0;
 
-  // Combined P&L (days where both have data with RUB conversion)
-  const combinedPnlRub = mxTotalPnl + fxTotalPnlRub;
+  // Ребалансировка MX⇄FX (из ручных операций) — комиссия, может быть + или −
+  const rebalanceComm = (store.manual||[])
+    .filter(m => m.type==='commission_rebalance')
+    .reduce((s,m) => s + (parseFloat(m.amount)||0), 0);
+
+  // Combined P&L (days where both have data with RUB conversion) + ребалансировка
+  const combinedPnlRub = mxTotalPnl + fxTotalPnlRub + rebalanceComm;
 
   // ── Sharpe / Sortino ─────────────────────────────────────────
   const _mean = arr => arr.length ? arr.reduce((s,v)=>s+v,0)/arr.length : 0;
@@ -10368,11 +10373,6 @@ function renderOverviewTab(force) {
   const mxTotalPayout   = hasMx ? mxDays.reduce((s,d)=>s+(d.payout||0),0) : 0;
   const mxTotalRollover = hasMx ? mxDays.reduce((s,d)=>s+(d.rollover||0),0) : 0;
   const mxTotalFunding  = hasMx ? mxDays.reduce((s,d)=>s+(d.funding||0),0) : 0;
-
-  // Комиссия за ребалансировку MX⇄FX (из ручных операций)
-  const rebalanceComm = (store.manual||[])
-    .filter(m => m.type==='commission_rebalance')
-    .reduce((s,m) => s + Math.abs(parseFloat(m.amount)||0), 0);
 
   // Combined commissions
   const rate0 = currentRate?.value || 85;
@@ -10493,11 +10493,7 @@ function renderOverviewTab(force) {
       ${(hasMx||hasFx)?statCard('Средний день',combinedAvgDay,combinedAvgDay/rate0,allDaysCount+' торг. дней',combinedAvgDay>=0?'var(--green)':'var(--red)'):''}
     </div>
     <!-- STAT CARDS ROW 2: Риски -->
-    <!-- STAT CARDS ROW 1.5: Sharpe/Sortino -->
-    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
-      ${hasMx&&sharpeMx!==null?statCard('Sharpe МХ',sharpeMx,null,'дневной × √252',sharpeMx>=1?'var(--green)':sharpeMx>=0?'var(--text1)':'var(--red)'):''}
-      ${hasMx&&sortinoMx!==null?statCard('Sortino МХ',sortinoMx,null,'риск просадок',sortinoMx>=1?'var(--green)':sortinoMx>=0?'var(--text1)':'var(--red)'):''}
-    </div>
+    <!-- STAT CARDS ROW 1.5 -->
     <!-- STAT CARDS ROW 2+3: Риски + Затраты -->
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px">
       ${(hasMx||hasFx)&&combinedBestDay>0?statCard('Лучший день',combinedBestDay,combinedBestDay/rate0,'МХ + FX','var(--green)'):''}
@@ -10507,7 +10503,7 @@ function renderOverviewTab(force) {
       ${hasMx?statCard('Payout',mxTotalPayout,mxTotalPayout/rate0,'MX',mxTotalPayout>=0?'var(--green)':'var(--red)'):''}
       ${hasMx?statCard('Перенос',mxTotalRollover,mxTotalRollover/rate0,'MX',mxTotalRollover>=0?'var(--green)':'var(--red)'):''}
       ${hasMx?statCard('Фандинг',mxTotalFunding,mxTotalFunding/rate0,'MX',mxTotalFunding>=0?'var(--green)':'var(--red)'):''}
-      ${rebalanceComm>0?statCard('Ребалансировка',-Math.abs(rebalanceComm),-Math.abs(rebalanceComm)/rate0,'комиссия MX⇄FX','var(--red)'):''}
+      ${statCard('Ребалансировка',rebalanceComm,rebalanceComm/rate0,'комиссия MX⇄FX',rebalanceComm>=0?'var(--green)':'var(--red)')}
     </div>
     <!-- BALANCE CHARTS -->
     <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-bottom:14px" class="charts-grid">
@@ -10522,7 +10518,7 @@ function renderOverviewTab(force) {
       ${chartBox('ch-cum-pnl','Накопленный P&L')}
     </div>
     <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-bottom:14px" class="charts-grid">
-      ${chartBox('ch-comm','Комиссии · Своп · Фандинг · Перенос')}
+      ${chartBox('ch-comm','Комиссии · Своп · Фандинг · Перенос · Ребаланс')}
       ${chartBox('ch-instr','P&L по инструментам МХ')}
     </div>
     <div style="display:grid;grid-template-columns:1fr;gap:14px;margin-bottom:14px" class="charts-grid">
@@ -10993,6 +10989,20 @@ function _drawOverviewCharts(mxDays,fxDays,allDates,mxByDate,fxByDate,cumMx,cumF
       commDs.push(mkDs('Перенос ₽',d5,'rgba(96,165,250,.6)','c'));
       commDs.push(mkDsUsd('Фандинг',d4,'rgba(52,211,153,.3)','c'));
       commDs.push(mkDsUsd('Перенос',d5,'rgba(96,165,250,.3)','c'));
+    }
+    // Ребалансировка MX⇄FX по датам (ручные операции)
+    {
+      const rebByDate = {};
+      (store.manual||[]).filter(m=>m.type==='commission_rebalance').forEach(m=>{
+        const dt = normDate(m.date||'').split('-').reverse().join('.');
+        if (!dt) return;
+        rebByDate[dt] = (rebByDate[dt]||0) + (parseFloat(m.amount)||0);
+      });
+      if (Object.keys(rebByDate).length) {
+        const d6 = allDates.map(dt=>({x:dt,y:rebByDate[dt]||0}));
+        commDs.push(mkDs('Ребаланс ₽',d6,'rgba(236,72,153,.65)','c'));
+        commDs.push(mkDsUsd('Ребаланс',d6,'rgba(236,72,153,.3)','c'));
+      }
     }
     _overviewChart('ch-comm', { type:'bar', data:{ datasets:commDs },
       options:{ ..._ovDefaults(),
