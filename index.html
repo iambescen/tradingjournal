@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782294860 -->
+<!-- v:1782296395 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -7,7 +7,7 @@
   <meta http-equiv="Pragma" content="no-cache">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Торговый журнал</title>
-  <!-- build:1782294860 -->
+  <!-- build:1782296395 -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
@@ -8927,6 +8927,7 @@ async function autoTagFromReports(date) {
   
   // Clean up any positions previously created for this exact date
   // This ensures re-running autotag for same date produces correct results
+  const dateISO2 = normDate(date);
   store.positions = store.positions.filter(function(p) {
     // Remove positions opened on this date (they'll be recreated)
     if (p.opened_date === date || p.opened_date === dateISO2) return false;
@@ -8944,8 +8945,6 @@ async function autoTagFromReports(date) {
       p.processedDays = p.processedDays.filter(function(d) { return d !== date && d !== dateISO2; });
     }
   });
-  const dateISO2 = normDate(date);
-
   // Process each detected construction
   for (const { cluster, tag, set: setN } of sets) {
     const setMxRows = newRows.filter(r => r.platform==='MX' && r.tag===tag && r.set===setN);
