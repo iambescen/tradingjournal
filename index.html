@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782294379 -->
+<!-- v:1782294609 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -7,7 +7,7 @@
   <meta http-equiv="Pragma" content="no-cache">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Торговый журнал</title>
-  <!-- build:1782294379 -->
+  <!-- build:1782294609 -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
@@ -8235,60 +8235,61 @@ function renderConstructionAnalytics() {
 function _buildOverviewRoiDashboard(closedPositions) {
   var aEl = document.getElementById('dash-annual-yield');
   var aSubEl = document.getElementById('dash-annual-sub');
+  if (!aEl) return;
 
-  if (!closedPositions || !closedPositions.length) {
+  // ── Депозит: из карточки "Итого" в дашборде (dash-total-pnl) ──
+  var totalDeposit = 0;
+  var totalPnlEl = document.getElementById('dash-total-pnl');
+  if (totalPnlEl && totalPnlEl.textContent.trim() !== '—') {
+    // Парсим "2 891 617,15 р." → 2891617.15
+    var txt = totalPnlEl.textContent.replace(/[^0-9,]/g, '').replace(',', '.');
+    totalDeposit = parseFloat(txt) || 0;
+  }
+  if (totalDeposit <= 0) {
     if (aEl) { aEl.textContent = '—'; aEl.style.color = 'var(--text2)'; }
-    if (aSubEl) { aSubEl.textContent = 'нет закрытых позиций'; }
+    if (aSubEl) { aSubEl.textContent = 'нет данных о депозите'; }
     return;
   }
 
-  // ── Депозит: берём из карточки "Итого" в верхнем дашборде ──
-  var totalDeposit = 0;
-  var totalPnlEl = document.getElementById('dash-total-pnl');
-  if (totalPnlEl) {
-    var txt = totalPnlEl.textContent.replace(/ /g,' ').replace(/[^0-9., ]/g,'').replace(/[ ]/g,'').replace(',','.');
-    totalDeposit = parseFloat(txt) || 0;
-  }
-  // Fallback: МХ из PDF
-  if (totalDeposit <= 0) {
-    var rate0 = (currentRate && currentRate.value) || 85;
-    var mxBal0 = store.mx.length ? (store.mx[store.mx.length-1].balance_end || 0) : 0;
-    totalDeposit = mxBal0;
-  }
-  if (totalDeposit <= 0) return;
-
-  // ── P&L: берём из карточки "Общий P&L" в аналитике Обзора ──
-  // Она уже посчитана в renderConstructionAnalytics через posPnl()
-  // Дублируем расчёт здесь чтобы не зависеть от DOM
-  var rate2 = (currentRate && currentRate.value) || 85;
+  // ── P&L: из аналитики Обзора — элемент "Общий P&L" ──
+  // Берём прямо из DOM если уже отрендерен
   var totalPnl = 0;
+  var pnlDomEl = document.querySelector('[data-overview-total-pnl]');
+  if (pnlDomEl) {
+    var ptxt = pnlDomEl.textContent.replace(/[^0-9,\-]/g, '').replace(',', '.');
+    totalPnl = parseFloat(ptxt) || 0;
+  } else {
+    // Пересчитываем из store.positions (все позиции у которых есть P&L)
+    var rate2 = (currentRate && currentRate.value) || 85;
+    var allPos = store.positions || [];
+    allPos.forEach(function(pos) {
+      var fxRate = (pos.closed_date ? getRateForDate(normDate(pos.closed_date)) : rate2) || rate2;
+      var mxPF = getPosMxPnlFull(pos);
+      var tmx = Object.values(mxPF).reduce(function(s,x){return s+x.pnl;},0);
+      var fxTr = getPosFxTrades(pos);
+      var tfx = fxTr.reduce(function(s,t){return s+(t.net_pnl_usd||0);},0)*fxRate;
+      totalPnl += Math.round(tmx + tfx);
+    });
+  }
+
+  // ── Период: от первой позиции до сегодня ──
   var allDates = [];
-  closedPositions.forEach(function(pos) {
-    var fxRate = (pos.closed_date ? getRateForDate(normDate(pos.closed_date)) : rate2) || rate2;
-    var mxPF = getPosMxPnlFull(pos);
-    var tmx = Object.values(mxPF).reduce(function(s,x){return s+x.pnl;},0);
-    var fxTr = getPosFxTrades(pos);
-    var tfx = fxTr.reduce(function(s,t){return s+(t.net_pnl_usd||0);},0)*fxRate;
-    totalPnl += Math.round(tmx + tfx);
+  (store.positions||[]).forEach(function(pos){
     (pos.days||[pos.opened_date]).forEach(function(d){ if(d && allDates.indexOf(d)<0) allDates.push(d); });
   });
-
-  // ── Период ──
   allDates.sort(function(a,b){return parseDate(a)-parseDate(b);});
   var firstDate = allDates[0] || '';
-  var periodDays = Math.max(1, Math.round((Date.now() - parseDate(firstDate)) / 86400000) + 1);
+  var periodDays = firstDate ? Math.max(1, Math.round((Date.now()-parseDate(firstDate))/86400000)+1) : 1;
 
-  // ── Расчёт ──
+  // ── Формула ──
   var roi = totalPnl / totalDeposit * 100;
   var annual = roi * 365 / periodDays;
   var c = roi >= 0 ? 'var(--green)' : 'var(--red)';
 
-  if (aEl) {
-    aEl.textContent = (annual>=0?'+':'')+Math.round(annual)+'%';
-    aEl.style.color = c;
-  }
+  aEl.textContent = (annual>=0?'+':'')+Math.round(annual)+'%';
+  aEl.style.color = c;
   if (aSubEl) {
-    aSubEl.textContent = 'за '+periodDays+' дн. · '+(totalPnl>=0?'+':'')+Math.round(totalPnl).toLocaleString('ru')+'₽';
+    aSubEl.textContent = 'за '+periodDays+' дн. · P&L '+(totalPnl>=0?'+':'')+Math.round(totalPnl).toLocaleString('ru')+'₽';
   }
 }
 
