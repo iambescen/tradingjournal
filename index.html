@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782291753 -->
+<!-- v:1782294224 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -7,7 +7,7 @@
   <meta http-equiv="Pragma" content="no-cache">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Торговый журнал</title>
-  <!-- build:1782291753 -->
+  <!-- build:1782294224 -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
@@ -8992,7 +8992,13 @@ async function autoTagFromReports(date) {
   }
 
   // After all sets processed — run trades through existing (pre-existing) open positions
-  for (const pos of store.positions.filter(p => p.status === 'open')) {
+  // Exclude positions that were JUST CREATED today (they already processed their trades)
+  const justCreatedIds = new Set(sets.map(s => {
+    const found = store.positions.find(p => p.tag === s.tag && p.opened_date === date);
+    return found ? found.id : null;
+  }).filter(Boolean));
+  
+  for (const pos of store.positions.filter(p => p.status === 'open' && !justCreatedIds.has(p.id))) {
     // Get all MX trades for instruments in this position
     const allMxForPos = sorted.filter(t => {
       const b = (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
