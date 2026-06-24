@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782291390 -->
+<!-- v:1782291753 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -7,7 +7,7 @@
   <meta http-equiv="Pragma" content="no-cache">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Торговый журнал</title>
-  <!-- build:1782291390 -->
+  <!-- build:1782291753 -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
@@ -9077,11 +9077,14 @@ async function autoTagFromReports(date) {
     store.autoLj.rows.push.apply(store.autoLj.rows, newRows);
     saveStore();
     // Switch to Сделки tab and render
-    switchTab('autolj', null);
+    document.querySelectorAll('.tab-content').forEach(function(el){el.classList.remove('active');});
+    document.querySelectorAll('.nav-btn').forEach(function(el){el.classList.remove('active');});
+    var ljTab = document.getElementById('tab-autolj');
+    if (ljTab) ljTab.classList.add('active');
     document.querySelectorAll('.nav-btn').forEach(function(b){
       if (b.textContent.trim()==='Сделки') b.classList.add('active');
     });
-    renderAutoLj();
+    setTimeout(function(){ renderAutoLj(); }, 50);
   };
   } catch(e) {
     console.error('[AutoTag]', e);
