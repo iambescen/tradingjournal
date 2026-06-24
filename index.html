@@ -11095,565 +11095,278 @@ function openPositionInDiary(posId) {
 }
 
 
-function renderDiaryPositions() {
-  const root = document.getElementById('showcase-root');
-  if (!root) return;
-  positionsInit();
+// ══════════════════════════════════════════════════════════════
+// ДНЕВНИК — витрина результатов (светлый банковский стиль)
+// Доходность от ГО+маржа как главная метрика. Без рублёвых сумм.
+// ══════════════════════════════════════════════════════════════
 
-  const bg2   = 'var(--bg2)';
-  const bg3   = 'var(--bg3)';
-  const border= 'var(--border)';
-  const text1 = 'var(--text)';
-  const text2 = 'var(--text2)';
-  const green = 'var(--green)';
-  const red   = 'var(--red)';
-  const blue  = 'var(--blue)';
-  const gold  = 'var(--amber)';
-  const purple= 'var(--purple)';
+// Кеш рассчитанной доходности по позиции (чтобы не пересчитывать ГО синхронно)
+const _diaryRoiCache = {};
 
-  // Filter state
-  var filterTag  = root._diaryFilterTag  || '';
-  var filterDate = root._diaryFilterDate || '';
+// Человекочитаемое название конструкции
+function diaryConstrName(tag) {
+  if (!tag) return 'Связка';
+  if (/SI|USDRUBF|URF|UC/.test(tag) && /CR|CNY/.test(tag)) return 'Доллар → юань';
+  if (/EU1|EU2|EURRUBF|ERF|ED/.test(tag) && /CR|CNY/.test(tag)) return 'Евро → юань';
+  if (/URF/.test(tag) && /CRF/.test(tag)) return 'Доллар → юань';
+  if (/ERF/.test(tag) && /CRF/.test(tag)) return 'Евро → юань';
+  if (/GD/.test(tag)) return 'Золото';
+  if (/SV/.test(tag)) return 'Серебро';
+  if (/PT|PD/.test(tag)) return 'Металлы';
+  return 'Валютная связка';
+}
 
-  const allPos = store.positions || [];
+// Рассчитать доходность позиции (% и годовых). Возвращает Promise.
+async function calcDiaryRoi(pos) {
+  const rate = (pos.closed_date ? getRateForDate(normDate(pos.closed_date)) : (currentRate&&currentRate.value||85)) || 85;
+  const calc = calcPositionPnlByFormula(pos);
+  const mxTotal = calc.mxTotal + calc.totalComm; // P&L + комиссия MX
+  const fxTr = getPosFxTrades(pos);
+  const fxTotal = fxTr.reduce(function(s,t){return s+(t.net_pnl_usd||0);},0) * rate;
+  const totalRub = mxTotal + fxTotal;
 
-  // Unique tags and dates for filters
-  var allTags2 = [];
-  var allDates2 = [];
-  allPos.filter(function(p){return p.status==='closed';}).forEach(function(p){
-    if (allTags2.indexOf(p.tag)<0) allTags2.push(p.tag);
-    var d = p.closed_date||p.opened_date;
-    if (d && allDates2.indexOf(d)<0) allDates2.push(d);
-  });
-  allTags2.sort();
-  allDates2.sort(function(a,b){return parseDate(b)-parseDate(a);});
+  let totalFrozen = 0;
+  try {
+    const cap = await calcPositionCapital(pos);
+    totalFrozen = cap && cap.totalFrozen || 0;
+  } catch(e) {}
 
-  const closed = allPos.filter(function(p){
-    if (p.status!=='closed') return false;
-    if (filterTag && p.tag!==filterTag) return false;
-    if (filterDate && (p.closed_date||p.opened_date)!==filterDate) return false;
-    return true;
-  }).sort(function(a,b){return parseDate(b.closed_date||b.opened_date)-parseDate(a.closed_date||a.opened_date);});
-  const opened = allPos.filter(function(p){return p.status==='open';});
-  if (!allPos.length) return;
+  const days = (pos.days||[pos.closed_date||pos.opened_date]).length || 1;
+  const roi = totalFrozen > 0 ? (totalRub / totalFrozen * 100) : null;
+  const annual = roi != null ? roi * (365/days) : null;
+  return { roi, annual, days, totalFrozen, isProfit: totalRub >= 0 };
+}
 
-  // Tag → human-readable name
-  function tagName(tag) {
-    if (tag.indexOf('SI')>=0 && tag.indexOf('CR')>=0) return '🇺🇸 Валюта';
-    if (tag.indexOf('EU1')>=0 && tag.indexOf('CR')>=0) return '🇪🇺 Валюта';
-    if (tag.indexOf('ERF')>=0) return '🇪🇺 Валюта';
-    if (tag.indexOf('URF')>=0) return '🇺🇸 Валюта';
-    if (tag.indexOf('UC')>=0) return '🇺🇸 Валюта';
-    if (tag.indexOf('ED')>=0) return '🇪🇺 Валюта';
-    if (tag.indexOf('GD')>=0) return '🥇 Металл';
-    if (tag.indexOf('SV')>=0) return '🥈 Металл';
-    if (tag.indexOf('PT')>=0) return '⚙️ Металл';
-    if (tag.indexOf('PD')>=0) return '⚙️ Металл';
-    return '💱 Валюта';
-  }
-
-  function fmtP(v, isFx) {
-    if (v == null) return '—';
-    var d = isFx ? 5 : 2;
-    return parseFloat(v.toFixed(d)).toString();
-  }
-
-  let html = '';
-
-  closed.forEach(function(pos) {
-    const allDays = pos.days || [pos.opened_date];
-    const daysStr = allDays.length>1 ? allDays[0]+' — '+allDays[allDays.length-1] : allDays[0];
-    const daysCount = allDays.length;
-    const name = tagName(pos.tag);
-
-    // Calc arb spread (same logic as in renderAutoLj but here without P&L)
-    // Get avg prices from all sets
-    const mxAvg = {}; // b -> {entry, exit}
-    for (const b in pos.legs) {
-      const leg = pos.legs[b];
-      if (leg.platform !== 'MX') continue;
-      const isEntryShort = leg.entry_direction === 'Sell';
-      let eVol=0,eSum=0,xVol=0,xSum=0;
-      allDays.forEach(function(d){
-        const rep = getMxReportForDate(d);
-        if (!rep) return;
-        (rep.trades||[]).forEach(function(t){
-          if ((t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase() !== b) return;
-          const isExit = isEntryShort ? t.direction==='Long' : t.direction==='Short';
-          const v = Math.abs(t.volume||0);
-          if (!isExit) { eVol+=v; eSum+=(t.price||0)*v; }
-          else          { xVol+=v; xSum+=(t.price||0)*v; }
-        });
+// Расчёт спреда вход/выход для позиции (доходность арбитража)
+function calcDiarySpread(pos) {
+  const allDays = pos.days || [pos.opened_date];
+  const mxAvg = {};
+  for (const b in pos.legs) {
+    const leg = pos.legs[b];
+    if (leg.platform !== 'MX') continue;
+    const isEntryShort = leg.entry_direction === 'Sell';
+    let eVol=0,eSum=0,xVol=0,xSum=0;
+    allDays.forEach(function(d){
+      const rep = getMxReportForDate(d);
+      if (!rep) return;
+      (rep.trades||[]).forEach(function(t){
+        if ((t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase() !== b) return;
+        const isExit = isEntryShort ? t.direction==='Long' : t.direction==='Short';
+        const v = Math.abs(t.volume||0);
+        if (!isExit) { eVol+=v; eSum+=(t.price||0)*v; }
+        else          { xVol+=v; xSum+=(t.price||0)*v; }
       });
-      mxAvg[b] = { entry: eVol?eSum/eVol:0, exit: xVol?xSum/xVol:0 };
-    }
-    // FX avg
-    const fxInstrs = Object.keys(pos.legs).filter(function(b){return pos.legs[b].platform==='FX';});
-    const fxTrades2 = (pos.fx_trades||[]).length ? pos.fx_trades :
-      (store.fx||[]).filter(function(t){
-        return fxInstrs.indexOf((t.instrument||'').replace(/[-_]/g,'').toUpperCase())>=0
-          && normDate(t.close_date||'')===normDate(pos.closed_date||'');
-      });
-    let fxEVol=0,fxESum=0,fxXVol=0,fxXSum=0;
-    fxTrades2.forEach(function(t){
-      var q=Math.abs(t.qty||0);
-      fxEVol+=q; fxESum+=(t.entry_price||0)*q;
-      if(t.close_price){fxXVol+=q; fxXSum+=(t.close_price||0)*q;}
     });
-    const fxEntry = fxEVol ? fxESum/fxEVol : 0;
-    const fxExit  = fxXVol ? fxXSum/fxXVol : 0;
-
-    // Calc spread
-    const tag = pos.tag;
-    let spreadEntry=null, spreadExit=null;
-    const ep = function(b){return mxAvg[b]?mxAvg[b].entry:0;};
-    const xp = function(b){return mxAvg[b]?mxAvg[b].exit:0;};
-    // alias CNY=CR
-    if (!mxAvg['CR'] && mxAvg['CNY']) { mxAvg['CR']=mxAvg['CNY']; }
-    if (tag.indexOf('SI')>=0 && tag.indexOf('CR')>=0 && fxEntry) {
-      if(ep('SI')&&ep('CR')) spreadEntry=((ep('SI')/1000/ep('CR'))/fxEntry-1)*100;
-      if(xp('SI')&&xp('CR')&&fxExit) spreadExit=((xp('SI')/1000/xp('CR'))/fxExit-1)*100;
-    } else if (tag.indexOf('EU1')>=0 && tag.indexOf('CR')>=0 && fxEntry) {
-      if(ep('EU')&&ep('CR')) spreadEntry=((ep('EU')/1000/ep('CR'))/fxEntry-1)*100;
-      if(xp('EU')&&xp('CR')&&fxExit) spreadExit=((xp('EU')/1000/xp('CR'))/fxExit-1)*100;
-    } else if (tag.indexOf('ERF')>=0 && fxEntry) {
-      if(ep('EURRUBF')&&ep('CNYRUBF')) spreadEntry=((ep('EURRUBF')/ep('CNYRUBF'))/fxEntry-1)*100;
-      if(xp('EURRUBF')&&xp('CNYRUBF')&&fxExit) spreadExit=((xp('EURRUBF')/xp('CNYRUBF'))/fxExit-1)*100;
-    } else if (tag.indexOf('URF')>=0 && fxEntry) {
-      if(ep('USDRUBF')&&ep('CNYRUBF')) spreadEntry=((ep('USDRUBF')/ep('CNYRUBF'))/fxEntry-1)*100;
-      if(xp('USDRUBF')&&xp('CNYRUBF')&&fxExit) spreadExit=((xp('USDRUBF')/xp('CNYRUBF'))/fxExit-1)*100;
-    } else if (tag.indexOf('UC')>=0 && fxEntry) {
-      if(ep('UC')) spreadEntry=(ep('UC')/fxEntry-1)*100;
-      if(xp('UC')&&fxExit) spreadExit=(xp('UC')/fxExit-1)*100;
-    }
-
-    // Spread block
-    var spreadHtml = '';
-    if (spreadEntry !== null) {
-      var se = spreadEntry.toFixed(3)+'%';
-      if (spreadExit !== null) {
-        var sx = spreadExit.toFixed(3)+'%';
-        var delta = spreadExit - spreadEntry;
-        var dc = delta<=0 ? green : red;
-        // delta<0 means spread narrowed = profit (good)
-        var incomeColor = delta<=0?green:red;
-        spreadHtml = '<div style="display:flex;gap:14px;padding:10px 0 0;font-size:12px;flex-wrap:wrap;align-items:baseline">'
-          + '<span style="color:'+text2+'">Спред:</span>'
-          + '<span><span style="color:'+text2+'">вход</span> <b style="font-family:monospace;font-size:14px;color:'+text1+'">'+se+'</b></span>'
-          + '<span><span style="color:'+text2+'">→ закрытие</span> <span style="font-family:monospace;color:'+text1+'">'+sx+'</span></span>'
-          + '<span style="color:'+text2+'">Доход: <b style="font-family:monospace;font-size:16px;color:'+incomeColor+'">'+Math.abs(delta).toFixed(3)+'%</b></span>'
-          + '</div>';
-      } else {
-        spreadHtml = '<div style="display:flex;gap:10px;padding:10px 0 0;font-size:12px;align-items:baseline">'
-          + '<span style="color:'+text2+'">Спред входа:</span>'
-          + '<b style="font-family:monospace;font-size:16px;color:'+text1+'">'+se+'</b>'
-          + '<span style="color:'+gold+';font-size:11px">● в позиции</span>'
-          + '</div>';
-      }
-    }
-
-    // Instrument rows — anonymous (no instrument names, no lots — like old showcase)
-    var legHtml = '';
-    for (var b in pos.legs) {
-      const leg = pos.legs[b];
-      const isFx = leg.platform === 'FX';
-      const platColor = isFx ? purple : blue;
-      const platBg = isFx ? 'rgba(167,139,250,.15)' : 'rgba(88,166,255,.15)';
-      const entry = isFx ? fxEntry : (mxAvg[b]?mxAvg[b].entry:0);
-      const exit  = isFx ? fxExit  : (mxAvg[b]?mxAvg[b].exit:0);
-      const isShort = leg.entry_direction==='Sell';
-      const dirLabel = isShort ? '▼ Шорт' : '▲ Лонг';
-      const dirColor = isShort ? red : green;
-      // Anonymous name: just category, no instrument name or lots
-      const anonCat = isFx ? '💱 Форекс' : '💱 Валюта';
-      legHtml += '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid '+border+';font-size:12px;flex-wrap:wrap">'
-        + '<span style="font-size:10px;font-weight:700;border-radius:3px;padding:2px 7px;background:'+platBg+';color:'+platColor+'">'+leg.platform+'</span>'
-        + '<span style="font-weight:600;color:'+text1+'">'+anonCat+'</span>'
-        + '<span style="color:'+dirColor+';font-weight:700;font-size:11px">'+dirLabel+'</span>'
-        + (entry?'<span style="font-family:monospace;color:'+text2+'">'+fmtP(entry,isFx)+'</span>':'')
-        + (exit?'<span style="color:'+text2+'">→</span><span style="font-family:monospace;color:'+text1+'">'+fmtP(exit,isFx)+'</span>':'')
-        + '</div>';
-    }
-
-    html += '<div style="background:'+bg2+';border:1px solid '+border+';border-left:3px solid '+green+';border-radius:10px;padding:16px 18px;margin-bottom:14px">'
-      + '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">'
-      + '<div>'
-      + '<div style="font-size:16px;font-weight:800;color:'+text1+'">'+name+'</div>'
-      + '</div>'
-      + '<div style="display:flex;align-items:center;gap:8px">'
-      + '<div style="text-align:right;font-size:11px;color:'+text2+'">'
-      + daysStr+(daysCount>1?' · '+daysCount+' дн':'')
-      + ' <span style="color:'+green+';font-weight:600">✓</span>'
-      + '</div>'
-      + '<button data-delposid="'+pos.id+'" class="diary-del-pos-btn" style="font-size:10px;padding:2px 7px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text2);cursor:pointer">✕</button>'
-      + '</div></div>'
-      + '<div>'+legHtml+'</div>'
-      + spreadHtml
-      + '<div id="diary-roi-'+pos.id.replace(/[^a-z0-9]/gi,'_')+'" style="display:none"></div>'
-      + '</div>';
-  });
-
-  // Add dashboard counters at top (like old showcase)
-  const deleted = store.deletedPositions || [];
-  const restoreHtml = deleted.length ? '<div style="margin-bottom:12px;padding:8px 12px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;justify-content:space-between">'
-    + '<span style="font-size:12px;color:var(--text2)">Удалено: '+deleted.length+' позиций</span>'
-    + '<div style="display:flex;gap:6px">'
-    + deleted.map(function(p,i){
-        return '<button data-restoreidx="'+i+'" class="diary-restore-btn" style="font-size:11px;padding:3px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg3);color:var(--blue);cursor:pointer">↩ '+p.tag+'</button>';
-      }).join('')
-    + '</div></div>' : '';
-  // Filter UI
-  const tagOpts2 = '<option value="">Все конструкции</option>'
-    + allTags2.map(t=>`<option value="${t}"${filterTag===t?' selected':''}>${t}</option>`).join('');
-  const dateOpts2 = '<option value="">Все даты</option>'
-    + allDates2.map(d=>`<option value="${d}"${filterDate===d?' selected':''}>${d}</option>`).join('');
-  const filterHtml2 = `<div style="display:flex;gap:8px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
-    <select onchange="document.getElementById('showcase-root')._diaryFilterTag=this.value;renderShowcase()"
-      style="font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1)">
-      ${tagOpts2}</select>
-    <select onchange="document.getElementById('showcase-root')._diaryFilterDate=this.value;renderShowcase()"
-      style="font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1)">
-      ${dateOpts2}</select>
-    ${filterTag||filterDate?`<button onclick="document.getElementById('showcase-root')._diaryFilterTag='';document.getElementById('showcase-root')._diaryFilterDate='';renderShowcase()"
-      style="font-size:12px;padding:4px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text2);cursor:pointer">✕ Сбросить</button>`:''}
-    <span style="font-size:12px;color:var(--text2);margin-left:auto">${closed.length} сделок</span>
-  </div>`;
-
-  const dashHtml = restoreHtml + filterHtml2 + '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px">'
-    + '<div style="background:'+bg2+';border:1px solid '+border+';border-radius:10px;padding:16px;text-align:center">'
-    + '<div style="font-size:11px;color:'+text2+';text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Закрыто</div>'
-    + '<div style="font-size:28px;font-weight:700;color:'+green+'">'+closed.length+'</div></div>'
-    + '<div style="background:'+bg2+';border:1px solid '+border+';border-radius:10px;padding:16px;text-align:center">'
-    + '<div style="font-size:11px;color:'+text2+';text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Открыто</div>'
-    + '<div style="font-size:28px;font-weight:700;color:'+gold+'">'+opened.length+'</div></div>'
-    + '<div style="background:'+bg2+';border:1px solid '+border+';border-radius:10px;padding:16px;text-align:center">'
-    + '<div style="font-size:11px;color:'+text2+';text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Всего</div>'
-    + '<div style="font-size:28px;font-weight:700;color:'+text1+'">'+(closed.length+opened.length)+'</div></div>'
-    + '</div>';
-
-  html += '</div>';
-  if (closed.length || opened.length) {
-    // Replace entire showcase content with diary positions
-    root.innerHTML = '';
-    const wrap = document.createElement('div');
-    wrap.style.cssText = 'padding:4px';
-    wrap.innerHTML = dashHtml + html;
-    root.appendChild(wrap);
-    // Trigger async ROI % for diary cards
-    closed.forEach(function(pos) {
-      var rate = (pos.closed_date ? getRateForDate(normDate(pos.closed_date)) : (currentRate&&currentRate.value||85)) || 85;
-      updatePositionCapitalUI(pos.id, 0, true, rate);
-    });
-    // Wire up restore buttons
-    root.querySelectorAll('.diary-restore-btn').forEach(function(btn){
-      btn.onclick = function(){
-        var idx = parseInt(this.dataset.restoreidx);
-        var del = store.deletedPositions || [];
-        var pos = del[idx];
-        if (!pos) return;
-        if (!store.positions) store.positions = [];
-        store.positions.push(pos);
-        store.deletedPositions = del.filter(function(_,i){return i!==idx;});
-        saveStore();
-        renderShowcase();
-      };
-    });
-    // Wire up delete buttons
-    root.querySelectorAll('.diary-del-pos-btn').forEach(function(btn){
-      btn.onclick = function(){
-        var pid = this.dataset.delposid;
-        if (!confirm('Удалить позицию из дневника? Её можно будет восстановить.')) return;
-        var pos = (store.positions||[]).find(function(p){return p.id===pid;});
-        if (!pos) return;
-        if (!store.deletedPositions) store.deletedPositions = [];
-        store.deletedPositions.push(pos);
-        store.positions = store.positions.filter(function(p){return p.id!==pid;});
-        saveStore();
-        renderShowcase();
-      };
-    });
+    mxAvg[b] = { entry: eVol?eSum/eVol:0, exit: xVol?xSum/xVol:0 };
   }
+  if (!mxAvg['CR'] && mxAvg['CNY']) mxAvg['CR']=mxAvg['CNY'];
+
+  const fxInstrs = Object.keys(pos.legs).filter(function(b){return pos.legs[b].platform==='FX';});
+  const fxTrades2 = (pos.fx_trades||[]).length ? pos.fx_trades :
+    (store.fx||[]).filter(function(t){
+      return fxInstrs.indexOf((t.instrument||'').replace(/[-_]/g,'').toUpperCase())>=0
+        && normDate(t.close_date||'')===normDate(pos.closed_date||'');
+    });
+  let fxEVol=0,fxESum=0,fxXVol=0,fxXSum=0;
+  fxTrades2.forEach(function(t){
+    var q=Math.abs(t.qty||0);
+    fxEVol+=q; fxESum+=(t.entry_price||0)*q;
+    if(t.close_price){fxXVol+=q; fxXSum+=(t.close_price||0)*q;}
+  });
+  const fxEntry = fxEVol ? fxESum/fxEVol : 0;
+  const fxExit  = fxXVol ? fxXSum/fxXVol : 0;
+
+  const tag = pos.tag;
+  let sEntry=null, sExit=null;
+  const ep = function(b){return mxAvg[b]?mxAvg[b].entry:0;};
+  const xp = function(b){return mxAvg[b]?mxAvg[b].exit:0;};
+  if (tag.indexOf('SI')>=0 && tag.indexOf('CR')>=0 && fxEntry) {
+    if(ep('SI')&&ep('CR')) sEntry=((ep('SI')/1000/ep('CR'))/fxEntry-1)*100;
+    if(xp('SI')&&xp('CR')&&fxExit) sExit=((xp('SI')/1000/xp('CR'))/fxExit-1)*100;
+  } else if (tag.indexOf('EU1')>=0 && tag.indexOf('CR')>=0 && fxEntry) {
+    if(ep('EU')&&ep('CR')) sEntry=((ep('EU')/1000/ep('CR'))/fxEntry-1)*100;
+    if(xp('EU')&&xp('CR')&&fxExit) sExit=((xp('EU')/1000/xp('CR'))/fxExit-1)*100;
+  } else if (tag.indexOf('ERF')>=0 && fxEntry) {
+    if(ep('EURRUBF')&&ep('CNYRUBF')) sEntry=((ep('EURRUBF')/ep('CNYRUBF'))/fxEntry-1)*100;
+    if(xp('EURRUBF')&&xp('CNYRUBF')&&fxExit) sExit=((xp('EURRUBF')/xp('CNYRUBF'))/fxExit-1)*100;
+  } else if (tag.indexOf('URF')>=0 && fxEntry) {
+    if(ep('USDRUBF')&&ep('CNYRUBF')) sEntry=((ep('USDRUBF')/ep('CNYRUBF'))/fxEntry-1)*100;
+    if(xp('USDRUBF')&&xp('CNYRUBF')&&fxExit) sExit=((xp('USDRUBF')/xp('CNYRUBF'))/fxExit-1)*100;
+  } else if (tag.indexOf('UC')>=0 && fxEntry) {
+    if(ep('UC')) sEntry=(ep('UC')/fxEntry-1)*100;
+    if(xp('UC')&&fxExit) sExit=(xp('UC')/fxExit-1)*100;
+  }
+  return { entry: sEntry, exit: sExit };
 }
 
 function renderShowcase() {
   const root = document.getElementById('showcase-root');
   if (!root) return;
-  ljInit();
+  positionsInit();
 
-  // Use global theme
-  const dark = document.body.classList.contains('dark') ||
-               document.documentElement.getAttribute('data-theme') === 'dark' ||
-               getComputedStyle(document.body).getPropertyValue('--bg').trim().startsWith('#0') ||
-               getComputedStyle(document.body).getPropertyValue('--bg').trim().startsWith('#1');
+  // ── Светлая банковская палитра ──
+  const C = {
+    bg:      '#FAFAF8',
+    card:    '#FFFFFF',
+    line:    '#E8E8E3',
+    ink:     '#1A1A18',
+    ink2:    '#8A8A82',
+    profit:  '#0F7A4D',
+    loss:    '#C0392B',
+    gold:    '#B8860B',
+  };
 
-  const bg    = 'var(--bg)';
-  const bg2   = 'var(--bg2)';
-  const bg3   = 'var(--bg3)';
-  const border= 'var(--border)';
-  const text1 = 'var(--text)';
-  const text2 = 'var(--text2)';
-  const green = 'var(--green)';
-  const red   = 'var(--red)';
-  const blue  = 'var(--blue)';
-  const gold  = 'var(--amber)';
+  const allPos = (store.positions||[]).slice();
+  const closed = allPos.filter(function(p){return p.status==='closed';})
+    .sort(function(a,b){return parseDate(b.closed_date||b.opened_date)-parseDate(a.closed_date||a.opened_date);});
+  const opened = allPos.filter(function(p){return p.status!=='closed';})
+    .sort(function(a,b){return parseDate(b.opened_date)-parseDate(a.opened_date);});
 
-  const tagged = store.lj.rows.filter(r => r.tag);
-  const groups = {};
-  for (const r of tagged) {
-    const key = `${r.tag}||${r.set||1}||${r.date}`;
-    if (!groups[key]) groups[key] = { tag: r.tag, set: r.set||1, date: r.date, rows: [] };
-    groups[key].rows.push(r);
+  if (!allPos.length) {
+    root.innerHTML = '<div style="background:'+C.bg+';min-height:100%;padding:60px 20px;text-align:center;color:'+C.ink2+'">'
+      + '<div style="font-size:15px">Дневник пуст</div>'
+      + '<div style="font-size:13px;margin-top:6px">Сделки появятся здесь после авторазноса во вкладке «Сделки».</div>'
+      + '</div>';
+    return;
   }
 
-  const allDates = [...new Set(Object.values(groups).map(g=>g.date))].sort((a,b)=>parseDate(b)-parseDate(a));
-  const selDate  = root.dataset.date || allDates[0] || todayStr();
-  const selPeriod = root.dataset.period || 'day';
+  // Шкала форматирования
+  const fmtPct = function(v){ return (v>=0?'+':'')+v.toFixed(2)+'%'; };
+  const fmtAnnual = function(v){ return (v>=0?'+':'')+Math.round(v)+'%'; };
 
-  // Helper: card status
-  function gStatus(g) {
-    const mxR=g.rows.filter(r=>r.platform==='MX');
-    const fxR=g.rows.filter(r=>r.platform==='FX');
-    const mxNet={};
-    for(const r of mxR){const k=r.instrument.replace(/[-_].*/,'').toUpperCase();const s=(r.direction==='Buy'||r.direction==='L')?1:-1;mxNet[k]=(mxNet[k]||0)+s*(r.volume||0);}
-    const mxC=mxR.length===0||Object.values(mxNet).every(v=>Math.abs(v)<0.001);
-    const fxC=fxR.length===0||fxR.every(r=>r.price_close!=null);
-    return (mxR.length===0||mxC)&&(fxR.length===0||fxC)?'closed':'open';
-  }
+  // ── Карточка сделки (HTML с плейсхолдером для async ROI) ──
+  function tradeCard(pos, isOpen) {
+    const allDays = pos.days || [pos.opened_date];
+    const dateStr = (pos.closed_date || pos.opened_date || '');
+    const daysCount = allDays.length;
+    const name = diaryConstrName(pos.tag);
+    const sp = calcDiarySpread(pos);
+    const roiId = 'droi_' + pos.id.replace(/[^a-z0-9]/gi,'_');
 
-  // ── PERIOD VIEW: week/month summary ──
-  function buildPeriodSummary(periodDays) {
-    const cutoff = Date.now() - periodDays*24*60*60*1000;
-    const periodGroups = Object.values(groups).filter(g => parseDate(g.date) >= cutoff);
-
-    // Aggregate by tag
-    const byTag = {};
-    for (const g of periodGroups) {
-      if (!byTag[g.tag]) byTag[g.tag] = { tag:g.tag, total:0, closed:0, open:0, deltas:[] };
-      if (gStatus(g)==='closed') byTag[g.tag].closed++;
-      else byTag[g.tag].open++;
-      byTag[g.tag].total++;
-
-      // Spread delta
-      const instrMap={};
-      for(const r of g.rows){const k=`${r.platform}:${r.instrument}`;if(!instrMap[k])instrMap[k]={platform:r.platform,instrument:r.instrument,rows:[]};instrMap[k].rows.push(r);}
-      const sp = calcSpread(instrMap);
-      if (sp?.entry!=null && sp?.exit!=null) {
-        byTag[g.tag].deltas.push(Math.abs(sp.entry)-Math.abs(sp.exit));
+    // Спред-блок
+    let spreadHtml = '';
+    if (sp.entry != null) {
+      if (sp.exit != null) {
+        const delta = Math.abs(sp.entry) - Math.abs(sp.exit);
+        spreadHtml = '<div style="display:flex;align-items:baseline;gap:18px;margin-top:14px;font-size:12px;color:'+C.ink2+'">'
+          + '<span style="text-transform:uppercase;letter-spacing:.8px;font-size:10px">Спред</span>'
+          + '<span>вход <b style="color:'+C.ink+';font-variant-numeric:tabular-nums">'+sp.entry.toFixed(3)+'%</b></span>'
+          + '<span style="color:'+C.ink2+'">→</span>'
+          + '<span>закрытие <b style="color:'+C.ink+';font-variant-numeric:tabular-nums">'+sp.exit.toFixed(3)+'%</b></span>'
+          + '</div>';
+      } else {
+        spreadHtml = '<div style="display:flex;align-items:baseline;gap:18px;margin-top:14px;font-size:12px;color:'+C.ink2+'">'
+          + '<span style="text-transform:uppercase;letter-spacing:.8px;font-size:10px">Спред входа</span>'
+          + '<b style="color:'+C.ink+';font-variant-numeric:tabular-nums">'+sp.entry.toFixed(3)+'%</b>'
+          + '</div>';
       }
     }
 
-    const tags = Object.values(byTag).sort((a,b)=>b.total-a.total);
-    const totalClosed = tags.reduce((s,t)=>s+t.closed,0);
-    const totalOpen   = tags.reduce((s,t)=>s+t.open,0);
-    const allDeltas   = tags.flatMap(t=>t.deltas);
-    const avgDelta    = allDeltas.length ? allDeltas.reduce((s,v)=>s+v,0)/allDeltas.length : null;
+    const statusBadge = isOpen
+      ? '<span style="font-size:10px;text-transform:uppercase;letter-spacing:.8px;color:'+C.gold+';border:1px solid '+C.gold+'33;background:'+C.gold+'0d;border-radius:20px;padding:3px 10px">● В позиции</span>'
+      : '<span style="font-size:10px;text-transform:uppercase;letter-spacing:.8px;color:'+C.profit+';border:1px solid '+C.profit+'33;background:'+C.profit+'0d;border-radius:20px;padding:3px 10px">✓ Закрыта</span>';
 
-    const tagCards = tags.map(t => {
-      const avgD = t.deltas.length ? t.deltas.reduce((s,v)=>s+v,0)/t.deltas.length : null;
-      const dc = avgD!=null?(avgD>=0?green:red):text2;
-      return `<div style="background:${bg2};border:1px solid ${border};border-radius:10px;padding:14px 16px">
-        <div style="font-size:18px;font-weight:800;color:${blue};margin-bottom:8px">${esc(t.tag)}</div>
-        <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:12px">
-          <span><span style="color:${text2}">Сделок:</span> <span style="font-weight:700;color:${text1}">${t.total}</span></span>
-          <span><span style="color:${text2}">Закрыто:</span> <span style="font-weight:700;color:${green}">${t.closed}</span></span>
-          ${t.open?`<span><span style="color:${text2}">Открыто:</span> <span style="font-weight:700;color:${gold}">${t.open}</span></span>`:''}
-          ${avgD!=null?`<span><span style="color:${text2}">Ср. Δ спреда:</span> <span style="font-weight:700;color:${dc}">${avgD>=0?'+':''}${avgD.toFixed(4)}%</span></span>`:''}
-        </div>
-      </div>`;
-    }).join('');
+    const periodStr = daysCount>1
+      ? allDays[allDays.length-1]+' — '+allDays[0]+' · '+daysCount+' дн'
+      : dateStr;
 
-    return { tagCards, totalClosed, totalOpen, avgDelta, total: periodGroups.length };
+    return '<article style="background:'+C.card+';border:1px solid '+C.line+';border-radius:14px;padding:22px 24px;display:flex;justify-content:space-between;align-items:center;gap:24px;flex-wrap:wrap">'
+      + '<div style="flex:1;min-width:200px">'
+      +   '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">'
+      +     '<h3 style="margin:0;font-size:19px;font-weight:700;color:'+C.ink+';letter-spacing:-.3px">'+name+'</h3>'
+      +     statusBadge
+      +   '</div>'
+      +   '<div style="font-size:12px;color:'+C.ink2+';margin-top:5px;font-variant-numeric:tabular-nums">'+periodStr+'</div>'
+      +   spreadHtml
+      + '</div>'
+      + '<div id="'+roiId+'" style="text-align:right;min-width:150px">'
+      +   '<div style="font-size:11px;color:'+C.ink2+'">расчёт…</div>'
+      + '</div>'
+      + '</article>';
   }
 
-  // ── DAY VIEW ──
-  function buildDayView() {
-    const cards = Object.values(groups).filter(g=>g.date===selDate).sort((a,b)=>a.set-b.set);
-    let closedCount=0, openCount=0, totalSpreadEntry=0, totalSpreadExit=0, nSpread=0;
+  // ── Сборка ленты ──
+  let feedHtml = '';
+  if (opened.length) {
+    feedHtml += '<div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:'+C.ink2+';margin:8px 0 12px">Открытые позиции</div>';
+    feedHtml += '<div style="display:flex;flex-direction:column;gap:12px;margin-bottom:28px">'
+      + opened.map(function(p){return tradeCard(p, true);}).join('') + '</div>';
+  }
+  if (closed.length) {
+    feedHtml += '<div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:'+C.ink2+';margin:8px 0 12px">История сделок</div>';
+    feedHtml += '<div style="display:flex;flex-direction:column;gap:12px">'
+      + closed.map(function(p){return tradeCard(p, false);}).join('') + '</div>';
+  }
 
-    const cardHtmls = cards.map(g => {
-      const st = gStatus(g);
-      if(st==='closed') closedCount++; else openCount++;
-      const statusLabel = st==='closed'?'✓ Закрыта':'● Открыта';
-      const statusColor = st==='closed'?green:gold;
-      const borderColor = st==='closed'?green:blue;
+  // ── Шапка со сводкой (плейсхолдеры, заполнятся async) ──
+  const headerHtml = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:'+C.line+';border:1px solid '+C.line+';border-radius:14px;overflow:hidden;margin-bottom:32px">'
+    + '<div style="background:'+C.card+';padding:22px 24px">'
+    +   '<div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:'+C.ink2+';margin-bottom:10px">Средняя доходность</div>'
+    +   '<div id="diary-avg-roi" style="font-size:30px;font-weight:800;letter-spacing:-1.5px;color:'+C.ink2+';font-variant-numeric:tabular-nums">—</div>'
+    +   '<div id="diary-avg-annual" style="font-size:13px;color:'+C.ink2+';margin-top:2px"></div>'
+    + '</div>'
+    + '<div style="background:'+C.card+';padding:22px 24px">'
+    +   '<div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:'+C.ink2+';margin-bottom:10px">Лучшая сделка</div>'
+    +   '<div id="diary-best-roi" style="font-size:30px;font-weight:800;letter-spacing:-1.5px;color:'+C.ink2+';font-variant-numeric:tabular-nums">—</div>'
+    +   '<div id="diary-best-name" style="font-size:13px;color:'+C.ink2+';margin-top:2px"></div>'
+    + '</div>'
+    + '<div style="background:'+C.card+';padding:22px 24px">'
+    +   '<div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:'+C.ink2+';margin-bottom:10px">Закрыто</div>'
+    +   '<div style="font-size:30px;font-weight:800;letter-spacing:-1.5px;color:'+C.ink+';font-variant-numeric:tabular-nums">'+closed.length+'</div>'
+    +   (opened.length?'<div style="font-size:13px;color:'+C.gold+';margin-top:2px">+ '+opened.length+' в работе</div>':'')
+    + '</div>'
+    + '</div>';
 
-      const instrMap={};
-      for(const r of g.rows){const k=`${r.platform}:${r.instrument}`;if(!instrMap[k])instrMap[k]={platform:r.platform,instrument:r.instrument,rows:[]};instrMap[k].rows.push(r);}
+  root.innerHTML = '<div style="background:'+C.bg+';min-height:100%">'
+    + '<div style="max-width:840px;margin:0 auto;padding:40px 24px 60px">'
+    +   '<header style="margin-bottom:32px">'
+    +     '<h1 style="margin:0;font-size:26px;font-weight:800;color:'+C.ink+';letter-spacing:-.5px">Дневник сделок</h1>'
+    +     '<p style="margin:6px 0 0;font-size:14px;color:'+C.ink2+'">Арбитраж MOEX × Forex — доходность на вложенный капитал</p>'
+    +   '</header>'
+    +   headerHtml
+    +   feedHtml
+    + '</div>'
+    + '</div>';
 
-      const legItems = Object.values(instrMap).map(ig => {
-        const anonName = showcaseInstr(ig.instrument);
-        const sorted=[...ig.rows].sort((a,b)=>a.time.localeCompare(b.time));
-        const entryDir=sorted[0]?.direction||'';
-        const isEntryBuy=entryDir==='Buy'||entryDir==='L';
-        const entryRows=ig.platform==='FX'?ig.rows:sorted.filter(r=>isEntryBuy?(r.direction==='Buy'||r.direction==='L'):(r.direction==='Sell'||r.direction==='S'));
-        const exitRows=ig.platform==='FX'?ig.rows.filter(r=>r.price_close!=null):sorted.filter(r=>isEntryBuy?(r.direction==='Sell'||r.direction==='S'):(r.direction==='Buy'||r.direction==='L'));
-        const eVol=entryRows.reduce((s,r)=>s+(r.volume||0),0);
-        const eAvg=entryRows.reduce((s,r)=>s+(r.price||0)*(r.volume||0),0)/(eVol||1);
-        const xVol=exitRows.reduce((s,r)=>s+(r.volume||0),0);
-        const xAvg=ig.platform==='FX'?xVol>0?exitRows.reduce((s,r)=>s+r.price_close*(r.volume||0),0)/xVol:null:xVol>0?exitRows.reduce((s,r)=>s+(r.price||0)*(r.volume||0),0)/xVol:null;
-        const times=ig.rows.map(r=>r.time).sort();
-        const timeStr=times[0]+(times.length>1?'–'+times[times.length-1]:'');
-        const dirLabel=isEntryBuy?'▲ Лонг':'▼ Шорт';
-        const dirColor=isEntryBuy?green:red;
-        const fmtP=v=>Number.isInteger(v)?String(v):parseFloat(v.toFixed(ig.platform==='FX'?5:3).replace(/\.?0+$/,'')).toString();
-        const platColor=ig.platform==='MX'?'#818cf8':'#a78bfa';
-        return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid ${border};font-size:12px;flex-wrap:wrap">
-          <span style="font-size:10px;font-weight:700;border-radius:3px;padding:2px 7px;background:${ig.platform==='MX'?'rgba(129,140,248,.15)':'rgba(167,139,250,.15)'};color:${platColor}">${ig.platform}</span>
-          <span style="font-weight:600;color:${text1}">${anonName}</span>
-          <span style="color:${dirColor};font-weight:700;font-size:11px">${dirLabel}</span>
-          <span style="font-family:monospace;color:${text2}">${fmtP(eAvg)}</span>
-          ${xAvg!=null?`<span style="color:${text2}">→</span><span style="font-family:monospace;color:${text1}">${fmtP(xAvg)}</span>`:''}
-          <span style="margin-left:auto;color:${text2};font-size:11px">${timeStr}</span>
-        </div>`;
-      }).join('');
+  // ── Async: посчитать ROI каждой карточки и сводку ──
+  (async function(){
+    const allForStats = closed.slice(); // статистика по закрытым
+    let sumRoi=0, sumAnnual=0, nRoi=0, bestRoi=null, bestName='';
 
-      const sp=calcSpread(instrMap);
-      let spreadHtml='';
-      if(sp?.entry!=null){
-        const se=sp.entry.toFixed(4);
-        if(sp.exit!=null){
-          const sx=sp.exit.toFixed(4);
-          const delta=Math.abs(sp.entry)-Math.abs(sp.exit);
-          const dc=delta>=0?green:red;
-          spreadHtml=`<div style="display:flex;gap:14px;padding:8px 0 0;font-size:11px;flex-wrap:wrap">
-            <span style="color:${text2}">Спред:</span>
-            <span><span style="color:${text2}">вход</span> <span style="font-family:monospace;font-weight:600;color:${text1}">${se}%</span></span>
-            <span><span style="color:${text2}">выход</span> <span style="font-family:monospace;color:${text1}">${sx}%</span></span>
-            <span style="font-family:monospace;font-weight:800;color:${dc};font-size:14px">${delta>=0?'+':''}${delta.toFixed(4)}%</span>
-          </div>`;
-          totalSpreadEntry+=sp.entry; totalSpreadExit+=sp.exit; nSpread++;
+    // Сначала закрытые (для статистики), потом открытые
+    for (const pos of [].concat(opened, closed)) {
+      const r = await calcDiaryRoi(pos);
+      const el = document.getElementById('droi_' + pos.id.replace(/[^a-z0-9]/gi,'_'));
+      if (el) {
+        if (r.roi != null) {
+          const col = r.isProfit ? C.profit : C.loss;
+          el.innerHTML = '<div style="font-size:34px;font-weight:800;letter-spacing:-1.5px;color:'+col+';line-height:1;font-variant-numeric:tabular-nums">'+fmtPct(r.roi)+'</div>'
+            + '<div style="font-size:13px;font-weight:600;color:'+C.ink2+';margin-top:5px;font-variant-numeric:tabular-nums">'+fmtAnnual(r.annual)+' <span style="font-weight:400">годовых</span></div>';
         } else {
-          spreadHtml=`<div style="display:flex;gap:10px;padding:8px 0 0;font-size:11px">
-            <span style="color:${text2}">Спред входа:</span>
-            <span style="font-family:monospace;font-weight:600;color:${text1}">${se}%</span>
-            <span style="color:${gold};font-size:10px">в позиции</span>
-          </div>`;
-          totalSpreadEntry+=sp.entry; nSpread++;
+          el.innerHTML = '<div style="font-size:13px;color:'+C.ink2+'">нет данных ГО</div>';
         }
       }
+      // Статистика только по закрытым с валидным ROI
+      if (pos.status==='closed' && r.roi != null) {
+        sumRoi += r.roi; sumAnnual += r.annual; nRoi++;
+        if (bestRoi == null || r.roi > bestRoi) { bestRoi = r.roi; bestName = diaryConstrName(pos.tag); }
+      }
+    }
 
-      return `<div style="background:${bg2};border:1px solid ${border};border-left:3px solid ${borderColor};border-radius:10px;padding:14px 16px;break-inside:avoid">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
-          <span style="font-size:16px;font-weight:800;color:${blue};letter-spacing:-.5px">${esc(g.tag)}</span>
-          <span style="font-size:11px;background:${bg3};border-radius:4px;padding:2px 8px;color:${text2}">набор ${g.set||1}</span>
-          <span style="font-size:11px;font-weight:700;color:${statusColor};margin-left:auto">${statusLabel}</span>
-        </div>
-        <div>${legItems}</div>
-        ${spreadHtml}
-      </div>`;
-    }).join('');
-
-    const avgDelta = nSpread>0&&totalSpreadExit>0?(Math.abs(totalSpreadEntry/nSpread)-Math.abs(totalSpreadExit/nSpread)):null;
-    return { cardHtmls, closedCount, openCount, avgDelta, total: cards.length };
-  }
-
-  // ── Render ──
-  const week  = buildPeriodSummary(7);
-  const month = buildPeriodSummary(30);
-  const day   = buildDayView();
-
-  const periodBtn = (p, label) =>
-    `<button onclick="document.getElementById('showcase-root').dataset.period='${p}';renderShowcase()"
-      style="padding:5px 14px;font-size:12px;border-radius:6px;cursor:pointer;
-             border:1px solid ${selPeriod===p?'var(--blue)':'var(--border)'};
-             background:${selPeriod===p?'var(--blue)':'var(--bg2)'};
-             color:${selPeriod===p?'#fff':'var(--text2)'}">${label}</button>`;
-
-  const dateBtns = allDates.slice(0,7).map(d =>
-    `<button onclick="document.getElementById('showcase-root').dataset.date='${d}';document.getElementById('showcase-root').dataset.period='day';renderShowcase()"
-      style="padding:4px 10px;font-size:11px;border-radius:4px;cursor:pointer;
-             border:1px solid ${d===selDate&&selPeriod==='day'?'var(--blue)':'var(--border)'};
-             background:${d===selDate&&selPeriod==='day'?'var(--blue)':'var(--bg2)'};
-             color:${d===selDate&&selPeriod==='day'?'#fff':'var(--text2)'}">${d}</button>`
-  ).join('');
-
-  let mainContent = '';
-
-  if (selPeriod === 'day') {
-    mainContent = `
-      <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
-        <div style="background:${bg2};border:1px solid ${border};border-radius:8px;padding:10px 16px;flex:1;min-width:90px;text-align:center">
-          <div style="font-size:10px;color:${text2};text-transform:uppercase;letter-spacing:.5px">Закрыто</div>
-          <div style="font-size:24px;font-weight:800;color:${green}">${day.closedCount}</div>
-        </div>
-        <div style="background:${bg2};border:1px solid ${border};border-radius:8px;padding:10px 16px;flex:1;min-width:90px;text-align:center">
-          <div style="font-size:10px;color:${text2};text-transform:uppercase;letter-spacing:.5px">Открыто</div>
-          <div style="font-size:24px;font-weight:800;color:${day.openCount>0?gold:text2}">${day.openCount}</div>
-        </div>
-        ${day.avgDelta!=null?`<div style="background:${bg2};border:1px solid ${border};border-radius:8px;padding:10px 16px;flex:2;min-width:140px;text-align:center">
-          <div style="font-size:10px;color:${text2};text-transform:uppercase;letter-spacing:.5px">Ср. Δ спреда за день</div>
-          <div style="font-size:24px;font-weight:800;color:${day.avgDelta>=0?green:red}">${day.avgDelta>=0?'+':''}${day.avgDelta.toFixed(4)}%</div>
-        </div>`:''}
-      </div>
-      ${day.total>0
-        ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px">${day.cardHtmls}</div>`
-        : `<div style="text-align:center;padding:40px;color:${text2}"><div style="font-size:36px;margin-bottom:8px">📋</div><div>Нет данных за ${selDate}</div></div>`
-      }`;
-  } else if (selPeriod === 'week') {
-    mainContent = `
-      <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
-        <div style="background:${bg2};border:1px solid ${border};border-radius:8px;padding:10px 16px;flex:1;min-width:90px;text-align:center">
-          <div style="font-size:10px;color:${text2};text-transform:uppercase;letter-spacing:.5px">Всего сделок</div>
-          <div style="font-size:24px;font-weight:800;color:${text1}">${week.total}</div>
-        </div>
-        <div style="background:${bg2};border:1px solid ${border};border-radius:8px;padding:10px 16px;flex:1;min-width:90px;text-align:center">
-          <div style="font-size:10px;color:${text2};text-transform:uppercase;letter-spacing:.5px">Закрыто</div>
-          <div style="font-size:24px;font-weight:800;color:${green}">${week.totalClosed}</div>
-        </div>
-        <div style="background:${bg2};border:1px solid ${border};border-radius:8px;padding:10px 16px;flex:1;min-width:90px;text-align:center">
-          <div style="font-size:10px;color:${text2};text-transform:uppercase;letter-spacing:.5px">Открыто</div>
-          <div style="font-size:24px;font-weight:800;color:${week.totalOpen>0?gold:text2}">${week.totalOpen}</div>
-        </div>
-        ${week.avgDelta!=null?`<div style="background:${bg2};border:1px solid ${border};border-radius:8px;padding:10px 16px;flex:2;min-width:140px;text-align:center">
-          <div style="font-size:10px;color:${text2};text-transform:uppercase;letter-spacing:.5px">Ср. Δ спреда</div>
-          <div style="font-size:24px;font-weight:800;color:${week.avgDelta>=0?green:red}">${week.avgDelta>=0?'+':''}${week.avgDelta.toFixed(4)}%</div>
-        </div>`:''}
-      </div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px">${week.tagCards}</div>`;
-  } else {
-    mainContent = `
-      <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
-        <div style="background:${bg2};border:1px solid ${border};border-radius:8px;padding:10px 16px;flex:1;min-width:90px;text-align:center">
-          <div style="font-size:10px;color:${text2};text-transform:uppercase;letter-spacing:.5px">Всего сделок</div>
-          <div style="font-size:24px;font-weight:800;color:${text1}">${month.total}</div>
-        </div>
-        <div style="background:${bg2};border:1px solid ${border};border-radius:8px;padding:10px 16px;flex:1;min-width:90px;text-align:center">
-          <div style="font-size:10px;color:${text2};text-transform:uppercase;letter-spacing:.5px">Закрыто</div>
-          <div style="font-size:24px;font-weight:800;color:${green}">${month.totalClosed}</div>
-        </div>
-        <div style="background:${bg2};border:1px solid ${border};border-radius:8px;padding:10px 16px;flex:1;min-width:90px;text-align:center">
-          <div style="font-size:10px;color:${text2};text-transform:uppercase;letter-spacing:.5px">Открыто</div>
-          <div style="font-size:24px;font-weight:800;color:${month.totalOpen>0?gold:text2}">${month.totalOpen}</div>
-        </div>
-        ${month.avgDelta!=null?`<div style="background:${bg2};border:1px solid ${border};border-radius:8px;padding:10px 16px;flex:2;min-width:140px;text-align:center">
-          <div style="font-size:10px;color:${text2};text-transform:uppercase;letter-spacing:.5px">Ср. Δ спреда</div>
-          <div style="font-size:24px;font-weight:800;color:${month.avgDelta>=0?green:red}">${month.avgDelta>=0?'+':''}${month.avgDelta.toFixed(4)}%</div>
-        </div>`:''}
-      </div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px">${month.tagCards}</div>`;
-  }
-
-  root.innerHTML = `
-    <div style="padding:20px;max-width:1200px;margin:0 auto">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:10px">
-        <div>
-          <div style="font-size:22px;font-weight:800;color:${text1};letter-spacing:-.5px">Дневник</div>
-          <div style="font-size:13px;color:${text2};margin-top:2px">Арбитражный трейдинг MOEX × Forex</div>
-        </div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap">
-          ${periodBtn('day','День')}
-          ${periodBtn('week','Неделя')}
-          ${periodBtn('month','Месяц')}
-        </div>
-      </div>
-      ${selPeriod==='day'?`<div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:16px">${dateBtns}</div>`:''}
-      ${mainContent}
-      <div style="margin-top:20px;text-align:center;font-size:11px;color:${text2};opacity:.4">
-        ${new Date().toLocaleString('ru-RU')}
-      </div>
-    </div>`;
-  renderDiaryPositions();
+    if (nRoi > 0) {
+      const avgRoi = sumRoi/nRoi, avgAnnual = sumAnnual/nRoi;
+      const avgEl = document.getElementById('diary-avg-roi');
+      const avgAnnEl = document.getElementById('diary-avg-annual');
+      if (avgEl) { avgEl.textContent = fmtPct(avgRoi); avgEl.style.color = avgRoi>=0?C.profit:C.loss; }
+      if (avgAnnEl) avgAnnEl.textContent = fmtAnnual(avgAnnual)+' годовых';
+      const bestEl = document.getElementById('diary-best-roi');
+      const bestNmEl = document.getElementById('diary-best-name');
+      if (bestEl && bestRoi != null) { bestEl.textContent = fmtPct(bestRoi); bestEl.style.color = C.profit; }
+      if (bestNmEl) bestNmEl.textContent = bestName;
+    }
+  })();
 }
+
 
 
 </script>
