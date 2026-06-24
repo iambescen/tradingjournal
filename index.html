@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782297335 -->
+<!-- v:1782297548 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -7,7 +7,7 @@
   <meta http-equiv="Pragma" content="no-cache">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Торговый журнал</title>
-  <!-- build:1782297335 -->
+  <!-- build:1782297548 -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
@@ -8138,12 +8138,7 @@ function renderConstructionAnalytics() {
   if (!el) return;
   positionsInit();
   const closed = (store.positions||[]).filter(function(p){return p.status==='closed';});
-  // Always try to update annual yield card, even with no closed positions
-  if (!closed.length) {
-    el.innerHTML = '';
-    _buildOverviewRoiDashboard([]);
-    return;
-  }
+  if (!closed.length) { el.innerHTML = ''; return; }
   const rate = (currentRate && currentRate.value) || 85;
 
   // Build P&L per position
@@ -8233,56 +8228,89 @@ function renderConstructionAnalytics() {
 }
 
 function _buildOverviewRoiDashboard(closedPositions) {
+  var summaryEl = document.getElementById('ov-roi-summary');
+  var cardsEl   = document.getElementById('ov-roi-cards');
+  if (!summaryEl || !cardsEl) return;
+
+  // ── Депозит: берём из дашборда Обзора (МХ + FX) ──
+  var rate = (currentRate && currentRate.value) || 85;
+  var mxPdfBal = store.mx.length ? (store.mx[store.mx.length-1].balance_end || 0) : 0;
+  var mxDepBal = (store.manual||[]).filter(function(m){return m.account==='MX'&&m.type==='deposit';})
+    .reduce(function(s,m){return s+m.amount;},0)
+    - (store.manual||[]).filter(function(m){return m.account==='MX'&&m.type==='withdrawal';})
+    .reduce(function(s,m){return s+m.amount;},0);
+  var mxBal = mxPdfBal > 0 ? mxPdfBal : mxDepBal;
+
+  var fxDepBal = (store.manual||[]).filter(function(m){return m.account==='FX'&&m.type==='deposit';})
+    .reduce(function(s,m){return s+m.amount;},0)
+    - (store.manual||[]).filter(function(m){return m.account==='FX'&&m.type==='withdrawal';})
+    .reduce(function(s,m){return s+m.amount;},0);
+  var fxBrokerBal = store.fx.length && store.fx[store.fx.length-1].balance_usd
+    ? store.fx[store.fx.length-1].balance_usd : 0;
+  var fxBal = fxBrokerBal > 0 ? fxBrokerBal : fxDepBal;
+  var totalDeposit = mxBal + fxBal * rate;
+
+  if (totalDeposit <= 0) { summaryEl.style.display='none'; return; }
+
+  // ── P&L по всем закрытым позициям ──
+  if (!closedPositions.length) { summaryEl.style.display='none'; return; }
+
+  var totalPnl = 0;
+  closedPositions.forEach(function(pos) {
+    var fxRate = (pos.closed_date ? getRateForDate(normDate(pos.closed_date)) : rate) || rate;
+    var mxPF = getPosMxPnlFull(pos);
+    var tmx = Object.values(mxPF).reduce(function(s,x){return s+x.pnl;},0);
+    var fxTr = getPosFxTrades(pos);
+    var tfx = fxTr.reduce(function(s,t){return s+(t.net_pnl_usd||0);},0)*fxRate;
+    totalPnl += Math.round(tmx + tfx);
+  });
+
+  // ── Период: от первой сделки до сегодня ──
+  var allDates = [];
+  closedPositions.forEach(function(pos){
+    (pos.days||[pos.opened_date]).forEach(function(d){ if(d) allDates.push(d); });
+  });
+  allDates.sort(function(a,b){return parseDate(a)-parseDate(b);});
+  var firstDate = allDates[0];
+  var todayMs = Date.now();
+  var firstMs = firstDate ? parseDate(firstDate) : todayMs;
+  var periodDays = Math.max(1, Math.round((todayMs - firstMs) / 86400000) + 1);
+
+  // ── Формулы ──
+  var roi = totalPnl / totalDeposit * 100;
+  var annual = roi * (365 / periodDays);
+
+  function card(label, val, sub, color, big) {
+    return '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px 18px">'
+      + '<div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">'+label+'</div>'
+      + '<div style="font-size:'+(big?'28':'20')+'px;font-weight:800;color:'+(color||'var(--text)')+'">'+val+'</div>'
+      + (sub?'<div style="font-size:11px;color:var(--text2);margin-top:5px">'+sub+'</div>':'')
+      + '</div>';
+  }
+
+  var gc = roi>=0?'var(--green)':'var(--red)';
+  var html = card('Доходность на депозит', (roi>=0?'+':'')+roi.toFixed(2)+'%',
+      'P&L / (МХ + FX) × 100', gc, true)
+    + card('% годовых', (annual>=0?'+':'')+Math.round(annual)+'%',
+      'за '+periodDays+' дн. с '+firstDate, gc, true)
+    + card('Итого P&L', (totalPnl>=0?'+':'')+totalPnl.toLocaleString('ru')+' ₽',
+      'все закрытые позиции', totalPnl>=0?'var(--green)':'var(--red)')
+    + card('Мой депозит', totalDeposit.toLocaleString('ru')+' ₽',
+      'МХ '+mxBal.toLocaleString('ru')+'₽ + FX '+fxBal.toFixed(0)+'$ × '+rate.toFixed(1), 'var(--text)')
+    + card('Позиций закрыто', String(closedPositions.length), '', 'var(--text)');
+
+  cardsEl.innerHTML = html;
+  // summaryEl hidden - card is in top dashboard now
+  // Update top dashboard card
   var aEl = document.getElementById('dash-annual-yield');
   var aSubEl = document.getElementById('dash-annual-sub');
-  if (!aEl) return;
-
-  // ── Депозит: из карточки "Итого" в дашборде (dash-total-pnl) ──
-  var totalDeposit = 0;
-  var totalPnlEl = document.getElementById('dash-total-pnl');
-  if (totalPnlEl && totalPnlEl.textContent.trim() !== '—') {
-    var txt = totalPnlEl.textContent.replace(/[\s\u00a0]/g,'').replace(/[^0-9,]/g,'').replace(',','.');
-    totalDeposit = parseFloat(txt) || 0;
-  }
-  if (totalDeposit <= 0) {
-    aEl.textContent = '—'; aEl.style.color = 'var(--text2)';
-    if (aSubEl) aSubEl.textContent = 'нет данных о депозите';
-    return;
-  }
-
-  // ── P&L: из аналитики Обзора (Общий P&L = сумма equity из PDF + FX) ──
-  // store.mx содержит equity за каждый день — это реальный P&L с маржой
-  var totalPnlMx = store.mx.reduce(function(s,r){ return s + (r.equity||0); }, 0);
-  // FX P&L из store.fx
-  var rate2 = (currentRate && currentRate.value) || 85;
-  var totalPnlFx = (store.fx||[]).reduce(function(s,t){ return s + (t.net_pnl_usd||0); }, 0) * rate2;
-  var totalPnl = Math.round(totalPnlMx + totalPnlFx);
-
-  // ── Период: от первой до последней даты в отчётах ──
-  var mxDates = store.mx.map(function(r){ return r.date; }).filter(Boolean);
-  if (!mxDates.length) {
-    aEl.textContent = '—'; aEl.style.color = 'var(--text2)';
-    if (aSubEl) aSubEl.textContent = 'нет торговых дней';
-    return;
-  }
-  mxDates.sort(function(a,b){ return parseDate(a)-parseDate(b); });
-  var firstDate = mxDates[0];
-  var lastDate  = mxDates[mxDates.length-1];
-  var periodDays = Math.max(1, Math.round((parseDate(lastDate)-parseDate(firstDate))/86400000) + 1);
-
-  // ── Формула ──
-  var roi = totalPnl / totalDeposit * 100;
-  var annual = roi * 365 / periodDays;
-  var c = roi >= 0 ? 'var(--green)' : 'var(--red)';
-
-  aEl.textContent = (annual>=0?'+':'')+Math.round(annual)+'%';
-  aEl.style.color = c;
-  if (aSubEl) {
-    aSubEl.textContent = firstDate+' — '+lastDate+' ('+periodDays+' дн.)  P&L '+(totalPnl>=0?'+':'')+Math.round(totalPnl).toLocaleString('ru')+'₽';
-  }
+  if (aEl) { aEl.textContent = (annual>=0?'+':'')+Math.round(annual)+'%'; aEl.style.color = annual>=0?'var(--green)':'var(--red)'; }
+  if (aSubEl) { aSubEl.textContent = 'за '+periodDays+' дн. · '+( totalPnl>=0?'+':'')+Math.round(totalPnl).toLocaleString('ru')+'₽'; }
 }
 
 
+// ── Расчёт задействованного капитала и доходности ──────────────
+// Использует fetchGO из калькулятора + calcFxMargin
 async function calcPositionCapital(pos) {
   var allDays = pos.days || [pos.closed_date || pos.opened_date];
   var fxRate = (pos.closed_date ? getRateForDate(normDate(pos.closed_date)) : (currentRate&&currentRate.value||85)) || 85;
@@ -8430,17 +8458,8 @@ function splitIntoSets(trades, gapMin) {
 }
 
 function splitMixedCluster(cl) {
-  // Split cluster by leading instrument — each main instrument starts a new sub-cluster
-  // USDRUBF/CNYRUBF are also "main" — they define their own construction
-  // "main" instruments define construction boundaries
-  // Perpetuals (USDRUBF, CNYRUBF, EURRUBF) are main ONLY when they appear alone
-  // USDRUBF+CNYRUBF and EURRUBF+CNYRUBF are PAIRS — don't split them
-  const perpetualPairs = [['USDRUBF','CNYRUBF'],['EURRUBF','CNYRUBF']];
-  const clBases = new Set(cl.map(t => t.instrument.replace(/[-_0-9.]/g,'').toUpperCase()));
-  const isPerpPair = perpetualPairs.some(([a,b]) => clBases.has(a) && clBases.has(b));
-  const main = isPerpPair
-    ? ['SI','EU','UC','UCNY','ED','GD','SV','PT','PD']  // don't split perpetuals if paired
-    : ['SI','EU','UC','UCNY','ED','GD','SV','PT','PD','USDRUBF','CNYRUBF','EURRUBF'];
+  // If cluster has both SI and EU — split by which main instr appears first
+  const main = ['SI','EU','UC','ED','GD','SV','PT','PD'];
   const s = [...cl].sort((a,b) => timeToMs(a.time) - timeToMs(b.time));
   const seen = [];
   for (const t of s) {
@@ -8510,20 +8529,8 @@ function detectConstructionByVolumes(cl, cr) {
       return 'ERF/CRF/EURCNH';
     return 'ERF/CRF/EURCNH';
   }
-  // USDRUBF + CNYRUBF (вечники обоих)
   if (bases.includes('USDRUBF') && bases.includes('CNYRUBF'))
     return 'URF/CRF/USDCNH';
-  // USDRUBF + CR/CNY (вечник USD + квартальный юань)
-  if (bases.includes('USDRUBF') && crKey && !bases.includes('CNYRUBF')) {
-    return 'URF/CR' + q(byI[crKey].instr) + '/USDCNH';
-  }
-  // CNYRUBF + CR/CNY (вечник юаня + квартальный юань — спред CNY)
-  if (bases.includes('CNYRUBF') && crKey && !bases.includes('USDRUBF')) {
-    return 'CRF/CR' + q(byI[crKey].instr);
-  }
-  // UCNY (UC quarterly) — двуногая с USDCNH
-  if (bases.includes('UCNY'))
-    return 'UC' + q(byI['UCNY'].instr) + '/USDCNH';
   // UC
   if (bases.includes('UC'))
     return 'UC' + q(byI['UC'].instr) + '/USDCNH';
@@ -8546,20 +8553,6 @@ const FX_FOR_TAG = {
   USDCNH: 'USDCNH', EURCNH: 'EURCNH', EURUSD: 'EURUSD',
   XAUUSD: 'XAUUSD', XAGUSD: 'XAGUSD', XPTUSD: 'XPTUSD', XPDUSD: 'XPDUSD',
 };
-// Tags that use USDCNH on FX side
-const TAG_FX_INSTR = {
-  'USDCNH': 'USDCNH',
-  'EURCNH': 'EURCNH',
-  'EURUSD': 'EURUSD',
-};
-function getFxInstrForTag(tag) {
-  if (!tag) return null;
-  if (tag.includes('EURCNH') || tag.includes('EURUSD') && tag.includes('ERF')) return 'EURCNH';
-  if (tag.includes('EURUSD') || tag.includes('ED')) return 'EURUSD';
-  if (tag.includes('XAUUSD')) return 'XAUUSD';
-  if (tag.includes('XAGUSD')) return 'XAGUSD';
-  return 'USDCNH'; // default: USDCNH for USD/CNY constructions
-}
 
 function showAutoTagDialog() {
   const dates = store.mx.map(r => r.date).filter(Boolean);
@@ -8756,11 +8749,19 @@ function checkAndClosePosition(pos, date) {
   if (!allClosed) return;
   pos.status = 'closed';
   pos.closed_date = date;
-  // P&L считаем через getPosMxPnlFull (по марже сделок), не из сводной таблицы PDF
-  // Сводная таблица показывает только комиссии для незакрытых позиций
-  var mxPF = getPosMxPnlFull(pos);
-  var mxPnl = Object.values(mxPF).reduce(function(s,x){return s+x.pnl;},0);
-  pos.pnl_rub = Math.round(mxPnl * 100) / 100;
+  const rep = getMxReportForDate(date);
+  if (rep) {
+    var pnl = 0, seen = {};
+    for (var b in pos.legs) {
+      if (pos.legs[b].platform !== 'MX' || seen[b]) continue;
+      seen[b] = true;
+      var instr = (rep.instruments||[]).find(function(i){
+        return (i.name||'').replace(/[-_0-9.]/g,'').toUpperCase() === b;
+      });
+      if (instr) pnl += instr.pnl || 0;
+    }
+    pos.pnl_rub = pnl;
+  }
   pos.pnl_usd = (pos.fx_trades||[]).reduce(function(s,t){return s+(t.net_pnl_usd||0);},0);
   console.log('[POS CLOSED]', pos.tag, 'pnl_rub:', pos.pnl_rub, 'pnl_usd:', pos.pnl_usd);
 }
@@ -8789,10 +8790,7 @@ async function autoTagFromReports(date) {
   }
 
   // Step 2: entry trades only
-  const entries = sorted.filter(t => {
-    const b = (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
-    return entryDir[b] && t.direction === entryDir[b];
-  });
+  const entries = sorted.filter(t => t.direction === entryDir[t.instrument.replace(/[-_0-9.]/g,'').toUpperCase()]);
 
   // Step 3: split by time gaps → split mixed clusters
   const rawCl = splitIntoSets(entries, 7);
@@ -8812,14 +8810,9 @@ async function autoTagFromReports(date) {
   }
 
   if (!sets.length) {
-    const bs = [...new Set((entries||[]).map(t => (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase()))];
-    // Check if this date has any MX data at all
-    if (!entries.length) {
-      alert('Нет сделок за ' + date + '\nПроверь что PDF загружен корректно.');
-    } else {
-      alert('Не удалось определить конструкции за ' + date + '.\nМХ инструменты: ' + bs.join(', ')
-        + '\nUSDCNH=' + (cr.USDCNH||'?') + ' EURCNH=' + (cr.EURCNH||'?'));
-    }
+    const bs = [...new Set(entries.map(t => t.instrument.replace(/[-_0-9.]/g,'').toUpperCase()))];
+    alert('Не удалось определить конструкции.\nМХ инструменты: ' + bs.join(', ')
+      + '\nUSDCNH=' + (cr.USDCNH||'?') + ' EURCNH=' + (cr.EURCNH||'?'));
     return;
   }
 
@@ -8858,10 +8851,8 @@ async function autoTagFromReports(date) {
     const setEnd   = timeToMs(cluster[cluster.length-1].time) + 20*60*1000;
     const tagParts = tag.split('/');
     const fxInstrKey = FX_FOR_TAG[tagParts[tagParts.length-1]];
-    // CRF/CR1, CRF/CR2 — нет FX ноги. Если последняя часть тега не в FX_FOR_TAG — пропускаем FX
-    const hasFxLeg = !!fxInstrKey;
 
-    const matchedFx = !hasFxLeg ? [] : fxAll.filter(t => {
+    const matchedFx = fxAll.filter(t => {
       if (fxInstrKey) {
         const ti = (t.instrument||'').replace(/[-_]/g,'').toUpperCase();
         if (ti !== fxInstrKey) return false;
@@ -8915,28 +8906,8 @@ async function autoTagFromReports(date) {
 
   // Step 6: Create or update master positions
   positionsInit();
-  window._exitVolumeUsed = {}; // reset exit volume tracking
-  
-  // Clean up any positions previously created for this exact date
-  // This ensures re-running autotag for same date produces correct results
   const dateISO2 = normDate(date);
-  store.positions = store.positions.filter(function(p) {
-    // Remove positions opened on this date (they'll be recreated)
-    if (p.opened_date === date || p.opened_date === dateISO2) return false;
-    // Remove positions that were created by previous autotag for this date
-    // (identified by having this date as their only day)
-    if (p.days && p.days.length === 1 && (p.days[0] === date || p.days[0] === dateISO2)) return false;
-    return true;
-  });
-  // Also reset processedDays for positions that include this date
-  store.positions.forEach(function(p) {
-    if (p.processedDays && p.processedDays.includes(date)) {
-      p.processedDays = p.processedDays.filter(function(d) { return d !== date && d !== dateISO2; });
-    }
-    if (p.processedDays && p.processedDays.includes(dateISO2)) {
-      p.processedDays = p.processedDays.filter(function(d) { return d !== date && d !== dateISO2; });
-    }
-  });
+
   // Process each detected construction
   for (const { cluster, tag, set: setN } of sets) {
     const setMxRows = newRows.filter(r => r.platform==='MX' && r.tag===tag && r.set===setN);
@@ -8946,8 +8917,7 @@ async function autoTagFromReports(date) {
     if (!pos) {
       // New position — init from entry rows
       pos = createPosition(tag, date, setMxRows, setFxRows);
-      // Process exits for this day — track remaining exit volume globally
-      // to avoid double-counting shared instruments (e.g. CNY used in multiple constructions)
+      // Process exits for this day immediately (entries already in createPosition)
       const exitTrades = sorted.filter(t => {
         const b = (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
         if (!pos.legs[b]) return false;
@@ -8956,21 +8926,12 @@ async function autoTagFromReports(date) {
         return entryIsShort ? t.direction === 'Long' : t.direction === 'Short';
       });
       if (exitTrades.length) {
-        // Track remaining exit volume per instrument across all positions
-        // Use a global registry keyed by instrument+time to avoid double-counting
-        if (!window._exitVolumeUsed) window._exitVolumeUsed = {};
         for (const t of exitTrades) {
           const b = (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
           const leg = pos.legs[b];
           if (!leg) continue;
-          const tKey = b + '_' + (t.time||'') + '_' + (t.volume||'');
-          // Total volume of this trade
-          const totalVol = Math.abs(t.volume||0);
-          const usedSoFar = window._exitVolumeUsed[tKey] || 0;
-          const available = Math.max(0, totalVol - usedSoFar);
-          if (available <= 0) continue;
-          const reduce = Math.min(available, leg.net_volume);
-          window._exitVolumeUsed[tKey] = usedSoFar + reduce;
+          const vol = Math.abs(t.volume||0);
+          const reduce = Math.min(vol, leg.net_volume);
           leg.vol_out += reduce;
           leg.net_volume -= reduce;
           if (leg.net_volume < 0.001) leg.net_volume = 0;
@@ -8984,13 +8945,7 @@ async function autoTagFromReports(date) {
   }
 
   // After all sets processed — run trades through existing (pre-existing) open positions
-  // Exclude positions that were JUST CREATED today (they already processed their trades)
-  const justCreatedIds = new Set(sets.map(s => {
-    const found = store.positions.find(p => p.tag === s.tag && p.opened_date === date);
-    return found ? found.id : null;
-  }).filter(Boolean));
-  
-  for (const pos of store.positions.filter(p => p.status === 'open' && !justCreatedIds.has(p.id))) {
+  for (const pos of store.positions.filter(p => p.status === 'open')) {
     // Get all MX trades for instruments in this position
     const allMxForPos = sorted.filter(t => {
       const b = (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
@@ -9074,15 +9029,9 @@ async function autoTagFromReports(date) {
     store.autoLj.rows = store.autoLj.rows.filter(function(r) { return r.date !== date; });
     store.autoLj.rows.push.apply(store.autoLj.rows, newRows);
     saveStore();
-    // Switch to Сделки tab and render
-    document.querySelectorAll('.tab-content').forEach(function(el){el.classList.remove('active');});
-    document.querySelectorAll('.nav-btn').forEach(function(el){el.classList.remove('active');});
-    var ljTab = document.getElementById('tab-autolj');
-    if (ljTab) ljTab.classList.add('active');
-    document.querySelectorAll('.nav-btn').forEach(function(b){
-      if (b.textContent.trim()==='Сделки') b.classList.add('active');
-    });
-    setTimeout(function(){ renderAutoLj(); }, 50);
+    alert('✅ Добавлено ' + newRows.length + ' записей в Авто-журнал за ' + date);
+    if (document.getElementById('tab-autolj') && document.getElementById('tab-autolj').classList.contains('active'))
+      renderAutoLj();
   };
   } catch(e) {
     console.error('[AutoTag]', e);
@@ -9451,30 +9400,13 @@ function renderAutoLj() {
         if (xp('EURRUBF')&&xp('CNYRUBF')&&fxExit)
           exitSpread  = ((xp('EURRUBF')/xp('CNYRUBF'))/fxExit  - 1)*100;
 
-      // URF/CRF/USDCNH: USDRUBF + CNYRUBF (вечники)
-      } else if (tag.indexOf('URF')>=0 && tag.indexOf('CRF')>=0) {
+      // URF/CRF/USDCNH: вечники без деления
+      } else if (tag.indexOf('URF')>=0) {
         if (ep('USDRUBF')&&ep('CNYRUBF')&&fxEntry)
           entrySpread = ((ep('USDRUBF')/ep('CNYRUBF'))/fxEntry - 1)*100;
         if (xp('USDRUBF')&&xp('CNYRUBF')&&fxExit)
           exitSpread  = ((xp('USDRUBF')/xp('CNYRUBF'))/fxExit  - 1)*100;
-      // URF/CR: USDRUBF + квартальный CNY
-      } else if (tag.indexOf('URF')>=0 && tag.indexOf('CR')>=0) {
-        if (ep('USDRUBF')&&ep('CNY')&&fxEntry)
-          entrySpread = (ep('USDRUBF')/ep('CNY')/fxEntry - 1)*100;
-        if (xp('USDRUBF')&&xp('CNY')&&fxExit)
-          exitSpread  = (xp('USDRUBF')/xp('CNY')/fxExit  - 1)*100;
-      // CRF/CR: CNYRUBF + квартальный CNY (спред на юань, FX нет)
-      } else if (tag.indexOf('CRF')>=0 && tag.indexOf('CR')>=0) {
-        // Спред = CNYRUBF / CNY - 1 (без FX)
-        if (ep('CNYRUBF')&&ep('CNY'))
-          entrySpread = (ep('CNYRUBF')/ep('CNY') - 1)*100;
-        if (xp('CNYRUBF')&&xp('CNY'))
-          exitSpread  = (xp('CNYRUBF')/xp('CNY') - 1)*100;
 
-      // CRF/CR: CNYRUBF + квартальный CNY
-      } else if (tag.indexOf('CRF')>=0 && tag.indexOf('CR')>=0 && !tag.indexOf('URF')>=0) {
-        if (ep('CNYRUBF')&&ep('CNY')) entrySpread = (ep('CNYRUBF')/ep('CNY') - 1)*100;
-        if (xp('CNYRUBF')&&xp('CNY')) exitSpread  = (xp('CNYRUBF')/xp('CNY') - 1)*100;
       // UC/USDCNH: UC = USD/CNH фьючерс, цена в CNH за USD → без деления
       } else if (tag.indexOf('UC')>=0) {
         if (ep('UC')&&fxEntry) entrySpread = (ep('UC')/fxEntry - 1)*100;
@@ -10592,8 +10524,8 @@ autoFetchAllRates(); // фоновая подгрузка исторически
 // Hide rate bar and dashboard on initial load (journal tab is default)
 const _rb = document.getElementById('rate-bar');
 if (_rb) { _rb.style.display = 'none'; _rb.style.marginBottom = '0'; }
-// Dashboard is always visible when overview tab is active
-// (don't hide it on startup — it breaks updateDashboard)
+const _db = document.getElementById('main-dashboard');
+if (_db) { _db.style.display = 'none'; _db.style.marginBottom = '0'; }
 
 
 renderMXTable();
