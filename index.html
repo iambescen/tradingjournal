@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782289099 -->
+<!-- v:1782289368 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -7,7 +7,7 @@
   <meta http-equiv="Pragma" content="no-cache">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Торговый журнал</title>
-  <!-- build:1782289099 -->
+  <!-- build:1782289368 -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
@@ -8460,7 +8460,15 @@ function splitIntoSets(trades, gapMin) {
 function splitMixedCluster(cl) {
   // Split cluster by leading instrument — each main instrument starts a new sub-cluster
   // USDRUBF/CNYRUBF are also "main" — they define their own construction
-  const main = ['SI','EU','UC','UCNY','ED','GD','SV','PT','PD','USDRUBF','CNYRUBF','EURRUBF'];
+  // "main" instruments define construction boundaries
+  // Perpetuals (USDRUBF, CNYRUBF, EURRUBF) are main ONLY when they appear alone
+  // USDRUBF+CNYRUBF and EURRUBF+CNYRUBF are PAIRS — don't split them
+  const perpetualPairs = [['USDRUBF','CNYRUBF'],['EURRUBF','CNYRUBF']];
+  const clBases = new Set(cl.map(t => t.instrument.replace(/[-_0-9.]/g,'').toUpperCase()));
+  const isPerpPair = perpetualPairs.some(([a,b]) => clBases.has(a) && clBases.has(b));
+  const main = isPerpPair
+    ? ['SI','EU','UC','UCNY','ED','GD','SV','PT','PD']  // don't split perpetuals if paired
+    : ['SI','EU','UC','UCNY','ED','GD','SV','PT','PD','USDRUBF','CNYRUBF','EURRUBF'];
   const s = [...cl].sort((a,b) => timeToMs(a.time) - timeToMs(b.time));
   const seen = [];
   for (const t of s) {
