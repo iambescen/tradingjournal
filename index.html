@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782288741 -->
+<!-- v:1782289099 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -7,7 +7,7 @@
   <meta http-equiv="Pragma" content="no-cache">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Торговый журнал</title>
-  <!-- build:1782288741 -->
+  <!-- build:1782289099 -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
@@ -8817,7 +8817,10 @@ async function autoTagFromReports(date) {
   }
 
   // Step 2: entry trades only
-  const entries = sorted.filter(t => t.direction === entryDir[t.instrument.replace(/[-_0-9.]/g,'').toUpperCase()]);
+  const entries = sorted.filter(t => {
+    const b = (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
+    return entryDir[b] && t.direction === entryDir[b];
+  });
 
   // Step 3: split by time gaps → split mixed clusters
   const rawCl = splitIntoSets(entries, 7);
@@ -8837,9 +8840,14 @@ async function autoTagFromReports(date) {
   }
 
   if (!sets.length) {
-    const bs = [...new Set(entries.map(t => t.instrument.replace(/[-_0-9.]/g,'').toUpperCase()))];
-    alert('Не удалось определить конструкции.\nМХ инструменты: ' + bs.join(', ')
-      + '\nUSDCNH=' + (cr.USDCNH||'?') + ' EURCNH=' + (cr.EURCNH||'?'));
+    const bs = [...new Set((entries||[]).map(t => (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase()))];
+    // Check if this date has any MX data at all
+    if (!entries.length) {
+      alert('Нет сделок за ' + date + '\nПроверь что PDF загружен корректно.');
+    } else {
+      alert('Не удалось определить конструкции за ' + date + '.\nМХ инструменты: ' + bs.join(', ')
+        + '\nUSDCNH=' + (cr.USDCNH||'?') + ' EURCNH=' + (cr.EURCNH||'?'));
+    }
     return;
   }
 
@@ -10581,8 +10589,8 @@ autoFetchAllRates(); // фоновая подгрузка исторически
 // Hide rate bar and dashboard on initial load (journal tab is default)
 const _rb = document.getElementById('rate-bar');
 if (_rb) { _rb.style.display = 'none'; _rb.style.marginBottom = '0'; }
-const _db = document.getElementById('main-dashboard');
-if (_db) { _db.style.display = 'none'; _db.style.marginBottom = '0'; }
+// Dashboard is always visible when overview tab is active
+// (don't hide it on startup — it breaks updateDashboard)
 
 
 renderMXTable();
