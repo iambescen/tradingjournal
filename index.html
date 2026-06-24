@@ -8458,8 +8458,13 @@ function splitIntoSets(trades, gapMin) {
 }
 
 function splitMixedCluster(cl) {
+  // isPerpPair: EURRUBF+CNYRUBF не разбиваются никогда
+  const bases = cl.map(t => t.instrument.replace(/[-_0-9.]/g,'').toUpperCase());
+  if (bases.includes('EURRUBF') && bases.includes('CNYRUBF')) return [cl];
+
   // If cluster has both SI and EU — split by which main instr appears first
-  const main = ['SI','EU','UC','ED','GD','SV','PT','PD'];
+  // UCNY added as alias for UC (UCNY-9.26 парсится как UCNY)
+  const main = ['SI','EU','UC','UCNY','ED','GD','SV','PT','PD'];
   const s = [...cl].sort((a,b) => timeToMs(a.time) - timeToMs(b.time));
   const seen = [];
   for (const t of s) {
@@ -8503,6 +8508,9 @@ function detectConstructionByVolumes(cl, cr) {
   const crKey = bases.includes('CR') ? 'CR' : bases.includes('CNY') ? 'CNY' : null;
   const crVol = crKey ? byI[crKey].vol : 0;
 
+  // UCNY = UC (UCNY-9.26 парсится как UCNY, не UC)
+  const ucKey = bases.includes('UC') ? 'UC' : bases.includes('UCNY') ? 'UCNY' : null;
+
   // Mixed SI+EU cluster
   if (bases.includes('SI') && bases.includes('EU') && crKey) {
     const exp = byI['SI'].vol * usdcnh + byI['EU'].vol * eurcnh;
@@ -8523,17 +8531,25 @@ function detectConstructionByVolumes(cl, cr) {
     if (ok(crVol / byI['EU'].vol, eurcnh))
       return 'EU' + q(byI['EU'].instr) + '/CR' + q(byI['EU'].instr) + '/EURCNH';
   }
-  // EURRUBF + CNYRUBF
+  // EURRUBF + CNYRUBF (isPerpPair — не разбивается, нет FX ноги в EURCNH здесь)
   if (bases.includes('EURRUBF') && bases.includes('CNYRUBF')) {
-    if (ok(byI['CNYRUBF'].vol / byI['EURRUBF'].vol, eurcnh))
-      return 'ERF/CRF/EURCNH';
     return 'ERF/CRF/EURCNH';
   }
+  // USDRUBF + CNYRUBF (URF/CRF — с FX USDCNH)
+  // Важно: CNYRUBF может быть одновременно в URF/CRF и CRF/CR1.
+  // Трекер _exitVolumeUsed предотвращает двойной учёт.
   if (bases.includes('USDRUBF') && bases.includes('CNYRUBF'))
     return 'URF/CRF/USDCNH';
-  // UC
-  if (bases.includes('UC'))
-    return 'UC' + q(byI['UC'].instr) + '/USDCNH';
+  // CRF/CR1 — CNYRUBF Short + CNY/CR Long (без FX ноги)
+  // Срабатывает только если нет USDRUBF и EURRUBF в том же кластере
+  if (bases.includes('CNYRUBF') && crKey &&
+      !bases.includes('USDRUBF') && !bases.includes('EURRUBF')) {
+    const crqInstr = byI[crKey].instr;
+    return 'CRF/CR' + q(crqInstr);
+  }
+  // UC / UCNY → USDCNH
+  if (ucKey)
+    return 'UC' + q(byI[ucKey].instr) + '/USDCNH';
   // ED
   if (bases.includes('ED'))
     return 'ED' + q(byI['ED'].instr) + '/EURUSD';
@@ -8552,6 +8568,8 @@ function detectConstructionByVolumes(cl, cr) {
 const FX_FOR_TAG = {
   USDCNH: 'USDCNH', EURCNH: 'EURCNH', EURUSD: 'EURUSD',
   XAUUSD: 'XAUUSD', XAGUSD: 'XAGUSD', XPTUSD: 'XPTUSD', XPDUSD: 'XPDUSD',
+  // CRF/CR* — только MX-ноги, FX отсутствует
+  CR1: null, CR2: null,
 };
 
 function showAutoTagDialog() {
@@ -8796,6 +8814,10 @@ async function autoTagFromReports(date) {
   const rawCl = splitIntoSets(entries, 7);
   const clusters = rawCl.flatMap(cl => splitMixedCluster(cl));
 
+  // Трекер использованных объёмов CNY/CNYRUBF между кластерами
+  // (CNY может одновременно участвовать в URF/CRF и CRF/CR1 — без двойного учёта)
+  const _exitVolumeUsed = {};
+
   // Step 4: detect construction per cluster
   const cr = _crossRates || {};
   const constrCount = {};
@@ -8850,12 +8872,19 @@ async function autoTagFromReports(date) {
     const setStart = timeToMs(cluster[0].time);
     const setEnd   = timeToMs(cluster[cluster.length-1].time) + 20*60*1000;
     const tagParts = tag.split('/');
-    const fxInstrKey = FX_FOR_TAG[tagParts[tagParts.length-1]];
+    const lastPart = tagParts[tagParts.length-1];
+    // fxInstrKey: string → фильтровать по инструменту
+    //             null   → нет FX ноги (CRF/CR1, CRF/CR2 — только MX)
+    //             undefined → тег не в словаре (брать все FX в окне)
+    const fxInstrKeyRaw = Object.prototype.hasOwnProperty.call(FX_FOR_TAG, lastPart)
+      ? FX_FOR_TAG[lastPart]
+      : undefined;
 
-    const matchedFx = fxAll.filter(t => {
-      if (fxInstrKey) {
+    // Конструкции без FX ноги — пропускаем FX целиком
+    const matchedFx = (fxInstrKeyRaw === null) ? [] : fxAll.filter(t => {
+      if (fxInstrKeyRaw) {
         const ti = (t.instrument||'').replace(/[-_]/g,'').toUpperCase();
-        if (ti !== fxInstrKey) return false;
+        if (ti !== fxInstrKeyRaw) return false;
       }
       const ot = t.open_time || t.open_date || '';
       const ts2 = ot.includes(' ') ? ot.split(' ')[1].substring(0,8) : ot.includes('T') ? ot.split('T')[1].substring(0,8) : ot.substring(0,8);
