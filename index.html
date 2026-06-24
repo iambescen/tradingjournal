@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782289368 -->
+<!-- v:1782289520 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -7,7 +7,7 @@
   <meta http-equiv="Pragma" content="no-cache">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Торговый журнал</title>
-  <!-- build:1782289368 -->
+  <!-- build:1782289520 -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
@@ -8228,9 +8228,9 @@ function renderConstructionAnalytics() {
 }
 
 function _buildOverviewRoiDashboard(closedPositions) {
-  var summaryEl = document.getElementById('ov-roi-summary');
-  var cardsEl   = document.getElementById('ov-roi-cards');
-  if (!summaryEl || !cardsEl) return;
+  var summaryEl = document.getElementById('ov-roi-summary'); // may be null - that's ok
+  var cardsEl   = document.getElementById('ov-roi-cards');   // may be null - that's ok
+  // Don't exit early - we still need to update dash-annual-yield
 
   // ── Депозит: берём из дашборда Обзора (МХ + FX) ──
   var rate = (currentRate && currentRate.value) || 85;
