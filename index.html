@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782294224 -->
+<!-- v:1782294379 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -7,7 +7,7 @@
   <meta http-equiv="Pragma" content="no-cache">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Торговый журнал</title>
-  <!-- build:1782294224 -->
+  <!-- build:1782294379 -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
@@ -8138,7 +8138,12 @@ function renderConstructionAnalytics() {
   if (!el) return;
   positionsInit();
   const closed = (store.positions||[]).filter(function(p){return p.status==='closed';});
-  if (!closed.length) { el.innerHTML = ''; return; }
+  // Always try to update annual yield card, even with no closed positions
+  if (!closed.length) {
+    el.innerHTML = '';
+    _buildOverviewRoiDashboard([]);
+    return;
+  }
   const rate = (currentRate && currentRate.value) || 85;
 
   // Build P&L per position
@@ -8228,24 +8233,33 @@ function renderConstructionAnalytics() {
 }
 
 function _buildOverviewRoiDashboard(closedPositions) {
-  if (!closedPositions || !closedPositions.length) return;
+  var aEl = document.getElementById('dash-annual-yield');
+  var aSubEl = document.getElementById('dash-annual-sub');
 
-  // ── Депозит: читаем из DOM дашборда (уже посчитан в updateDashboard) ──
-  var totalDepositEl = document.getElementById('dash-total-pnl');
-  var totalDeposit = 0;
-  if (totalDepositEl && totalDepositEl.textContent) {
-    totalDeposit = parseFloat(totalDepositEl.textContent.replace(/[^0-9.,\-]/g,'').replace(',','.')) || 0;
+  if (!closedPositions || !closedPositions.length) {
+    if (aEl) { aEl.textContent = '—'; aEl.style.color = 'var(--text2)'; }
+    if (aSubEl) { aSubEl.textContent = 'нет закрытых позиций'; }
+    return;
   }
-  // Fallback: из PDF баланса МХ
+
+  // ── Депозит: берём из карточки "Итого" в верхнем дашборде ──
+  var totalDeposit = 0;
+  var totalPnlEl = document.getElementById('dash-total-pnl');
+  if (totalPnlEl) {
+    var txt = totalPnlEl.textContent.replace(/ /g,' ').replace(/[^0-9., ]/g,'').replace(/[ ]/g,'').replace(',','.');
+    totalDeposit = parseFloat(txt) || 0;
+  }
+  // Fallback: МХ из PDF
   if (totalDeposit <= 0) {
-    var rate = (currentRate && currentRate.value) || 85;
-    var mxBal = store.mx.length ? (store.mx[store.mx.length-1].balance_end || 0) : 0;
-    var fxBal = store.fx.length ? (store.fx[store.fx.length-1].balance || 0) : 0;
-    totalDeposit = mxBal + fxBal * rate;
+    var rate0 = (currentRate && currentRate.value) || 85;
+    var mxBal0 = store.mx.length ? (store.mx[store.mx.length-1].balance_end || 0) : 0;
+    totalDeposit = mxBal0;
   }
   if (totalDeposit <= 0) return;
 
-  // ── P&L по всем закрытым позициям ──
+  // ── P&L: берём из карточки "Общий P&L" в аналитике Обзора ──
+  // Она уже посчитана в renderConstructionAnalytics через posPnl()
+  // Дублируем расчёт здесь чтобы не зависеть от DOM
   var rate2 = (currentRate && currentRate.value) || 85;
   var totalPnl = 0;
   var allDates = [];
@@ -8269,9 +8283,6 @@ function _buildOverviewRoiDashboard(closedPositions) {
   var annual = roi * 365 / periodDays;
   var c = roi >= 0 ? 'var(--green)' : 'var(--red)';
 
-  // ── Обновляем карточку в верхнем дашборде ──
-  var aEl = document.getElementById('dash-annual-yield');
-  var aSubEl = document.getElementById('dash-annual-sub');
   if (aEl) {
     aEl.textContent = (annual>=0?'+':'')+Math.round(annual)+'%';
     aEl.style.color = c;
