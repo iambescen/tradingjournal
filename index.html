@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v:1782294609 -->
+<!-- v:1782294860 -->
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -7,7 +7,7 @@
   <meta http-equiv="Pragma" content="no-cache">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Торговый журнал</title>
-  <!-- build:1782294609 -->
+  <!-- build:1782294860 -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
@@ -8241,45 +8241,34 @@ function _buildOverviewRoiDashboard(closedPositions) {
   var totalDeposit = 0;
   var totalPnlEl = document.getElementById('dash-total-pnl');
   if (totalPnlEl && totalPnlEl.textContent.trim() !== '—') {
-    // Парсим "2 891 617,15 р." → 2891617.15
-    var txt = totalPnlEl.textContent.replace(/[^0-9,]/g, '').replace(',', '.');
+    var txt = totalPnlEl.textContent.replace(/[\s\u00a0]/g,'').replace(/[^0-9,]/g,'').replace(',','.');
     totalDeposit = parseFloat(txt) || 0;
   }
   if (totalDeposit <= 0) {
-    if (aEl) { aEl.textContent = '—'; aEl.style.color = 'var(--text2)'; }
-    if (aSubEl) { aSubEl.textContent = 'нет данных о депозите'; }
+    aEl.textContent = '—'; aEl.style.color = 'var(--text2)';
+    if (aSubEl) aSubEl.textContent = 'нет данных о депозите';
     return;
   }
 
-  // ── P&L: из аналитики Обзора — элемент "Общий P&L" ──
-  // Берём прямо из DOM если уже отрендерен
-  var totalPnl = 0;
-  var pnlDomEl = document.querySelector('[data-overview-total-pnl]');
-  if (pnlDomEl) {
-    var ptxt = pnlDomEl.textContent.replace(/[^0-9,\-]/g, '').replace(',', '.');
-    totalPnl = parseFloat(ptxt) || 0;
-  } else {
-    // Пересчитываем из store.positions (все позиции у которых есть P&L)
-    var rate2 = (currentRate && currentRate.value) || 85;
-    var allPos = store.positions || [];
-    allPos.forEach(function(pos) {
-      var fxRate = (pos.closed_date ? getRateForDate(normDate(pos.closed_date)) : rate2) || rate2;
-      var mxPF = getPosMxPnlFull(pos);
-      var tmx = Object.values(mxPF).reduce(function(s,x){return s+x.pnl;},0);
-      var fxTr = getPosFxTrades(pos);
-      var tfx = fxTr.reduce(function(s,t){return s+(t.net_pnl_usd||0);},0)*fxRate;
-      totalPnl += Math.round(tmx + tfx);
-    });
-  }
+  // ── P&L: из аналитики Обзора (Общий P&L = сумма equity из PDF + FX) ──
+  // store.mx содержит equity за каждый день — это реальный P&L с маржой
+  var totalPnlMx = store.mx.reduce(function(s,r){ return s + (r.equity||0); }, 0);
+  // FX P&L из store.fx
+  var rate2 = (currentRate && currentRate.value) || 85;
+  var totalPnlFx = (store.fx||[]).reduce(function(s,t){ return s + (t.net_pnl_usd||0); }, 0) * rate2;
+  var totalPnl = Math.round(totalPnlMx + totalPnlFx);
 
-  // ── Период: от первой позиции до сегодня ──
-  var allDates = [];
-  (store.positions||[]).forEach(function(pos){
-    (pos.days||[pos.opened_date]).forEach(function(d){ if(d && allDates.indexOf(d)<0) allDates.push(d); });
-  });
-  allDates.sort(function(a,b){return parseDate(a)-parseDate(b);});
-  var firstDate = allDates[0] || '';
-  var periodDays = firstDate ? Math.max(1, Math.round((Date.now()-parseDate(firstDate))/86400000)+1) : 1;
+  // ── Период: от первой до последней даты в отчётах ──
+  var mxDates = store.mx.map(function(r){ return r.date; }).filter(Boolean);
+  if (!mxDates.length) {
+    aEl.textContent = '—'; aEl.style.color = 'var(--text2)';
+    if (aSubEl) aSubEl.textContent = 'нет торговых дней';
+    return;
+  }
+  mxDates.sort(function(a,b){ return parseDate(a)-parseDate(b); });
+  var firstDate = mxDates[0];
+  var lastDate  = mxDates[mxDates.length-1];
+  var periodDays = Math.max(1, Math.round((parseDate(lastDate)-parseDate(firstDate))/86400000) + 1);
 
   // ── Формула ──
   var roi = totalPnl / totalDeposit * 100;
@@ -8289,7 +8278,7 @@ function _buildOverviewRoiDashboard(closedPositions) {
   aEl.textContent = (annual>=0?'+':'')+Math.round(annual)+'%';
   aEl.style.color = c;
   if (aSubEl) {
-    aSubEl.textContent = 'за '+periodDays+' дн. · P&L '+(totalPnl>=0?'+':'')+Math.round(totalPnl).toLocaleString('ru')+'₽';
+    aSubEl.textContent = firstDate+' — '+lastDate+' ('+periodDays+' дн.)  P&L '+(totalPnl>=0?'+':'')+Math.round(totalPnl).toLocaleString('ru')+'₽';
   }
 }
 
