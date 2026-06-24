@@ -9594,10 +9594,12 @@ function renderAutoLj() {
 
     // Calc P&L
     var mxPnlFull = getPosMxPnlFull(pos);
-    var totalMx = Object.values(mxPnlFull).reduce(function(s,x){return s+x.pnl;},0);
+    var mxPnlSum = Object.values(mxPnlFull).reduce(function(s,x){return s+x.pnl;},0);
+    var mxCommSum = Object.values(mxPnlFull).reduce(function(s,x){return s+(x.totalComm||0);},0);
+    var totalMx = mxPnlSum + mxCommSum;  // P&L по формуле + комиссия MX (комиссия отрицательна)
     var fxTradesPos = getPosFxTrades(pos);
     var fxPnlUsd = fxTradesPos.reduce(function(s,t){return s+(t.net_pnl_usd||0);},0);
-    var fxPnlRub = fxPnlUsd * fxRate;
+    var fxPnlRub = fxPnlUsd * fxRate;  // net_pnl_usd уже включает комиссию FX
     var totalRub = totalMx + fxPnlRub;
 
     // Duration
@@ -9867,28 +9869,32 @@ function renderAutoLj() {
         + '</span></div>';
 
       // ── Блок сверки с PDF ──
-      // Сравниваем сумму нашего расчёта MX (по формуле) с итогом из PDF (instr.pnl).
-      // Расхождение допустимо ~1-2% (округление цен, артефакты парсера, незакрытый клиринг).
-      var mxFormulaSum = Object.values(mxPnlFull).reduce(function(s,x){return s+(x.pnl||0);},0);
-      var pdfSum = 0, pdfAvailable = false;
-      var firstLeg = Object.values(mxPnlFull)[0];
-      if (firstLeg && typeof firstLeg._pdfTotal === 'number') { pdfSum = firstLeg._pdfTotal; }
-      // PDF доступен только если есть хоть одна закрытая в клиринге нога (instr.pnl != комиссия)
+      // Сверка: сравниваем (формула + комиссия) с PDF instr.pnl ПО ОДНИМ И ТЕМ ЖЕ ногам.
+      // PDF instr.pnl включает комиссию, поэтому к формуле тоже добавляем комиссию.
+      // Учитываем только ноги, закрытые в клиринге (где PDF margin != только комиссия).
+      var recFormula = 0, recPdf = 0, pdfAvailable = false;
       (pos.days||[pos.closed_date||pos.opened_date]).forEach(function(d){
         var rep = getMxReportForDate(d);
         (rep && rep.instruments||[]).forEach(function(i){
           var ib=(i.name||'').replace(/[-_0-9.]/g,'').toUpperCase();
-          if (pos.legs[ib] && Math.abs((i.pnl||0)-(i.commission||0))>0.01) pdfAvailable=true;
+          if (!pos.legs[ib]) return;
+          // закрыта в клиринге, если pnl заметно отличается от чистой комиссии
+          if (Math.abs((i.pnl||0)-(i.commission||0))>0.01) {
+            pdfAvailable = true;
+            recPdf += i.pnl||0;
+            var lc = mxPnlFull[ib];
+            if (lc) recFormula += (lc.pnl||0) + (lc.totalComm||0);
+          }
         });
       });
       if (pdfAvailable) {
-        var diff = mxFormulaSum - pdfSum;
-        var diffPct = Math.abs(pdfSum)>1 ? Math.abs(diff/pdfSum*100) : (Math.abs(diff)>1?100:0);
+        var diff = recFormula - recPdf;
+        var diffPct = Math.abs(recPdf)>1 ? Math.abs(diff/recPdf*100) : (Math.abs(diff)>1?100:0);
         var okColor = diffPct < 2 ? 'var(--green)' : (diffPct < 5 ? 'var(--orange,#e8a33d)' : 'var(--red)');
         var okIcon = diffPct < 2 ? '✓' : '⚠';
         html += '<div style="font-size:10px;display:flex;justify-content:space-between;align-items:center;margin-top:4px;padding:3px 8px;background:var(--bg2);border-radius:4px;color:var(--text2)">'
-          + '<span>Сверка с PDF (только закрытые ноги):</span>'
-          + '<span style="font-family:monospace">формула '+Math.round(mxFormulaSum)+' / PDF '+Math.round(pdfSum)
+          + '<span>Сверка с PDF (закрытые в клиринге ноги, с комиссией):</span>'
+          + '<span style="font-family:monospace">формула '+Math.round(recFormula)+' / PDF '+Math.round(recPdf)
           + ' <span style="color:'+okColor+';font-weight:700">'+okIcon+' '+(diff>=0?'+':'')+Math.round(diff)+'₽ ('+diffPct.toFixed(1)+'%)</span></span>'
           + '</div>';
       } else {
