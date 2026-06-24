@@ -8091,6 +8091,10 @@ function _ovPeriodRange() {
 
 // ── Instrument specs for P&L calculation ──────────────────────
 // tick = minimum price step, step = RUB per tick per lot
+// Значения tick/step ВЕРИФИЦИРОВАНЫ на эталонах PDF (margin совпал точно):
+//   USDRUBF 0.005/5 (23.06 +1000), EURRUBF 0.005/5 (19.06 -4300),
+//   SI 1/1 (22.06 -22900), EU 1/1 (22.06 -26433),
+//   CNY 0.001/1 (22.06 68766≈68764), CNYRUBF 0.001/1
 const MX_SPECS = {
   // Perpetual futures (ERP, URP, CRP series)
   EURRUBF: { tick: 0.005,   step: 5    },
@@ -8099,8 +8103,10 @@ const MX_SPECS = {
   // Quarterly futures
   SI:      { tick: 1,       step: 1    },  // USD/RUB futures, step=1 RUB/lot
   EU:      { tick: 1,       step: 1    },  // EUR/RUB futures
-  CR:      { tick: 1,       step: 1    },  // CNY/RUB futures
+  CR:      { tick: 0.001,   step: 1    },  // CNY/RUB кварт. фьючерс (CNY-9.26), tick=0.001 верифиц.
+  CNY:     { tick: 0.001,   step: 1    },  // CNY-9.26 парсится в базу CNY, тот же инструмент что CR
   UC:      { tick: 0.0001,  step: 1    },  // USD/CNY
+  UCNY:    { tick: 0.0001,  step: 1    },  // UCNY-9.26 парсится в базу UCNY
   ED:      { tick: 0.0001,  step: 1    },
   GD:      { tick: 0.1,     step: 1    },
   SV:      { tick: 0.1,     step: 1    },
@@ -8130,6 +8136,176 @@ function calcSetPnl(instrBase, entryTrades, exitTrades) {
 
   const pnl = sign * (avgExit - avgEntry) / spec.tick * spec.step * lots;
   return { pnl: Math.round(pnl), entryVol, exitVol, avgEntry, avgExit };
+}
+
+// ══════════════════════════════════════════════════════════════
+// РАСЧЁТ P&L ПО ФОРМУЛЕ С ЯКОРНОЙ ПРИВЯЗКОЙ CNY
+// margin = (avgExit - avgEntry) × sign / tick × step × vol
+// CNY — хедж-нога нескольких конструкций. Её сделки привязываются к конструкции
+// чей якорь (USDRUBF/CNYRUBF/Si/Eu/UC) открывался/закрывался последним перед CNY-сделкой.
+// Верифицировано на 19/22/23.06 (см. Notion "Дизайн атрибуции P&L").
+// ══════════════════════════════════════════════════════════════
+
+const TAG_TO_BASE = {
+  'URF':'USDRUBF', 'CRF':'CNYRUBF', 'ERF':'EURRUBF',
+  'SI1':'SI', 'SI2':'SI', 'EU1':'EU', 'EU2':'EU',
+  'ED1':'ED', 'ED2':'ED', 'UC1':'UCNY', 'UC2':'UCNY',
+  'CR1':'CNY', 'CR2':'CNY',
+};
+
+// Хедж-ноги, которые делятся между конструкциями (привязка по якорю)
+const HEDGE_BASES = ['CNY'];
+
+// Определить якорную базу позиции (первая не-хедж MX-нога из тега)
+function getAnchorBase(pos) {
+  const mxBases = Object.keys(pos.legs).filter(b => pos.legs[b].platform === 'MX');
+  const parts = (pos.tag||'').split('/');
+  for (const part of parts) {
+    const b = TAG_TO_BASE[part];
+    if (b && pos.legs[b] && pos.legs[b].platform === 'MX' && !HEDGE_BASES.includes(b)) return b;
+  }
+  return mxBases.find(b => !HEDGE_BASES.includes(b)) || mxBases[0] || null;
+}
+
+// margin одной ноги по формуле
+function calcLegMargin(base, entryTrades, exitTrades, isEntryShort) {
+  const spec = MX_SPECS[base];
+  const eVol = entryTrades.reduce((s,t)=>s+Math.abs(t.volume||0),0);
+  const xVol = exitTrades.reduce((s,t)=>s+Math.abs(t.volume||0),0);
+  const eAvg = eVol>0 ? entryTrades.reduce((s,t)=>s+(t.price||0)*Math.abs(t.volume||0),0)/eVol : 0;
+  const xAvg = xVol>0 ? exitTrades.reduce((s,t)=>s+(t.price||0)*Math.abs(t.volume||0),0)/xVol : 0;
+  const closedVol = Math.min(eVol, xVol);
+  let pnl = 0;
+  if (spec && closedVol > 0) {
+    const diff = isEntryShort ? (eAvg - xAvg) : (xAvg - eAvg);
+    pnl = diff / spec.tick * spec.step * closedVol;
+  }
+  return { pnl, avgEntry:eAvg, avgExit:xAvg, entryVol:eVol, exitVol:xVol, closedVol };
+}
+
+// Привязать хедж-сделки (CNY) к позициям дня по якорю.
+// Возвращает Map<pos, {entries:[], exits:[]}> по базе hedgeBase
+function attributeHedgeTrades(positionsForDay, repTrades, hedgeBase) {
+  const result = new Map();
+  const anchored = [];
+  for (const pos of positionsForDay) {
+    if (!pos.legs[hedgeBase]) continue;
+    const anchor = getAnchorBase(pos);
+    if (!anchor || anchor === hedgeBase) continue;
+    anchored.push({ pos, anchor });
+    result.set(pos, { entries:[], exits:[] });
+  }
+  if (!anchored.length) return result;
+
+  // События якорей по времени: open/close
+  const anchorEvents = [];
+  for (const { pos, anchor } of anchored) {
+    const isShort = pos.legs[anchor].entry_direction === 'Sell';
+    repTrades.filter(t => (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase() === anchor)
+      .forEach(t => {
+        const isEntry = isShort ? t.direction==='Short' : t.direction==='Long';
+        anchorEvents.push({ time: timeToMs(t.time), pos, type: isEntry?'open':'close' });
+      });
+  }
+  anchorEvents.sort((a,b)=>a.time-b.time);
+
+  // hedge direction (одинаковая у всех позиций)
+  const cnyDir = anchored[0].pos.legs[hedgeBase].entry_direction;
+  const cnyShort = cnyDir === 'Sell';
+
+  const hedgeTrades = repTrades.filter(t =>
+    (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase() === hedgeBase);
+
+  for (const ht of hedgeTrades) {
+    const htMs = timeToMs(ht.time);
+    const isEntry = cnyShort ? ht.direction==='Short' : ht.direction==='Long';
+    const wantType = isEntry ? 'open' : 'close';
+    let chosen = null;
+    for (const ev of anchorEvents) {
+      if (ev.time <= htMs + 2000 && ev.type === wantType) chosen = ev.pos;
+    }
+    if (!chosen) chosen = anchored[0].pos;
+    const bucket = result.get(chosen);
+    if (isEntry) bucket.entries.push(ht); else bucket.exits.push(ht);
+  }
+  return result;
+}
+
+// Главная функция: P&L позиции по формуле. Возвращает {legs:{base:{pnl,avgEntry,avgExit,...}}, mxTotal, pdfTotal}
+// pdfTotal — сумма instr.pnl из PDF по ногам позиции (для сверки)
+function calcPositionPnlByFormula(pos) {
+  positionsInit();
+  const result = { legs:{}, mxTotal:0, pdfTotal:0, totalComm:0 };
+  const allDays = pos.days || [pos.closed_date || pos.opened_date];
+
+  // Соберём все позиции тех же дней (для якорной привязки хеджа)
+  const peerPositions = (store.positions||[]).filter(p =>
+    (p.days||[p.opened_date]).some(d => allDays.includes(d)));
+
+  for (const base in pos.legs) {
+    const leg = pos.legs[base];
+    if (leg.platform !== 'MX') continue;
+    const isEntryShort = leg.entry_direction === 'Sell';
+
+    let entries = [], exits = [], comm = 0;
+
+    if (HEDGE_BASES.includes(base)) {
+      // Хедж — собираем привязанные сделки по дням
+      for (const d of allDays) {
+        const rep = getMxReportForDate(d);
+        if (!rep) continue;
+        const attr = attributeHedgeTrades(peerPositions, rep.trades||[], base);
+        const mine = attr.get(pos);
+        if (mine) { entries.push(...mine.entries); exits.push(...mine.exits); }
+        // комиссия пропорционально объёму этой позиции от общего хеджа
+        (rep.trades||[]).forEach(t => {
+          if ((t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase() === base) {/* comm ниже */}
+        });
+      }
+      // Комиссия хеджа пропорционально нашему объёму
+      let myVol = entries.reduce((s,t)=>s+Math.abs(t.volume||0),0) + exits.reduce((s,t)=>s+Math.abs(t.volume||0),0);
+      let totVol = 0, totComm = 0;
+      for (const d of allDays) {
+        const rep = getMxReportForDate(d); if (!rep) continue;
+        (rep.trades||[]).forEach(t => {
+          if ((t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase() === base) {
+            totVol += Math.abs(t.volume||0); totComm += t.commission||0;
+          }
+        });
+      }
+      comm = totVol>0 ? totComm * (myVol/totVol) : 0;
+    } else {
+      // Якорная нога — все её сделки за дни позиции
+      for (const d of allDays) {
+        const rep = getMxReportForDate(d);
+        if (!rep) continue;
+        (rep.trades||[]).forEach(t => {
+          if ((t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase() !== base) return;
+          const isEntry = isEntryShort ? t.direction==='Short' : t.direction==='Long';
+          if (isEntry) entries.push(t); else exits.push(t);
+          comm += t.commission||0;
+        });
+      }
+    }
+
+    const m = calcLegMargin(base, entries, exits, isEntryShort);
+    result.legs[base] = {
+      pnl: m.pnl, avgEntry: m.avgEntry, avgExit: m.avgExit,
+      entryVol: m.entryVol, exitVol: m.exitVol, closedVol: m.closedVol,
+      totalComm: comm, instrument: leg.instrument,
+    };
+    result.mxTotal += m.pnl;
+    result.totalComm += comm;
+
+    // PDF сверка: instr.pnl целиком (для информации)
+    for (const d of allDays) {
+      const rep = getMxReportForDate(d);
+      const instr = (rep?.instruments||[]).find(i =>
+        (i.name||'').replace(/[-_0-9.]/g,'').toUpperCase() === base);
+      if (instr && !HEDGE_BASES.includes(base)) result.pdfTotal += instr.pnl||0;
+    }
+  }
+  return result;
 }
 
 
@@ -9224,43 +9400,21 @@ async function autoTagFromReports(date) {
 // ── Global P&L helpers (used by calcPositionCapital) ──────────
 // ── P&L helpers (also defined globally below) ───────────────
 function getPosMxPnlFull(pos) {
+  // НОВЫЙ расчёт по формуле с якорной привязкой CNY (см. calcPositionPnlByFormula)
+  var calc = calcPositionPnlByFormula(pos);
   var result = {};
-  var allDays = pos.days || [pos.closed_date || pos.opened_date];
   for (var b in pos.legs) {
     var leg = pos.legs[b];
     if (leg.platform !== 'MX') continue;
     var posVol = leg.vol_in || 0;
-    var closingMargin = 0, totalComm = 0, closingVol = 0;
-    var isEntryShort = leg.entry_direction === 'Sell';
-    var allEntries = [], allExits = [];
-    for (var i = 0; i < allDays.length; i++) {
-      var rep = getMxReportForDate(allDays[i]);
-      if (!rep) continue;
-      (rep.trades||[]).forEach(function(t){
-        var tb = (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
-        if (tb !== b) return;
-        var isExit = isEntryShort ? t.direction==='Long' : t.direction==='Short';
-        if (isExit) {
-          closingMargin += t.margin_rub || 0;
-          closingVol    += Math.abs(t.volume||0);
-          allExits.push(t);
-        } else {
-          allEntries.push(t);
-        }
-        totalComm += t.commission || 0;
-      });
-    }
-    var ratio = (closingVol > 0 && posVol > 0) ? Math.min(posVol/closingVol, 1) : 0;
-    var pnl = ratio > 0 ? (closingMargin + totalComm) * ratio : 0;
-    var entryVol = allEntries.reduce(function(s,t){return s+Math.abs(t.volume||0);},0)||1;
-    var exitVol  = allExits.reduce(function(s,t){return s+Math.abs(t.volume||0);},0)||1;
-    var avgEntry = allEntries.reduce(function(s,t){return s+(t.price||0)*Math.abs(t.volume||0);},0)/entryVol;
-    var avgExit  = allExits.reduce(function(s,t){return s+(t.price||0)*Math.abs(t.volume||0);},0)/exitVol;
+    var lc = calc.legs[b] || { pnl:0, avgEntry:0, avgExit:0, entryVol:0, exitVol:0, closedVol:0, totalComm:0 };
+    var ratio = posVol > 0 ? Math.min((lc.closedVol||0)/posVol, 1) : 0;
     result[b] = {
-      pnl: pnl, ratio: ratio, totalComm: totalComm,
-      avgEntry: avgEntry, avgExit: avgExit,
-      posVol: posVol, closingVol: closingVol,
-      instrument: leg.instrument
+      pnl: lc.pnl, ratio: ratio, totalComm: lc.totalComm || 0,
+      avgEntry: lc.avgEntry || 0, avgExit: lc.avgExit || 0,
+      posVol: posVol, closingVol: lc.closedVol || 0,
+      instrument: leg.instrument,
+      _pdfTotal: calc.pdfTotal, _mxTotal: calc.mxTotal,
     };
   }
   return result;
@@ -9300,47 +9454,34 @@ function renderAutoLj() {
 
   // ── P&L helpers (also defined globally below) ───────────────
   function getPosMxPnlFull(pos) {
+    // НОВЫЙ расчёт: P&L по формуле (avgExit-avgEntry)/tick*step*vol
+    // с якорной привязкой хедж-ноги CNY. Заменяет старый расчёт по PDF margin_rub
+    // (который двоился для общего CNY и был =0 для незакрытых в клиринге).
+    var calc = calcPositionPnlByFormula(pos);
     var result = {};
-    var allDays = pos.days || [pos.closed_date || pos.opened_date];
     for (var b in pos.legs) {
       var leg = pos.legs[b];
       if (leg.platform !== 'MX') continue;
       var posVol = leg.vol_in || 0;
-      var closingMargin = 0, totalComm = 0, closingVol = 0;
-      var isEntryShort = leg.entry_direction === 'Sell';
-      var allEntries = [], allExits = [];
-      for (var i = 0; i < allDays.length; i++) {
-        var rep = getMxReportForDate(allDays[i]);
-        if (!rep) continue;
-        (rep.trades||[]).forEach(function(t){
-          var tb = (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
-          if (tb !== b) return;
-          var isExit = isEntryShort ? t.direction==='Long' : t.direction==='Short';
-          if (isExit) {
-            closingMargin += t.margin_rub || 0;
-            closingVol    += Math.abs(t.volume||0);
-            allExits.push(t);
-          } else {
-            allEntries.push(t);
-          }
-          totalComm += t.commission || 0;
-        });
-      }
-      var ratio = (closingVol > 0 && posVol > 0) ? Math.min(posVol/closingVol, 1) : 0;
-      var pnl = ratio > 0 ? (closingMargin + totalComm) * ratio : 0;
-      var entryVol = allEntries.reduce(function(s,t){return s+Math.abs(t.volume||0);},0)||1;
-      var exitVol  = allExits.reduce(function(s,t){return s+Math.abs(t.volume||0);},0)||1;
-      var avgEntry = allEntries.reduce(function(s,t){return s+(t.price||0)*Math.abs(t.volume||0);},0)/entryVol;
-      var avgExit  = allExits.reduce(function(s,t){return s+(t.price||0)*Math.abs(t.volume||0);},0)/exitVol;
+      var lc = calc.legs[b] || { pnl:0, avgEntry:0, avgExit:0, entryVol:0, exitVol:0, closedVol:0, totalComm:0 };
+      // ratio = доля закрытого объёма (для отображения "% дня")
+      var ratio = posVol > 0 ? Math.min((lc.closedVol||0)/posVol, 1) : 0;
       result[b] = {
-        pnl: pnl, ratio: ratio, totalComm: totalComm,
-        avgEntry: avgEntry, avgExit: avgExit,
-        posVol: posVol, closingVol: closingVol,
-        instrument: leg.instrument
+        pnl: lc.pnl,                    // P&L по формуле (уже по сделкам конструкции)
+        ratio: ratio,
+        totalComm: lc.totalComm || 0,
+        avgEntry: lc.avgEntry || 0,
+        avgExit: lc.avgExit || 0,
+        posVol: posVol,
+        closingVol: lc.closedVol || 0,
+        instrument: leg.instrument,
+        _pdfTotal: calc.pdfTotal,       // для блока сверки
+        _mxTotal: calc.mxTotal,
       };
     }
     return result;
   }
+
 
   function getPosFxTrades(pos) {
     var fxTrades = pos.fx_trades || [];
@@ -9675,7 +9816,7 @@ function renderAutoLj() {
           + '<span style="color:var(--text2)">вход: <span style="font-family:monospace">'+d2.avgEntry.toFixed(4)+'</span></span>'
           + '<span style="color:var(--text2)">выход: <span style="font-family:monospace">'+d2.avgExit.toFixed(4)+'</span></span>'
           + '<span style="color:var(--text2)">'+d2.posVol+'л'+pct+'</span>'
-          + '<span style="color:var(--red);font-size:10px">ком: '+Math.round(d2.totalComm*d2.ratio)+' ₽</span>'
+          + '<span style="color:var(--red);font-size:10px">ком: '+Math.round(d2.totalComm)+' ₽</span>'
           + '<span style="font-family:monospace;font-weight:700;color:'+pc2+';margin-left:auto">'+(d2.pnl>=0?'+':'')+Math.round(d2.pnl)+' ₽</span>'
           + '</div>';
       }
@@ -9716,7 +9857,7 @@ function renderAutoLj() {
       var mxC2 = totalMx>=0?'var(--green)':'var(--red)';
       var fxC3 = fxPnlRub>=0?'var(--green)':'var(--red)';
       var fxCommTot = fxTradesPos.reduce(function(s,t){return s+(t.commission||0)+(t.swap||0);},0);
-      var commTot = Object.values(mxPnlFull).reduce(function(s,x){return s+(x.totalComm||0)*(x.ratio||1);},0) + fxCommTot*fxRate;
+      var commTot = Object.values(mxPnlFull).reduce(function(s,x){return s+(x.totalComm||0);},0) + fxCommTot*fxRate;
       html += '<div style="font-size:11px;display:flex;justify-content:space-between;align-items:center;margin-top:8px;padding-top:6px;border-top:1px dashed var(--border);flex-wrap:wrap;gap:4px">'
         + '<span style="color:var(--text2)">Комиссии: <span style="color:var(--red);font-family:monospace">'+Math.round(commTot)+' ₽</span></span>'
         + '<span style="font-family:monospace;font-weight:700">'
@@ -9724,6 +9865,37 @@ function renderAutoLj() {
         + (fxPnlRub?' <span style="color:var(--text2)">+</span> <span style="color:'+fxC3+'">FX '+(fxPnlRub>=0?'+':'')+Math.round(fxPnlRub)+' ₽</span>':'')
         + ' <span style="color:var(--text2)">=</span> <span style="color:'+tc2+'">'+(totalRub>=0?'+':'')+Math.round(totalRub)+' ₽</span>'
         + '</span></div>';
+
+      // ── Блок сверки с PDF ──
+      // Сравниваем сумму нашего расчёта MX (по формуле) с итогом из PDF (instr.pnl).
+      // Расхождение допустимо ~1-2% (округление цен, артефакты парсера, незакрытый клиринг).
+      var mxFormulaSum = Object.values(mxPnlFull).reduce(function(s,x){return s+(x.pnl||0);},0);
+      var pdfSum = 0, pdfAvailable = false;
+      var firstLeg = Object.values(mxPnlFull)[0];
+      if (firstLeg && typeof firstLeg._pdfTotal === 'number') { pdfSum = firstLeg._pdfTotal; }
+      // PDF доступен только если есть хоть одна закрытая в клиринге нога (instr.pnl != комиссия)
+      (pos.days||[pos.closed_date||pos.opened_date]).forEach(function(d){
+        var rep = getMxReportForDate(d);
+        (rep && rep.instruments||[]).forEach(function(i){
+          var ib=(i.name||'').replace(/[-_0-9.]/g,'').toUpperCase();
+          if (pos.legs[ib] && Math.abs((i.pnl||0)-(i.commission||0))>0.01) pdfAvailable=true;
+        });
+      });
+      if (pdfAvailable) {
+        var diff = mxFormulaSum - pdfSum;
+        var diffPct = Math.abs(pdfSum)>1 ? Math.abs(diff/pdfSum*100) : (Math.abs(diff)>1?100:0);
+        var okColor = diffPct < 2 ? 'var(--green)' : (diffPct < 5 ? 'var(--orange,#e8a33d)' : 'var(--red)');
+        var okIcon = diffPct < 2 ? '✓' : '⚠';
+        html += '<div style="font-size:10px;display:flex;justify-content:space-between;align-items:center;margin-top:4px;padding:3px 8px;background:var(--bg2);border-radius:4px;color:var(--text2)">'
+          + '<span>Сверка с PDF (только закрытые ноги):</span>'
+          + '<span style="font-family:monospace">формула '+Math.round(mxFormulaSum)+' / PDF '+Math.round(pdfSum)
+          + ' <span style="color:'+okColor+';font-weight:700">'+okIcon+' '+(diff>=0?'+':'')+Math.round(diff)+'₽ ('+diffPct.toFixed(1)+'%)</span></span>'
+          + '</div>';
+      } else {
+        html += '<div style="font-size:10px;margin-top:4px;padding:3px 8px;background:var(--bg2);border-radius:4px;color:var(--text2)">'
+          + 'ℹ️ Расчёт по формуле (цены сделок). PDF-клиринг по CNY ещё не финализирован — сверка появится после закрытия позиции в клиринге.'
+          + '</div>';
+      }
     }
 
     html += '</div></div>';
