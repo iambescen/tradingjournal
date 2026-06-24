@@ -12798,6 +12798,14 @@ function unlockApp() {
   sessionStorage.setItem('journal_unlocked', '1');
   document.getElementById('password-gate').style.display = 'none';
   document.getElementById('main-app').style.display = '';
+  // Перерисовать дашборд и обзор теперь, когда приложение видимо
+  // (стартовые вызовы могли отработать пока main-app был скрыт)
+  try {
+    updateDashboard();
+    renderOverviewTab(true);
+  } catch(e) { console.warn('[unlockApp render]', e); }
+  // Повторно после подгрузки курсов/ГО
+  setTimeout(function(){ try { updateDashboard(); renderOverviewTab(true); } catch(e){} }, 800);
 }
 
 function initGate() {
