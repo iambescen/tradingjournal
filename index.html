@@ -8689,7 +8689,7 @@ function createPosition(tag, date, entryRows, fxRows) {
 
 // Обновить позицию новыми сделками из PDF
 // allMxTrades — все сделки МХ за день (включая выходы)
-function updatePositionWithDay(pos, date, allMxTrades, fxTrades) {
+function updatePositionWithDay(pos, date, allMxTrades, fxTrades, exitVolUsed) {
   // Guard: don't process same day twice
   if (!pos.days) pos.days = [];
   if (!pos.processedDays) pos.processedDays = [];
@@ -8697,16 +8697,17 @@ function updatePositionWithDay(pos, date, allMxTrades, fxTrades) {
   pos.processedDays.push(date);
   if (!pos.days.includes(date)) pos.days.push(date);
 
+  // exitVolUsed: shared tracker across positions to prevent one exit trade
+  // (e.g. Short CNY 680 closing URF/CRF) from also reducing other positions (EU1/CR1, CRF/CR1)
+  if (!exitVolUsed) exitVolUsed = {};
+
   // Process ALL MX trades (entries AND exits) for this day
   // For entries: increase net_volume
-  // For exits: decrease net_volume
+  // For exits: decrease net_volume, but respect exitVolUsed tracker
   for (const t of allMxTrades) {
     const b = (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
     if (!pos.legs[b]) continue;
     const leg = pos.legs[b];
-    // Determine if this is entry or exit based on entry_direction
-    // entry_direction='Sell' means Short is entry, Long is exit
-    // entry_direction='Buy' means Long is entry, Short is exit
     const entryIsShort = leg.entry_direction === 'Sell';
     const isEntry = entryIsShort
       ? (t.direction === 'Short')
@@ -8716,8 +8717,12 @@ function updatePositionWithDay(pos, date, allMxTrades, fxTrades) {
       leg.vol_in += vol;
       leg.net_volume += vol;
     } else {
-      // Exit — only reduce if we have open volume
-      const reduce = Math.min(vol, leg.net_volume);
+      // Exit — limit by available unallocated exit volume
+      const alreadyUsed = exitVolUsed[b] || 0;
+      const available = Math.max(0, vol - alreadyUsed);
+      const reduce = Math.min(available, leg.net_volume);
+      if (reduce <= 0) continue;
+      exitVolUsed[b] = alreadyUsed + reduce;
       leg.vol_out += reduce;
       leg.net_volume -= reduce;
       if (leg.net_volume < 0.001) leg.net_volume = 0;
@@ -8942,6 +8947,11 @@ async function autoTagFromReports(date) {
   positionsInit();
   const dateISO2 = normDate(date);
 
+  // Трекер использованных объёмов exits за день по инструменту.
+  // Нужен чтобы одна сделка закрытия (напр. Short CNY 680 = закрытие URF/CRF)
+  // не засчитывалась как exit сразу для нескольких позиций (EU1/CR1, CRF/CR1 и др.)
+  const exitVolUsed = {}; // { instrBase: totalVolAlreadyUsedAsExit }
+
   // Process each detected construction
   for (const { cluster, tag, set: setN } of sets) {
     const setMxRows = newRows.filter(r => r.platform==='MX' && r.tag===tag && r.set===setN);
@@ -8952,6 +8962,7 @@ async function autoTagFromReports(date) {
       // New position — init from entry rows
       pos = createPosition(tag, date, setMxRows, setFxRows);
       // Process exits for this day immediately (entries already in createPosition)
+      // Используем exitVolUsed чтобы не применять один и тот же exit к нескольким позициям
       const exitTrades = sorted.filter(t => {
         const b = (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
         if (!pos.legs[b]) return false;
@@ -8964,8 +8975,12 @@ async function autoTagFromReports(date) {
           const b = (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
           const leg = pos.legs[b];
           if (!leg) continue;
-          const vol = Math.abs(t.volume||0);
-          const reduce = Math.min(vol, leg.net_volume);
+          const totalVol = Math.abs(t.volume||0);
+          const alreadyUsed = exitVolUsed[b] || 0;
+          const available = Math.max(0, totalVol - alreadyUsed);
+          const reduce = Math.min(available, leg.net_volume);
+          if (reduce <= 0) continue;
+          exitVolUsed[b] = alreadyUsed + reduce;
           leg.vol_out += reduce;
           leg.net_volume -= reduce;
           if (leg.net_volume < 0.001) leg.net_volume = 0;
@@ -8992,7 +9007,7 @@ async function autoTagFromReports(date) {
       return pos.legs[b] !== undefined;
     });
     if (allMxForPos.length > 0 || fxForPos.length > 0) {
-      updatePositionWithDay(pos, date, allMxForPos, fxForPos);
+      updatePositionWithDay(pos, date, allMxForPos, fxForPos, exitVolUsed);
       checkAndClosePosition(pos, date);
     } else {
       // No trades for this position today — still check if closed
