@@ -1038,8 +1038,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '25.06 16:24';
-const BUILD_DATE    = '25.06.2026 16:24 МСК';
+const BUILD_VERSION = '25.06 16:48';
+const BUILD_DATE    = '25.06.2026 16:48 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -8508,12 +8508,15 @@ function calcPositionPnlByFormula(pos) {
       comm = entries.reduce((s,t)=>s+(t.commission||0),0)
            + exits.reduce((s,t)=>s+(t.commission||0),0);
     } else {
-      // Якорная нога — все её сделки за дни позиции
+      // Якорная нога — сделки по ТОЧНОМУ имени инструмента (квартал-точно).
+      // Раньше собирали по схлопнутой базе → ED-9.26 и ED-12.26 смешивались,
+      // объём задваивался (closedVol 25 вместо 5). Теперь только свой квартал.
+      const legInstr = (leg.instrument||'').toUpperCase();
       for (const d of allDays) {
         const rep = getMxReportForDate(d);
         if (!rep) continue;
         (rep.trades||[]).forEach(t => {
-          if ((t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase() !== base) return;
+          if ((t.instrument||'').toUpperCase() !== legInstr) return;
           const isEntry = isEntryShort ? t.direction==='Short' : t.direction==='Long';
           if (isEntry) entries.push(t); else exits.push(t);
           comm += t.commission||0;
@@ -9608,9 +9611,12 @@ async function autoTagFromReports(date) {
     for (const [base, trades] of Object.entries(byInstr)) {
       const vol = trades.reduce((s,t) => s + Math.abs(t.volume||0), 0);
       const avgP = trades.reduce((s,t) => s + (t.price||0)*Math.abs(t.volume||0), 0) / (vol||1);
-      const dir = entryDir[base] === 'Long' ? 'Buy' : 'Sell';
+      // Направление по КВАРТАЛ-aware ключу (_qb: ED2, CNY2), а не схлопнутой базе —
+      // иначе entryDir['CNY'] undefined → ошибочно 'Sell' для декабрьских ног.
+      const qbKey = trades[0]._qb || base;
+      const dir = entryDir[qbKey] === 'Long' ? 'Buy' : 'Sell';
       // Ищем exit только среди сделок противоположного направления в том же кластере
-      const exitDir = entryDir[base] === 'Long' ? 'Short' : 'Long';
+      const exitDir = entryDir[qbKey] === 'Long' ? 'Short' : 'Long';
       const exitTrades = cluster.filter(t =>
         t.instrument.replace(/[-_0-9.]/g,'').toUpperCase() === base &&
         t.direction === exitDir
