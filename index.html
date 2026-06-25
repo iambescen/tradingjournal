@@ -1038,8 +1038,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '25.06 11:07';
-const BUILD_DATE    = '25.06.2026 11:07 МСК';
+const BUILD_VERSION = '25.06 13:29';
+const BUILD_DATE    = '25.06.2026 13:29 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -9046,7 +9046,7 @@ function findOpenPosition(tag) {
 }
 
 // Создать новую мастер-позицию
-function createPosition(tag, date, entryRows, fxRows) {
+function createPosition(tag, date, entryRows, fxRows, fxRawTrades) {
   positionsInit();
   const pos = {
     id: 'pos_' + tag.replace(/\//g,'_') + '_' + date.replace(/\./g,'') + '_' + Date.now(),
@@ -9092,16 +9092,18 @@ function createPosition(tag, date, entryRows, fxRows) {
     pos.legs[b].vol_in += r.volume;
     pos.legs[b].net_volume += r.volume;
   }
-  // Add FX trades for this date
+  // Add FX trades for this set — СЫРЫЕ сделки именно этого набора (по окну кластера),
+  // а не все за день: иначе общий FX (EURUSD у ED1/ED2, USDCNH у нескольких связок)
+  // задваивается между конструкциями.
   if (!pos.fx_trades) pos.fx_trades = [];
-  var dateISO_cp = normDate(date);
-  (store.fx||[]).forEach(function(t) {
-    if (normDate(t.close_date||'') !== dateISO_cp) return;
-    var b = (t.instrument||'').replace(/[-_]/g,'').toUpperCase();
-    if (pos.legs[b] && !pos.fx_trades.find(function(x){return x.id===t.id;})) {
-      pos.fx_trades.push(t);
-    }
-  });
+  if (fxRawTrades && fxRawTrades.length) {
+    fxRawTrades.forEach(function(t) {
+      var b = (t.instrument||'').replace(/[-_]/g,'').toUpperCase();
+      if (pos.legs[b] && !pos.fx_trades.find(function(x){return x.id===t.id;})) {
+        pos.fx_trades.push(t);
+      }
+    });
+  }
   // Mark creation date as processed (entries already counted above)
   pos.processedDays = [date];
   pos.days = [date];
@@ -9375,6 +9377,7 @@ async function autoTagFromReports(date) {
 
   // Step 5: build rows
   const newRows = [];
+  const _setFxRaw = {}; // tag#set → сырые FX-сделки этого набора (для точной привязки)
   for (const { cluster, tag, set: setN } of sets) {
     // Group entries by instrument
     const byInstr = {};
@@ -9438,6 +9441,9 @@ async function autoTagFromReports(date) {
       if (!fxByI[k]) fxByI[k] = [];
       fxByI[k].push(t);
     }
+    // Сохраняем сырые FX-сделки этого набора (по окну кластера) для точной
+    // привязки к позиции — иначе общий FX (EURUSD у ED1/ED2) задваивается по дате.
+    _setFxRaw[tag + '#' + setN] = matchedFx.slice();
 
     for (const [instr, trades] of Object.entries(fxByI)) {
       // FX fields: qty (lots), entry_price, close_price, dir_open, open_time
@@ -9488,7 +9494,7 @@ async function autoTagFromReports(date) {
     let pos = findOpenPosition(tag);
     if (!pos) {
       // Новая позиция — инициализируем entries (без exits!)
-      pos = createPosition(tag, date, setMxRows, setFxRows);
+      pos = createPosition(tag, date, setMxRows, setFxRows, _setFxRaw[tag + '#' + setN] || []);
     } else {
       // Существующая открытая позиция — доливаем entries этого набора в legs
       for (const r of setMxRows) {
@@ -9511,12 +9517,11 @@ async function autoTagFromReports(date) {
       }
       if (!pos.days) pos.days = [];
       if (!pos.days.includes(date)) pos.days.push(date);
-      // Доливаем FX trades этой даты для ног позиции
+      // Доливаем СЫРЫЕ FX-сделки именно этого набора (по окну кластера),
+      // а не все за день — иначе общий FX (EURUSD у ED1/ED2) задваивается.
       if (!pos.fx_trades) pos.fx_trades = [];
-      (store.fx||[]).forEach(function(t){
-        if (normDate(t.close_date||'') !== dateISO2) return;
-        const b = (t.instrument||'').replace(/[-_]/g,'').toUpperCase();
-        if (pos.legs[b] && !pos.fx_trades.find(x=>x.id===t.id)) pos.fx_trades.push(t);
+      (_setFxRaw[tag + '#' + setN] || []).forEach(function(t){
+        if (!pos.fx_trades.find(x=>x.id===t.id)) pos.fx_trades.push(t);
       });
     }
     touchedPositions.add(pos);
