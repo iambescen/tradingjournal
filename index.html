@@ -1038,8 +1038,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '25.06 09:52';
-const BUILD_DATE    = '25.06.2026 09:52 МСК';
+const BUILD_VERSION = '25.06 10:12';
+const BUILD_DATE    = '25.06.2026 10:12 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -8856,7 +8856,7 @@ function splitMixedCluster(cl) {
   return Object.values(subs);
 }
 
-function detectConstructionByVolumes(cl, cr) {
+function detectConstructionByVolumes(cl, cr, dayQuarters) {
   const byI = {};
   for (const t of cl) {
     const b = t.instrument.replace(/[-_0-9.]/g,'').toUpperCase();
@@ -8870,6 +8870,22 @@ function detectConstructionByVolumes(cl, cr) {
 
   const q = (instr) => {
     const n = String(instr).toUpperCase();
+    const base = n.replace(/[-_0-9.]/g,'');
+    // Формат с номером месяца: Si-12.26, ED-9.26, CNY-12.26
+    const m = n.match(/-(\d{1,2})\.(\d{2})/);
+    if (m) {
+      const ord = (+m[2])*12 + (+m[1]);
+      // Ранжируем по ДНЕВНОМУ контексту: какой по счёту этот квартал среди всех
+      // контрактов той же базы за день. Ближний=1, следующий=2.
+      const ctx = dayQuarters && dayQuarters[base];
+      if (ctx && ctx.size > 1) {
+        const sorted = [...ctx].sort((a,b)=>a-b);
+        const idx = sorted.indexOf(ord);
+        if (idx >= 0) return String(idx + 1);
+      }
+      return '1';
+    }
+    // Биржевой буквенный код: Z = декабрь = дальний
     if (n.includes('Z')) return '2';
     return '1';
   };
@@ -9278,8 +9294,19 @@ async function autoTagFromReports(date) {
   const cr = _crossRates || {};
   const constrCount = {};
   const sets = [];
+  // Дневной контекст кварталов: для каждой базы — отсортированный список ordinals (год*12+мес).
+  // Нужен чтобы декабрь определялся как '2' даже если в кластере только декабрьские.
+  const _dayQuarters = {};
+  for (const t of sorted) {
+    const base = String(t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
+    const mm = String(t.instrument||'').toUpperCase().match(/-(\d{1,2})\.(\d{2})/);
+    if (mm) {
+      const ord = (+mm[2])*12 + (+mm[1]);
+      (_dayQuarters[base] || (_dayQuarters[base] = new Set())).add(ord);
+    }
+  }
   for (const cl of clusters) {
-    const tagRes = detectConstructionByVolumes(cl, cr);
+    const tagRes = detectConstructionByVolumes(cl, cr, _dayQuarters);
     const tags = Array.isArray(tagRes) ? tagRes : (tagRes ? [tagRes] : []);
     for (const tag of tags) {
       constrCount[tag] = (constrCount[tag] || 0) + 1;
@@ -10163,7 +10190,10 @@ function _renderAutoLjOLD() {
   const rate = currentRate && currentRate.value || 85;
   let html = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'
     + '<div style="font-size:16px;font-weight:700">🤖 Авто-журнал</div>'
+    + '<div style="display:flex;gap:8px">'
+    + '<button id="autolj-clearday-btn" style="font-size:11px;padding:4px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--amber);cursor:pointer">🗑 Очистить день</button>'
     + '<button id="autolj-clear-btn" style="font-size:11px;padding:4px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--red);cursor:pointer">Очистить всё</button>'
+    + '</div>'
     + '</div>';
   for (const date of Object.keys(byDate).sort().reverse()) {
     html += '<div style="margin-bottom:20px"><div style="font-size:13px;font-weight:700;color:var(--text2);margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid var(--border)">' + date + '</div>';
@@ -10244,6 +10274,78 @@ function _renderAutoLjOLD() {
   container.innerHTML = html;
   var cb = document.getElementById("autolj-clear-btn");
   if (cb) cb.onclick = function() { if(confirm("Очистить весь авто-журнал?")) { store.autoLj={rows:[]};saveStore();renderAutoLj(); } };
+  var cbd = document.getElementById("autolj-clearday-btn");
+  if (cbd) cbd.onclick = function() { clearDayDialog(); };
+}
+
+// Диалог выбора дня для очистки (позиции + загруженные данные за день)
+function clearDayDialog() {
+  positionsInit();
+  // Собрать все даты из позиций + отчётов
+  const dateSet = new Set();
+  (store.positions||[]).forEach(p => {
+    (p.days||[]).forEach(d => d && dateSet.add(d));
+    if (p.opened_date) dateSet.add(p.opened_date);
+    if (p.closed_date) dateSet.add(p.closed_date);
+  });
+  (store.mx||[]).forEach(r => r.date && dateSet.add(r.date));
+  const dates = [...dateSet].filter(Boolean).sort((a,b)=>parseDate(b)-parseDate(a));
+  if (!dates.length) { alert('Нет данных для очистки'); return; }
+
+  const existing = document.getElementById('clearday-modal');
+  if (existing) existing.remove();
+  const dlg = document.createElement('div');
+  dlg.id = 'clearday-modal';
+  dlg.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.75);z-index:9999;display:flex;align-items:center;justify-content:center';
+  dlg.innerHTML = '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:24px;min-width:340px;box-shadow:0 8px 40px rgba(0,0,0,0.6)">'
+    + '<div style="font-size:15px;font-weight:700;margin-bottom:8px">🗑 Очистить данные за день</div>'
+    + '<div style="font-size:12px;color:var(--text2);margin-bottom:14px">Удалит позиции, MX-отчёт и FX-сделки за выбранный день. Другие дни не тронет.</div>'
+    + '<select id="clearday-sel" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1);font-size:13px;margin-bottom:16px">'
+    + dates.map(d => '<option value="'+d+'">'+d+'</option>').join('')
+    + '</select>'
+    + '<label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2);margin-bottom:16px;cursor:pointer">'
+    + '<input type="checkbox" id="clearday-data" checked> также удалить загруженные MX/FX данные за день</label>'
+    + '<div style="display:flex;gap:8px;justify-content:flex-end">'
+    + '<button id="cd-cancel" style="padding:6px 14px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1);cursor:pointer">Отмена</button>'
+    + '<button id="cd-ok" style="padding:6px 14px;border:none;border-radius:6px;background:var(--red);color:#fff;cursor:pointer;font-weight:600">Удалить</button>'
+    + '</div></div>';
+  document.body.appendChild(dlg);
+  document.getElementById('cd-cancel').onclick = () => dlg.remove();
+  document.getElementById('cd-ok').onclick = function() {
+    const d = document.getElementById('clearday-sel').value;
+    const alsoData = document.getElementById('clearday-data').checked;
+    dlg.remove();
+    clearPositionsForDay(d, alsoData);
+  };
+}
+
+// Удалить позиции (и опц. данные) за конкретный день
+function clearPositionsForDay(date, alsoData) {
+  positionsInit();
+  const dISO = normDate(date);
+  const before = store.positions.length;
+  // Удаляем позиции, затронутые этим днём
+  store.positions = store.positions.filter(p =>
+    !(p.opened_date === date || p.closed_date === date || (p.days||[]).includes(date))
+  );
+  const removed = before - store.positions.length;
+  // Авто-журнал строки за день
+  if (store.autoLj && store.autoLj.rows) {
+    store.autoLj.rows = store.autoLj.rows.filter(r => r.date !== date);
+  }
+  if (alsoData) {
+    store.mx = (store.mx||[]).filter(r => r.date !== date);
+    store.fx = (store.fx||[]).filter(t =>
+      normDate(t.close_date||'') !== dISO && normDate(t.open_date||'') !== dISO
+    );
+  }
+  saveStore();
+  renderAutoLj();
+  renderMXTable && renderMXTable();
+  renderFXTable && renderFXTable();
+  renderUnifiedTable && renderUnifiedTable();
+  updateDashboard && updateDashboard();
+  alert('Удалено за ' + date + ': позиций ' + removed + (alsoData ? ', + MX/FX данные' : '') + '.\nТеперь можно загрузить и разнести заново.');
 }
 
 function renderOverviewTab(force) {
