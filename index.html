@@ -1038,8 +1038,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '25.06 13:29';
-const BUILD_DATE    = '25.06.2026 13:29 МСК';
+const BUILD_VERSION = '25.06 14:31';
+const BUILD_DATE    = '25.06.2026 14:31 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -8402,7 +8402,13 @@ function calcPositionPnlByFormula(pos) {
       }
       comm = totVol>0 ? totComm * (myVol/totVol) : 0;
     } else {
-      // Якорная нога — все её сделки за дни позиции
+      // Якорная нога — P&L берём из ФИН.РЕЗУЛЬТАТА PDF по инструменту (источник истины).
+      // PDF уже суммирует все циклы открытия-закрытия за день по инструменту,
+      // поэтому формула avgEntry/avgExit (которая усредняет циклы и теряет P&L) не нужна.
+      // Квартал-точно: ищем по полному имени ноги (ED-9.26 ≠ ED-12.26).
+      const legInstr = (leg.instrument||'').toUpperCase();
+      let pdfPnl = null, pdfComm = 0;
+      // Собираем сделки для отображения avgEntry/avgExit (информативно) + фин.рез из PDF
       for (const d of allDays) {
         const rep = getMxReportForDate(d);
         if (!rep) continue;
@@ -8412,7 +8418,24 @@ function calcPositionPnlByFormula(pos) {
           if (isEntry) entries.push(t); else exits.push(t);
           comm += t.commission||0;
         });
+        // Фин.результат PDF по ТОЧНОМУ имени инструмента (с кварталом)
+        const summ = (rep.instruments||[]).find(i => (i.name||'').toUpperCase() === legInstr);
+        if (summ) { pdfPnl = (pdfPnl||0) + (summ.pnl||0); }
       }
+      if (pdfPnl !== null) {
+        // P&L якорной ноги = фин.результат PDF (уже с комиссией внутри).
+        // Комиссию обнуляем чтобы не двоить (она уже в pdfPnl).
+        const m0 = calcLegMargin(base, entries, exits, isEntryShort);
+        result.legs[base] = {
+          pnl: pdfPnl, avgEntry: m0.avgEntry, avgExit: m0.avgExit,
+          entryVol: m0.entryVol, exitVol: m0.exitVol, closedVol: m0.closedVol,
+          totalComm: 0, instrument: leg.instrument, fromPdf: true
+        };
+        result.mxTotal += pdfPnl;
+        result.pdfTotal += pdfPnl;
+        continue; // нога посчитана, к следующей
+      }
+      // Фолбэк: если в PDF нет инструмента — считаем по формуле (как раньше)
     }
 
     const m = calcLegMargin(base, entries, exits, isEntryShort);
