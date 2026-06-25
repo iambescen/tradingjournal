@@ -1038,8 +1038,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '25.06 14:45';
-const BUILD_DATE    = '25.06.2026 14:45 МСК';
+const BUILD_VERSION = '25.06 15:20';
+const BUILD_DATE    = '25.06.2026 15:20 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -8295,6 +8295,49 @@ function getAnchorBase(pos) {
 }
 
 // margin одной ноги по формуле
+// Разбивает сделки ноги на НАБОРЫ (отдельные сделки) по времени, закрытие LIFO.
+// Каждый набор: { entries:[], exits:[], openTime, closed:bool }.
+// Вход в живой набор = добор (тот же набор). Новый набор = вход когда стек пуст
+// или верхний набор уже полностью закрыт. Выход гасит наборы с вершины стека (LIFO).
+function splitTradesIntoSets(trades, isEntryShort) {
+  const sorted = [...trades].sort((a,b)=>{
+    const dt = (a._dayIdx||0)-(b._dayIdx||0);
+    if (dt) return dt;
+    return timeToMs(a.time)-timeToMs(b.time);
+  });
+  const live = [];   // стек живых наборов (индексы в all)
+  const all = [];    // все наборы
+  for (const t of sorted) {
+    const isEntry = isEntryShort ? t.direction==='Short' : t.direction==='Long';
+    const vol = Math.abs(t.volume||0);
+    if (isEntry) {
+      // открытие/добор: добираем в верхний живой набор, если он есть; иначе новый
+      let cur = live.length ? all[live[live.length-1]] : null;
+      if (!cur) {
+        cur = { entries:[], exits:[], netVol:0, openTime:t.time, closed:false };
+        all.push(cur); live.push(all.length-1);
+      }
+      cur.entries.push(t);
+      cur.netVol += vol;
+    } else {
+      // выход: гасим с вершины стека (LIFO)
+      let rem = vol;
+      while (rem > 0.0001 && live.length) {
+        const idx = live[live.length-1];
+        const set = all[idx];
+        const take = Math.min(rem, set.netVol);
+        // распределяем выходную сделку пропорционально (дробим объём)
+        set.exits.push({ ...t, volume: take });
+        set.netVol -= take;
+        rem -= take;
+        if (set.netVol <= 0.0001) { set.closed = true; live.pop(); }
+      }
+      // если выход остался без живых наборов — игнор (защита)
+    }
+  }
+  return all;
+}
+
 function calcLegMargin(base, entryTrades, exitTrades, isEntryShort) {
   const spec = MX_SPECS[base];
   const eVol = entryTrades.reduce((s,t)=>s+Math.abs(t.volume||0),0);
@@ -8459,25 +8502,45 @@ function calcPositionPnlByFormula(pos) {
       comm = totVol>0 ? totComm * (myVol/totVol) : 0;
     } else {
       // Якорная нога — все её сделки за дни позиции
-      for (const d of allDays) {
+      allDays.forEach((d, di) => {
         const rep = getMxReportForDate(d);
-        if (!rep) continue;
+        if (!rep) return;
         (rep.trades||[]).forEach(t => {
           if ((t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase() !== base) return;
           const isEntry = isEntryShort ? t.direction==='Short' : t.direction==='Long';
-          if (isEntry) entries.push(t); else exits.push(t);
+          const tagged = { ...t, _dayIdx: di };
+          if (isEntry) entries.push(tagged); else exits.push(tagged);
           comm += t.commission||0;
         });
-      }
+      });
+    }
+
+    // Разбиваем ногу на НАБОРЫ (LIFO) и считаем P&L каждого набора отдельно.
+    // Это устраняет усреднение через несколько циклов открытия-закрытия за день.
+    let legSets = null;
+    if (!HEDGE_BASES.includes(base)) {
+      const allLegTrades = [...entries, ...exits];
+      const rawSets = splitTradesIntoSets(allLegTrades, isEntryShort);
+      legSets = rawSets.map((s, i) => {
+        const m = calcLegMargin(base, s.entries, s.exits, isEntryShort);
+        return {
+          n: i+1, pnl: m.pnl, avgEntry: m.avgEntry, avgExit: m.avgExit,
+          entryVol: m.entryVol, exitVol: m.exitVol, closedVol: m.closedVol,
+          openTime: s.openTime, closed: s.closed,
+        };
+      });
     }
 
     const m = calcLegMargin(base, entries, exits, isEntryShort);
+    // P&L ноги = сумма P&L наборов (LIFO), если наборы посчитаны; иначе формула целиком
+    const legPnl = legSets ? legSets.reduce((s,x)=>s+x.pnl,0) : m.pnl;
     result.legs[base] = {
-      pnl: m.pnl, avgEntry: m.avgEntry, avgExit: m.avgExit,
+      pnl: legPnl, avgEntry: m.avgEntry, avgExit: m.avgExit,
       entryVol: m.entryVol, exitVol: m.exitVol, closedVol: m.closedVol,
       totalComm: comm, instrument: leg.instrument,
+      sets: legSets,  // наборы для отображения (null для CNY-хеджа)
     };
-    result.mxTotal += m.pnl;
+    result.mxTotal += legPnl;
     result.totalComm += comm;
 
     // PDF сверка: instr.pnl целиком (для информации)
@@ -9724,7 +9787,7 @@ function getPosMxPnlFull(pos) {
       pnl: lc.pnl, ratio: ratio, totalComm: lc.totalComm || 0,
       avgEntry: lc.avgEntry || 0, avgExit: lc.avgExit || 0,
       posVol: posVol, closingVol: lc.closedVol || 0,
-      instrument: leg.instrument,
+      instrument: leg.instrument, sets: lc.sets || null,
       _pdfTotal: calc.pdfTotal, _mxTotal: calc.mxTotal,
     };
   }
@@ -9786,6 +9849,7 @@ function renderAutoLj() {
         posVol: posVol,
         closingVol: lc.closedVol || 0,
         instrument: leg.instrument,
+        sets: lc.sets || null,
         _pdfTotal: calc.pdfTotal,       // для блока сверки
         _mxTotal: calc.mxTotal,
       };
@@ -10164,6 +10228,20 @@ function renderAutoLj() {
           + '<span style="color:var(--red);font-size:10px">ком: '+Math.round(d2.totalComm)+' ₽</span>'
           + '<span style="font-family:monospace;font-weight:700;color:'+pc2+';margin-left:auto">'+(d2.pnl>=0?'+':'')+Math.round(d2.pnl)+' ₽</span>'
           + '</div>';
+        // Разбивка по НАБОРАМ (если их больше одного — показываем каждый отдельно)
+        if (d2.sets && d2.sets.length > 1) {
+          d2.sets.forEach(function(st){
+            if (!st.closedVol) return;
+            var spc = st.pnl>=0?'var(--green)':'var(--red)';
+            html += '<div style="font-size:10px;display:flex;gap:6px;align-items:center;margin:0 0 3px 16px;padding:3px 8px;background:var(--bg2);border-left:2px solid var(--border);border-radius:3px;flex-wrap:wrap">'
+              + '<span style="color:var(--text2);min-width:64px">↳ набор '+st.n+'</span>'
+              + '<span style="color:var(--text2)">вход: <span style="font-family:monospace">'+st.avgEntry.toFixed(4)+'</span></span>'
+              + '<span style="color:var(--text2)">выход: <span style="font-family:monospace">'+st.avgExit.toFixed(4)+'</span></span>'
+              + '<span style="color:var(--text2)">'+st.closedVol+'л</span>'
+              + '<span style="font-family:monospace;font-weight:700;color:'+spc+';margin-left:auto">'+(st.pnl>=0?'+':'')+Math.round(st.pnl)+' ₽</span>'
+              + '</div>';
+          });
+        }
       }
 
       // FX breakdown
