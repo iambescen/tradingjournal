@@ -1038,8 +1038,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '25.06 13:29';
-const BUILD_DATE    = '25.06.2026 13:29 МСК';
+const BUILD_VERSION = '25.06 14:45';
+const BUILD_DATE    = '25.06.2026 14:45 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -8324,14 +8324,43 @@ function attributeHedgeTrades(positionsForDay, repTrades, hedgeBase) {
   }
   if (!anchored.length) return result;
 
-  // События якорей по времени: open/close
+  // ── Квартал инструмента по дневному контексту (месяц из -MM.YY) ──
+  // Собираем для каждой базы все ordinals (год*12+мес) за день, ранжируем.
+  // Ближний контракт = квартал '1', следующий = '2'. Если база в одном квартале — ''.
+  const _dayQ = {};
+  for (const t of repTrades) {
+    const base = (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
+    const mm = String(t.instrument||'').toUpperCase().match(/-(\d{1,2})\.(\d{2})/);
+    if (mm) { const ord=(+mm[2])*12+(+mm[1]); (_dayQ[base]||(_dayQ[base]=new Set())).add(ord); }
+  }
+  const quarterOf = (instr) => {
+    const base = (instr||'').replace(/[-_0-9.]/g,'').toUpperCase();
+    const mm = String(instr||'').toUpperCase().match(/-(\d{1,2})\.(\d{2})/);
+    if (mm && _dayQ[base] && _dayQ[base].size > 1) {
+      const ord = (+mm[2])*12 + (+mm[1]);
+      const sorted = [..._dayQ[base]].sort((a,b)=>a-b);
+      return String(sorted.indexOf(ord) + 1); // '1' / '2'
+    }
+    return ''; // один квартal за день — без различия (как раньше)
+  };
+
+  // Квартал каждой позиции по её ЯКОРНОЙ ноге (instrument якоря)
+  const posQuarter = new Map();
+  for (const { pos, anchor } of anchored) {
+    posQuarter.set(pos, quarterOf(pos.legs[anchor].instrument || ''));
+  }
+
+  // ── События якорей по времени (open/close), с объёмом и кварталом ──
   const anchorEvents = [];
   for (const { pos, anchor } of anchored) {
     const isShort = pos.legs[anchor].entry_direction === 'Sell';
+    const aQ = posQuarter.get(pos);
     repTrades.filter(t => (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase() === anchor)
       .forEach(t => {
+        if (quarterOf(t.instrument) !== aQ) return; // только свой квартал якоря
         const isEntry = isShort ? t.direction==='Short' : t.direction==='Long';
-        anchorEvents.push({ time: timeToMs(t.time), pos, type: isEntry?'open':'close' });
+        anchorEvents.push({ time: timeToMs(t.time), pos, type: isEntry?'open':'close',
+                            vol: Math.abs(t.volume||0), used: 0 });
       });
   }
   anchorEvents.sort((a,b)=>a.time-b.time);
@@ -8340,19 +8369,46 @@ function attributeHedgeTrades(positionsForDay, repTrades, hedgeBase) {
   const cnyDir = anchored[0].pos.legs[hedgeBase].entry_direction;
   const cnyShort = cnyDir === 'Sell';
 
+  // CNY-сделки сортируем по времени
   const hedgeTrades = repTrades.filter(t =>
-    (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase() === hedgeBase);
+    (t.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase() === hedgeBase)
+    .sort((a,b)=>timeToMs(a.time)-timeToMs(b.time));
 
   for (const ht of hedgeTrades) {
     const htMs = timeToMs(ht.time);
+    const htQ = quarterOf(ht.instrument); // квартал этой CNY-сделки
     const isEntry = cnyShort ? ht.direction==='Short' : ht.direction==='Long';
     const wantType = isEntry ? 'open' : 'close';
+
+    // Кандидаты: события нужного типа, СВОЕГО квартала, не позже CNY (+2с), с остатком объёма.
+    // Берём ближайшее по времени ПЕРЕД сделкой (с конца отсортированного списка).
     let chosen = null;
-    for (const ev of anchorEvents) {
-      if (ev.time <= htMs + 2000 && ev.type === wantType) chosen = ev.pos;
+    for (let i = anchorEvents.length - 1; i >= 0; i--) {
+      const ev = anchorEvents[i];
+      if (ev.type !== wantType) continue;
+      if (ev.time > htMs + 2000) continue;
+      if (posQuarter.get(ev.pos) !== htQ) continue; // квартал CNY должен совпасть с кварталом якоря
+      if (ev.used >= ev.vol) continue;              // объём якоря уже занят другой CNY
+      chosen = ev;
+      break;
     }
-    if (!chosen) chosen = anchored[0].pos;
-    const bucket = result.get(chosen);
+    // Фолбэк: ближайший по типу+кварталу без учёта объёма
+    if (!chosen) {
+      for (let i = anchorEvents.length - 1; i >= 0; i--) {
+        const ev = anchorEvents[i];
+        if (ev.type === wantType && ev.time <= htMs + 2000 && posQuarter.get(ev.pos) === htQ) { chosen = ev; break; }
+      }
+    }
+    // Последний фолбэк: любая позиция своего квартала, иначе первая
+    let chosenPos;
+    if (chosen) {
+      chosen.used += Math.abs(ht.volume||0);
+      chosenPos = chosen.pos;
+    } else {
+      const sameQ = anchored.find(a => posQuarter.get(a.pos) === htQ);
+      chosenPos = sameQ ? sameQ.pos : anchored[0].pos;
+    }
+    const bucket = result.get(chosenPos);
     if (isEntry) bucket.entries.push(ht); else bucket.exits.push(ht);
   }
   return result;
