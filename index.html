@@ -1038,8 +1038,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '25.06 10:12';
-const BUILD_DATE    = '25.06.2026 10:12 МСК';
+const BUILD_VERSION = '25.06 10:37';
+const BUILD_DATE    = '25.06.2026 10:37 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -9271,16 +9271,38 @@ async function autoTagFromReports(date) {
   const dateISO = normDate(date);
   const fxAll = store.fx.filter(t => normDate(t.close_date || '') === dateISO);
 
-  // Step 1: entry direction per instrument (first trade globally)
+  // Step 0: квартал-aware база для каждой сделки (контекст дня).
+  // Суффикс '1'/'2' добавляется ТОЛЬКО если база торгуется в двух кварталах за день
+  // (Si-9.26 + Si-12.26 → SI1/SI2). Для одного квартала — просто база (как раньше).
+  const _dayQ = {};
+  for (const t of report.trades) {
+    const base = t.instrument.replace(/[-_0-9.]/g,'').toUpperCase();
+    const mm = String(t.instrument).toUpperCase().match(/-(\d{1,2})\.(\d{2})/);
+    if (mm) { const ord=(+mm[2])*12+(+mm[1]); (_dayQ[base]||(_dayQ[base]=new Set())).add(ord); }
+  }
+  const qbaseOf = (instr) => {
+    const base = String(instr).replace(/[-_0-9.]/g,'').toUpperCase();
+    const mm = String(instr).toUpperCase().match(/-(\d{1,2})\.(\d{2})/);
+    if (mm && _dayQ[base] && _dayQ[base].size > 1) {
+      const ord = (+mm[2])*12 + (+mm[1]);
+      const sorted = [..._dayQ[base]].sort((a,b)=>a-b);
+      return base + (sorted.indexOf(ord) + 1); // SI1, SI2, CNY1, CNY2...
+    }
+    return base;
+  };
+  // Декорируем все сделки квартал-aware базой
+  for (const t of report.trades) t._qb = qbaseOf(t.instrument);
+
+  // Step 1: entry direction per instrument (first trade globally) — по КВАРТАЛ-aware базе
   const sorted = [...report.trades].sort((a,b) => timeToMs(a.time) - timeToMs(b.time));
   const entryDir = {};
   for (const t of sorted) {
-    const b = t.instrument.replace(/[-_0-9.]/g,'').toUpperCase();
+    const b = t._qb;
     if (!entryDir[b]) entryDir[b] = t.direction;
   }
 
-  // Step 2: entry trades only
-  const entries = sorted.filter(t => t.direction === entryDir[t.instrument.replace(/[-_0-9.]/g,'').toUpperCase()]);
+  // Step 2: entry trades only — по квартал-aware базе
+  const entries = sorted.filter(t => t.direction === entryDir[t._qb]);
 
   // Step 3: split by time gaps → split mixed clusters
   const rawCl = splitIntoSets(entries, 7);
