@@ -1038,8 +1038,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '26.06 19:19';
-const BUILD_DATE    = '26.06.2026 19:19 МСК';
+const BUILD_VERSION = '26.06 19:57';
+const BUILD_DATE    = '26.06.2026 19:57 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -8535,12 +8535,19 @@ function calcPositionPnlByFormula(pos) {
     }
 
     const m = calcLegMargin(base, entries, exits, isEntryShort);
+    // P&L ПРОПА = сумма margin_rub (вариационная маржа биржи) по сделкам ноги в наборе.
+    // Это ровно то, что считает проп: с переоценкой переноса, клирингом и знаком из PDF.
+    // Формула (цена пункта) остаётся рядом для прозрачности (avgEntry/avgExit/объём).
+    const marginPnl = [...entries, ...exits].reduce((s,t)=>s+(t.margin_rub||0),0);
+    const hasMargin = [...entries, ...exits].some(t => t.margin_rub !== undefined && t.margin_rub !== null);
+    const legPnl = hasMargin ? marginPnl : m.pnl; // фолбэк на формулу, если margin_rub нет
     result.legs[base] = {
-      pnl: m.pnl, avgEntry: m.avgEntry, avgExit: m.avgExit,
+      pnl: legPnl, pnlProp: marginPnl, pnlFormula: m.pnl,
+      avgEntry: m.avgEntry, avgExit: m.avgExit,
       entryVol: m.entryVol, exitVol: m.exitVol, closedVol: m.closedVol,
       totalComm: comm, instrument: leg.instrument,
     };
-    result.mxTotal += m.pnl;
+    result.mxTotal += legPnl;
     result.totalComm += comm;
 
     // PDF сверка: instr.pnl целиком (для информации)
