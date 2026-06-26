@@ -1039,8 +1039,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '26.06 21:18';
-const BUILD_DATE    = '26.06.2026 21:18 МСК';
+const BUILD_VERSION = '26.06 21:30';
+const BUILD_DATE    = '26.06.2026 21:30 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -11816,61 +11816,6 @@ function renderManualRaznos() {
   const dsel = dates.map(d=>`<option value="${d}" ${d===date?'selected':''}>${d.split('-').reverse().join('.')}</option>`).join('');
   const tagOpts = ['<option value="">— тег —</option>'].concat(MANUAL_TAGS.map(t=>`<option value="${t}">${t}</option>`)).join('');
 
-  let rows = '';
-  groups.forEach((g, gi) => {
-    const isFx = g._platform==='FX';
-    const mCls = g.margin>=0?'pos':'neg';
-    // тег/набор группы — берём из первой сделки группы (если у всех одинаковый)
-    const firstA = getManualAssign(manualKey(g.trades[0]));
-    const allSame = g.trades.every(t=>{ const a=getManualAssign(manualKey(t)); return (a&&firstA)?(a.tag===firstA.tag&&a.setN===firstA.setN):(a===firstA); });
-    const gTag = allSame && firstA ? firstA.tag : '';
-    const gSet = allSame && firstA ? firstA.setN : 1;
-    const gTagSel = _tagOptions(g.instrument, g._platform, gTag);
-    const col = _instrColors(g.instrument, gi);
-    // общий комментарий FX-группы (если у всех сделок одинаковый)
-    const gComments = [...new Set(g.trades.map(t=>t._comment).filter(Boolean))];
-    const gCommentBadge = (isFx && gComments.length)
-      ? ` <span style="font-size:9px;background:var(--bg2);color:var(--blue);padding:1px 6px;border-radius:3px;font-weight:600" title="комментарий cTrader">${gComments.join(', ')}</span>` : '';
-    // строка группы (шапка)
-    rows += `<tr style="background:${col.head};border-top:2px solid var(--border)">
-      <td style="font-weight:700;color:var(--text1);border-left:4px solid ${col.accent};padding:7px 6px 7px 10px">${g.instrument} <span style="font-size:9px;color:var(--text2);font-weight:600;letter-spacing:.5px">${isFx?'FX':'MX'}</span>${gCommentBadge}</td>
-      <td class="mono" style="text-align:right;font-weight:700;padding:7px 6px">${g.volNet>0?'+':''}${g.volNet}<span style="color:var(--text2);font-weight:400;font-size:11px"> /Σ${g.volSum}</span></td>
-      <td class="mono" style="text-align:right;color:var(--text2);padding:7px 6px">${g.t0}</td>
-      <td class="mono ${isFx?'':mCls}" style="text-align:right;font-weight:700;padding:7px 6px">${isFx?(g.pnlUsd>=0?'+':'')+g.pnlUsd.toFixed(2)+'$':fmtRub(g.margin)}</td>
-      <td style="padding:5px 6px"><select onchange="applyTagToGroup('${date}',${gi},this.value,this.parentElement.parentElement.querySelector('.gset').value)" style="width:100%;padding:4px;border:1px solid var(--border);border-radius:5px;background:var(--bg2);color:var(--text1);font-size:11px;font-weight:600">${gTagSel}</select></td>
-      <td style="padding:5px 6px"><input type="number" min="1" value="${gSet}" class="gset" onchange="applyTagToGroup('${date}',${gi},this.parentElement.parentElement.querySelector('select').value,this.value)" style="width:46px;padding:4px;border:1px solid var(--border);border-radius:5px;background:var(--bg2);color:var(--text1);font-size:11px;text-align:center;font-weight:600"></td>
-    </tr>`;
-    // строки сделок группы
-    g.trades.forEach(t => {
-      const a = getManualAssign(manualKey(t));
-      const k = manualKey(t).replace(/'/g,'');
-      const dCls = t._dir==='Long'?'pos':'neg';
-      const rowTagSel = _tagOptions(t.instrument, t._platform, a&&a.tag);
-      const role = bal.roleByKey[manualKey(t)];
-      // нейтральный фон (зебра группы), смысл — полоса слева: вход зелёная, выход красная, FX синяя
-      let roleBorder = 'transparent', roleBadge = '';
-      if (role) {
-        if (role.role === 'fx') {
-          roleBorder = 'var(--blue)';
-          roleBadge = `<span style="color:var(--blue);font-weight:600">⇄ FX</span> <span class="${(t._pnlUsd||0)>=0?'pos':'neg'}">${(t._pnlUsd>=0?'+':'')+(t._pnlUsd||0).toFixed(2)}$</span>`;
-        } else {
-          roleBorder = role.role==='entry' ? 'var(--green)' : 'var(--red)';
-          const lbl = role.role==='entry' ? '▲ вход' : '▼ выход';
-          const lblCol = role.role==='entry' ? 'var(--green)' : 'var(--red)';
-          roleBadge = `<span style="color:${lblCol};font-weight:600">${lbl}</span> <span style="color:var(--text2)">осталось ${role.net}</span>`;
-        }
-      }
-      rows += `<tr style="font-size:11px;background:${col.row}">
-        <td style="padding:4px 6px 4px 22px;border-left:4px solid ${roleBorder};color:var(--text2)">${t.instrument}${t._comment?` <span style="font-size:9px;background:var(--bg3);color:var(--blue);padding:1px 5px;border-radius:3px;font-weight:600" title="комментарий cTrader">${t._comment}</span>`:''}</td>
-        <td class="mono ${dCls}" style="text-align:right;padding:4px 6px">${t._dir==='Long'?'+':'−'}${t._vol} <span style="color:var(--text2)">@ ${t._price}${t._fxClosed&&t._closePrice!=null?` → ${t._closePrice}`:''}</span></td>
-        <td class="mono" style="text-align:right;color:var(--text2);padding:4px 6px">${t.time}${t._fxClosed&&t._closeTime?`<span style="opacity:.6">→${t._closeTime}</span>`:''}</td>
-        <td class="mono" style="text-align:right;padding:4px 6px">${roleBadge || (t._platform==='FX'?((t._pnlUsd>=0?'+':'')+(t._pnlUsd||0).toFixed(2)+'$'):(t._margin?fmtRub(t._margin):'—'))}</td>
-        <td style="padding:3px 6px"><select onchange="setManualAssign('${k}',this.value,this.parentElement.parentElement.querySelector('.rset').value);renderManualRaznos()" style="width:100%;padding:3px;border:1px solid var(--border);border-radius:5px;background:var(--bg2);color:var(--text2);font-size:10px">${rowTagSel}</select></td>
-        <td style="padding:3px 6px"><input type="number" min="1" value="${a?a.setN:1}" class="rset" onchange="setManualAssign('${k}',this.parentElement.parentElement.querySelector('select').value,this.value);renderManualRaznos()" style="width:46px;padding:3px;border:1px solid var(--border);border-radius:5px;background:var(--bg2);color:var(--text2);font-size:10px;text-align:center"></td>
-      </tr>`;
-    });
-  });
-
   // Виджет баланса набора: сколько набрано/вышло/осталось по каждой ноге
   let balWidget = '';
   const setKeys = Object.keys(bal.sets).sort();
@@ -11899,11 +11844,86 @@ function renderManualRaznos() {
     balWidget += '</div>';
   }
 
+  // Уникальные инструменты дня (для фильтра)
+  const allInstrs = [...new Set(groups.map(g=>g.instrument))];
+  if (!store._manualFilter) store._manualFilter = {};
+  // По умолчанию все включены
+  allInstrs.forEach(i=>{ if (store._manualFilter[i]===undefined) store._manualFilter[i]=true; });
+  // Применяем фильтр к группам
+  const visGroups = groups.filter(g=>store._manualFilter[g.instrument]!==false);
+
+  // Чипы фильтра
+  const filterChips = allInstrs.map(instr=>{
+    const active = store._manualFilter[instr]!==false;
+    const isFxI = !['Si','Eu','ED','UCNY','CNY','USDRUBF','CNYRUBF','EURRUBF'].some(b=>instr.replace(/[-_0-9.]/g,'').toUpperCase().startsWith(b.toUpperCase())) && store.fx && store.fx.some(t=>t.instrument===instr);
+    const dot = isFxI ? '● ' : '';
+    return `<button onclick="store._manualFilter['${instr}']=!store._manualFilter['${instr}'];renderManualRaznos()" style="padding:3px 10px;border:1px solid ${active?'var(--blue)':'var(--border)'};border-radius:20px;background:${active?'hsla(210,100%,60%,0.15)':'transparent'};color:${active?'var(--blue)':'var(--text2)'};font-size:11px;font-weight:600;cursor:pointer">${dot}${instr}</button>`;
+  }).join('');
+
+  // Сбросить фильтр / выбрать все
+  const resetBtn = `<button onclick="Object.keys(store._manualFilter).forEach(k=>store._manualFilter[k]=true);renderManualRaznos()" style="padding:3px 10px;border:1px solid var(--border);border-radius:20px;background:transparent;color:var(--text2);font-size:11px;cursor:pointer">Все</button>`;
+
+  // Перегенерируем rows только по видимым группам
+  let rows2 = '';
+  visGroups.forEach((g, vi) => {
+    const gi = groups.indexOf(g); // оригинальный индекс для applyTagToGroup
+    const isFx = g._platform==='FX';
+    const mCls = g.margin>=0?'pos':'neg';
+    const firstA = getManualAssign(manualKey(g.trades[0]));
+    const allSame = g.trades.every(t=>{ const a=getManualAssign(manualKey(t)); return (a&&firstA)?(a.tag===firstA.tag&&a.setN===firstA.setN):(a===firstA); });
+    const gTag = allSame && firstA ? firstA.tag : '';
+    const gSet = allSame && firstA ? firstA.setN : 1;
+    const gTagSel = _tagOptions(g.instrument, g._platform, gTag);
+    const col = _instrColors(g.instrument, vi);
+    const gComments = [...new Set(g.trades.map(t=>t._comment).filter(Boolean))];
+    const gCommentBadge = (isFx && gComments.length)
+      ? ` <span style="font-size:9px;background:var(--bg2);color:var(--blue);padding:1px 6px;border-radius:3px;font-weight:600">${gComments.join(', ')}</span>` : '';
+    rows2 += `<tr style="background:${col.head};border-top:2px solid var(--border)">
+      <td style="font-weight:700;color:var(--text1);border-left:4px solid ${col.accent};padding:7px 6px 7px 10px">${g.instrument} <span style="font-size:9px;color:var(--text2);font-weight:600;letter-spacing:.5px">${isFx?'FX':'MX'}</span>${gCommentBadge}</td>
+      <td class="mono" style="text-align:right;font-weight:700;padding:7px 6px">${g.volNet>0?'+':''}${g.volNet}<span style="color:var(--text2);font-weight:400;font-size:11px"> /Σ${g.volSum}</span></td>
+      <td class="mono" style="text-align:right;color:var(--text2);padding:7px 6px">${g.t0}</td>
+      <td class="mono ${isFx?'':mCls}" style="text-align:right;font-weight:700;padding:7px 6px">${isFx?(g.pnlUsd>=0?'+':'')+g.pnlUsd.toFixed(2)+'$':fmtRub(g.margin)}</td>
+      <td style="padding:5px 6px"><select onchange="applyTagToGroup('${date}',${gi},this.value,this.parentElement.parentElement.querySelector('.gset').value)" style="width:100%;padding:4px;border:1px solid var(--border);border-radius:5px;background:var(--bg2);color:var(--text1);font-size:11px;font-weight:600">${gTagSel}</select></td>
+      <td style="padding:5px 6px"><input type="number" min="1" value="${gSet}" class="gset" onchange="applyTagToGroup('${date}',${gi},this.parentElement.parentElement.querySelector('select').value,this.value)" style="width:46px;padding:4px;border:1px solid var(--border);border-radius:5px;background:var(--bg2);color:var(--text1);font-size:11px;text-align:center;font-weight:600"></td>
+    </tr>`;
+    g.trades.forEach(t => {
+      const a = getManualAssign(manualKey(t));
+      const k = manualKey(t).replace(/'/g,'');
+      const dCls = t._dir==='Long'?'pos':'neg';
+      const rowTagSel = _tagOptions(t.instrument, t._platform, a&&a.tag);
+      const role = bal.roleByKey[manualKey(t)];
+      let roleBorder = 'transparent', roleBadge = '';
+      if (role) {
+        if (role.role === 'fx') {
+          roleBorder = 'var(--blue)';
+          roleBadge = `<span style="color:var(--blue);font-weight:600">⇄ FX</span> <span class="${(t._pnlUsd||0)>=0?'pos':'neg'}">${(t._pnlUsd>=0?'+':'')+(t._pnlUsd||0).toFixed(2)}$</span>`;
+        } else {
+          roleBorder = role.role==='entry' ? 'var(--green)' : 'var(--red)';
+          const lbl = role.role==='entry' ? '▲ вход' : '▼ выход';
+          const lblCol = role.role==='entry' ? 'var(--green)' : 'var(--red)';
+          roleBadge = `<span style="color:${lblCol};font-weight:600">${lbl}</span> <span style="color:var(--text2)">осталось ${role.net}</span>`;
+        }
+      }
+      rows2 += `<tr style="font-size:11px;background:${col.row}">
+        <td style="padding:4px 6px 4px 22px;border-left:4px solid ${roleBorder};color:var(--text2)">${t.instrument}${t._comment?` <span style="font-size:9px;background:var(--bg3);color:var(--blue);padding:1px 5px;border-radius:3px;font-weight:600">${t._comment}</span>`:''}</td>
+        <td class="mono ${dCls}" style="text-align:right;padding:4px 6px">${t._dir==='Long'?'+':'−'}${t._vol} <span style="color:var(--text2)">@ ${t._price}${t._fxClosed&&t._closePrice!=null?` → ${t._closePrice}`:''}</span></td>
+        <td class="mono" style="text-align:right;color:var(--text2);padding:4px 6px">${t.time}${t._fxClosed&&t._closeTime?`<span style="opacity:.6">→${t._closeTime}</span>`:''}</td>
+        <td class="mono" style="text-align:right;padding:4px 6px">${roleBadge || (t._platform==='FX'?((t._pnlUsd>=0?'+':'')+(t._pnlUsd||0).toFixed(2)+'$'):(t._margin?fmtRub(t._margin):'—'))}</td>
+        <td style="padding:3px 6px"><select onchange="setManualAssign('${k}',this.value,this.parentElement.parentElement.querySelector('.rset').value);renderManualRaznos()" style="width:100%;padding:3px;border:1px solid var(--border);border-radius:5px;background:var(--bg2);color:var(--text2);font-size:10px">${rowTagSel}</select></td>
+        <td style="padding:3px 6px"><input type="number" min="1" value="${a?a.setN:1}" class="rset" onchange="setManualAssign('${k}',this.parentElement.parentElement.querySelector('select').value,this.value);renderManualRaznos()" style="width:46px;padding:3px;border:1px solid var(--border);border-radius:5px;background:var(--bg2);color:var(--text2);font-size:10px;text-align:center"></td>
+      </tr>`;
+    });
+  });
+
   wrap.innerHTML = `
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap">
-      <select onchange="store._manualDate=this.value;renderManualRaznos()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1);font-size:13px">${dsel}</select>
-      <button onclick="calcManualResults()" style="padding:6px 16px;border:none;border-radius:6px;background:var(--blue);color:#fff;cursor:pointer;font-weight:600">📊 Рассчитать конструкции</button>
-      <span style="font-size:11px;color:var(--text2)">Группа фьючерсов = жирная строка. Проставь тег на группе (применится ко всем) или на отдельной сделке.</span>
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap">
+      <select onchange="store._manualDate=this.value;store._manualFilter={};renderManualRaznos()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1);font-size:13px">${dsel}</select>
+      <button onclick="calcManualResults()" style="padding:6px 16px;border:none;border-radius:6px;background:var(--blue);color:#fff;cursor:pointer;font-weight:600">📊 Рассчитать</button>
+    </div>
+    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--border)">
+      <span style="font-size:11px;color:var(--text2);margin-right:2px">Фильтр:</span>
+      ${resetBtn}
+      ${filterChips}
     </div>
     ${balWidget}
     <div id="manual-results"></div>
@@ -11916,7 +11936,7 @@ function renderManualRaznos() {
         <th style="text-align:left;padding:6px;width:180px">Конструкция</th>
         <th style="text-align:center;padding:6px">Набор</th>
       </tr></thead>
-      <tbody>${rows}</tbody>
+      <tbody>${rows2}</tbody>
     </table>`;
 }
 
