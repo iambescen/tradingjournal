@@ -1039,8 +1039,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '26.06 21:52';
-const BUILD_DATE    = '26.06.2026 21:52 МСК';
+const BUILD_VERSION = '26.06 22:14';
+const BUILD_DATE    = '26.06.2026 22:14 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -12010,17 +12010,32 @@ function renderManualRaznos() {
 function calcManualResults() {
   const date = store._manualDate;
   const trades = getCombinedTradesForManual(date);
-  // группируем по (tag, setN)
+  // группируем по (tag, setN) — берём сделки ВСЕХ дней для переносных наборов
+  // (вход мог быть на прошлом дне, выход сегодня)
+  const crossSets = computeCrossDayBalances(date);
   const byPos = {};
-  for (const t of trades) {
-    const a = getManualAssign(manualKey(t));
-    if (!a || !a.tag) continue;
-    const key = a.tag + ' · набор ' + (a.setN||1);
-    (byPos[key] || (byPos[key] = { tag:a.tag, setN:a.setN||1, legs:{} })).legs;
-    const pos = byPos[key];
-    const base = t._platform==='FX' ? t.instrument.replace(/[-_]/g,'').toUpperCase() : (t.instrument);
-    if (!pos.legs[base]) pos.legs[base] = { platform:t._platform, instrument:t.instrument, trades:[] };
-    pos.legs[base].trades.push(t);
+  // Собираем сделки со всех дней для наборов которые были открыты ранее
+  const allDates = [...new Set((store.mx||[]).map(r=>normDate(r.date)).filter(d=>d&&d.length===10))].sort();
+  const datesUpTo = allDates.filter(d=>d<=date);
+  for (const d of datesUpTo) {
+    for (const t of getCombinedTradesForManual(d)) {
+      const a = getManualAssign(manualKey(t));
+      if (!a || !a.tag) continue;
+      const key = a.tag + ' · набор ' + (a.setN||1);
+      (byPos[key] || (byPos[key] = { tag:a.tag, setN:a.setN||1, legs:{} })).legs;
+      const pos = byPos[key];
+      const base = t._platform==='FX' ? t.instrument.replace(/[-_]/g,'').toUpperCase() : (t.instrument);
+      if (!pos.legs[base]) pos.legs[base] = { platform:t._platform, instrument:t.instrument, trades:[] };
+      pos.legs[base].trades.push(t);
+    }
+  }
+  // Вариант А: показываем только ЗАКРЫТЫЕ наборы (net=0 по всем MX-ногам)
+  const crossKey = key => key.replace(' · набор ', '|');
+  for (const key of Object.keys(byPos)) {
+    const cs = crossSets[crossKey(key)];
+    if (!cs) { delete byPos[key]; continue; }
+    const allClosed = Object.values(cs.legs).every(l => l.net === 0);
+    if (!allClosed) delete byPos[key];
   }
   // P&L: MX = margin_rub (фьючерсы) или i.pnl из PDF (перпетуалы: CNYRUBF/EURRUBF/USDRUBF)
   // У перпетуалов margin_rub по сделкам ≠ i.pnl из-за фандинга → берём итоговую строку PDF
