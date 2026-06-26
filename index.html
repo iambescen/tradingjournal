@@ -1039,8 +1039,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '26.06 21:37';
-const BUILD_DATE    = '26.06.2026 21:37 МСК';
+const BUILD_VERSION = '26.06 21:48';
+const BUILD_DATE    = '26.06.2026 21:48 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -12077,8 +12077,9 @@ function calcManualResults() {
       const inV  = leg.trades.filter(t=>t._dir==='Long').reduce((s,t)=>s+t._vol,0);
       const outV = leg.trades.filter(t=>t._dir==='Short').reduce((s,t)=>s+t._vol,0);
       if (leg.platform==='FX') {
-        const u = leg.trades.reduce((s,t)=>s+(t._pnlUsd||0),0); fxUsd += u;
-        legsHtml += `<div style="display:flex;justify-content:space-between;font-size:12px;padding:2px 0"><span>${leg.instrument} <span style="color:var(--text2)">FX ${leg.trades.reduce((s,t)=>s+t._vol,0).toFixed(2)}л</span></span><span class="${u>=0?'pos':'neg'} mono">${(u>=0?'+':'')+u.toFixed(2)}$ = ${fmtRub(u*rate)}</span></div>`;
+        const u = +leg.trades.reduce((s,t)=>s+(t._pnlUsd||0),0).toFixed(2); fxUsd += u;
+        const fxVol = +leg.trades.reduce((s,t)=>s+t._vol,0).toFixed(4);
+        legsHtml += `<div style="display:flex;justify-content:space-between;font-size:11px;padding:1px 0;color:var(--text2)"><span>${leg.instrument} <span style="font-size:10px">FX ${fxVol}л</span></span><span class="${u>=0?'pos':'neg'} mono" style="font-size:11px">${(u>=0?'+':'')+u.toFixed(2)}$ = ${fmtRub(Math.round(u*rate))}</span></div>`;
       } else {
         let m;
         const base = (leg.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
@@ -12099,21 +12100,27 @@ function calcManualResults() {
           m = leg.trades.reduce((s,t)=>s+(t._margin||0),0);
         }
         mxTot += m;
-        legsHtml += `<div style="display:flex;justify-content:space-between;font-size:12px;padding:2px 0"><span>${leg.instrument} <span style="color:var(--text2)">вх ${inV}л / вых ${outV}л</span></span><span class="${m>=0?'pos':'neg'} mono">${fmtRub(m)}</span></div>`;
+        const mR = Math.round(m);
+        const inVR = Math.round(inV*100)/100;
+        const outVR = Math.round(outV*100)/100;
+        legsHtml += `<div style="display:flex;justify-content:space-between;font-size:11px;padding:1px 0;color:var(--text2)"><span>${leg.instrument} <span style="font-size:10px">${inVR}л / ${outVR}л</span></span><span class="${mR>=0?'pos':'neg'} mono" style="font-size:11px">${fmtRub(mR)}</span></div>`;
       }
     }
-    const total = mxTot + fxUsd*rate;
+    const total = Math.round(mxTot + fxUsd*rate);
     dayTotal += total;
-    html += `<div style="border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:10px;background:var(--bg2)">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-        <span style="font-weight:700;color:var(--blue)">${pos.tag} <span style="color:var(--text2);font-weight:400;font-size:12px">· набор ${pos.setN}</span></span>
-        <span class="${total>=0?'pos':'neg'} mono" style="font-weight:700;font-size:15px">${fmtRub(total)}</span>
+    const cardId = 'mc_' + key.replace(/[^a-z0-9]/gi,'_');
+    html += `<div style="border:1px solid var(--border);border-left:4px solid ${total>=0?'var(--green)':'var(--red)'};border-radius:8px;margin-bottom:6px;background:var(--bg2)">
+      <div onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'" style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;cursor:pointer">
+        <span style="font-weight:700;font-size:13px">${pos.tag} <span style="color:var(--text2);font-weight:400;font-size:11px">· набор ${pos.setN}</span></span>
+        <span class="${total>=0?'pos':'neg'} mono" style="font-weight:700;font-size:14px">${fmtRub(total)}</span>
       </div>
-      ${legsHtml}
-      <div style="border-top:1px dashed var(--border);margin-top:6px;padding-top:6px;text-align:right;font-size:11px;color:var(--text2)">MX ${fmtRub(mxTot)} + FX ${fmtRub(fxUsd*rate)}</div>
+      <div style="display:none;padding:0 12px 8px;border-top:1px solid var(--border)">
+        <div style="padding-top:6px">${legsHtml}</div>
+        <div style="text-align:right;font-size:10px;color:var(--text2);margin-top:4px">MX ${fmtRub(Math.round(mxTot))} + FX ${fmtRub(Math.round(fxUsd*rate))}</div>
+      </div>
     </div>`;
   }
-  html += `<div style="text-align:right;font-weight:700;font-size:15px;padding:8px">Итого за день: <span class="${dayTotal>=0?'pos':'neg'}">${fmtRub(dayTotal)}</span></div></div>`;
+  html += `<div style="text-align:right;font-weight:700;font-size:15px;padding:8px">Итого за день: <span class="${Math.round(dayTotal)>=0?'pos':'neg'}">${fmtRub(Math.round(dayTotal))}</span></div></div>`;
   const resEl = document.getElementById('manual-results');
   if (resEl) resEl.innerHTML = html;
 }
