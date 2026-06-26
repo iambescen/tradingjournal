@@ -1038,8 +1038,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '25.06 20:19';
-const BUILD_DATE    = '25.06.2026 20:19 МСК';
+const BUILD_VERSION = '26.06 11:41';
+const BUILD_DATE    = '26.06.2026 11:41 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -9251,11 +9251,36 @@ function _fxDateTimeKey(s) {
 // ════════════════════════════════════════════════════════════════════
 
 // Строит одну позицию из набора (цикла) анкерной ноги.
-function buildPositionFromSet(info, anchorBase, anchorInstr, cyc, ci, days) {
+// Собрать сделки ноги (по точному инструменту) в окне набора, только в разрешённые дни,
+// и разделить на entries/exits по направлению входа ноги.
+function _gatherLegInWindow(instr, entryDir, allowedDays, uniqDays, openKey, closeKey) {
+  const isShort = entryDir === 'Short' || entryDir === 'Sell';
+  const entries = [], exits = [];
+  uniqDays.forEach((d, di) => {
+    if (allowedDays && !allowedDays.includes(d)) return;
+    const rep = getMxReportForDate(d);
+    if (!rep) return;
+    (rep.trades||[]).forEach(t => {
+      if ((t.instrument||'').toUpperCase() !== instr.toUpperCase()) return;
+      const k = _absKey(d, t.time);
+      if (k < openKey - 60000 || k > closeKey + 60000) return; // окно набора (±1 мин допуск)
+      const isEntry = isShort ? t.direction==='Short' : t.direction==='Long';
+      if (isEntry) entries.push({ ...t, _dayIdx: di }); else exits.push({ ...t, _dayIdx: di });
+    });
+  });
+  return { entries, exits };
+}
+
+// Строит одну позицию из набора (цикла) анкерной ноги конструкции (info — из store._tagInfo).
+function buildPositionFromSet(info, anchorBase, cyc, ci, uniqDays) {
+  const anchorLeg = info.mxLegs[anchorBase];
+  const anchorInstr = anchorLeg.instr;
   const eVol = cyc.entries.reduce((s,t)=>s+Math.abs(t.volume||0),0);
   const xVol = cyc.exits.reduce((s,t)=>s+Math.abs(t.volume||0),0);
-  const openDate  = days[cyc.entries[0] ? (cyc.entries[0]._dayIdx||0) : 0];
-  const closeDate = cyc.closed ? days[cyc._dayClose||0] : null;
+  const openDate  = uniqDays[cyc.entries[0] ? (cyc.entries[0]._dayIdx||0) : 0];
+  const closeDate = cyc.closed ? uniqDays[cyc._dayClose||0] : null;
+  const openKey  = _absKey(openDate, cyc.openTime);
+  const closeKey = cyc.closed ? _absKey(closeDate, cyc.closeTime) : Number.MAX_SAFE_INTEGER;
   const pos = {
     id: 'pos_' + info.tag.replace(/\//g,'_') + '_n' + (ci+1) + '_' + String(openDate).replace(/\./g,'') + '_' + Date.now() + '_' + ci,
     tag: info.tag,
@@ -9272,15 +9297,30 @@ function buildPositionFromSet(info, anchorBase, anchorInstr, cyc, ci, days) {
     _cycleN: ci+1,
     _setOpenTime: cyc.openTime, _setCloseTime: cyc.closeTime,
   };
-  // Анкерная нога
+  // Анкерная нога — сделки именно этого набора
   pos.legs[anchorBase] = {
     platform:'MX', instrument: anchorInstr,
-    entry_direction: info.anchorDir==='Long' ? 'Buy' : 'Sell',
+    entry_direction: anchorLeg.dir==='Long' ? 'Buy' : 'Sell',
     vol_in: eVol, vol_out: xVol, net_volume: Math.max(0, eVol - xVol),
   };
   pos._legTrades[anchorBase] = { entries: cyc.entries.slice(), exits: cyc.exits.slice() };
 
-  // CNY-хедж — пустая нога-плейсхолдер (заполнится attributeHedgeTrades)
+  // ПАРНЫЕ MX-ноги (напр. CNYRUBF в ERF/CRF) — по окну набора, только в свои дни
+  for (const b in info.mxLegs) {
+    if (b === anchorBase) continue;
+    const pl = info.mxLegs[b];
+    const lt = _gatherLegInWindow(pl.instr, pl.dir, info.instrDays[pl.instr], uniqDays, openKey, closeKey);
+    const inV = lt.entries.reduce((s,t)=>s+Math.abs(t.volume||0),0);
+    const outV = lt.exits.reduce((s,t)=>s+Math.abs(t.volume||0),0);
+    pos.legs[b] = {
+      platform:'MX', instrument: pl.instr,
+      entry_direction: pl.dir==='Long' ? 'Buy' : 'Sell',
+      vol_in: inV, vol_out: outV, net_volume: Math.max(0, inV - outV),
+    };
+    pos._legTrades[b] = { entries: lt.entries, exits: lt.exits };
+  }
+
+  // CNY-хедж — пустая нога-плейсхолдер (заполнится attributeHedgeTrades позже)
   if (info.cnyInstr) {
     pos.legs['CNY'] = {
       platform:'MX', instrument: info.cnyInstr,
@@ -9288,13 +9328,12 @@ function buildPositionFromSet(info, anchorBase, anchorInstr, cyc, ci, days) {
       vol_in: 0, vol_out: 0, net_volume: 0,
     };
     pos._legTrades['CNY'] = { entries: [], exits: [] };
+    pos._cnyWindow = { openKey, closeKey, days: info.instrDays[info.cnyInstr] || info.days };
   }
 
-  // FX-нога — сделки в окне набора [openKey, closeKey]
+  // FX-нога — сделки форекса в окне набора
   if (info.fxInstr) {
     const fxb = info.fxInstr.replace(/[-_]/g,'').toUpperCase();
-    const openKey  = _absKey(openDate, cyc.openTime);
-    const closeKey = cyc.closed ? _absKey(closeDate, cyc.closeTime) : Number.MAX_SAFE_INTEGER;
     const tol = 10*60*1000;
     const inWin = (store.fx||[]).filter(t => {
       const ti = (t.instrument||'').replace(/[-_]/g,'').toUpperCase();
@@ -9318,20 +9357,26 @@ function buildPositionFromSet(info, anchorBase, anchorInstr, cyc, ci, days) {
 
 function rebuildSetPositions() {
   positionsInit();
-  const amap = store._anchorTags || {};
-  // Все загруженные дни отчётов, хронологически
+  const tagInfo = store._tagInfo || {};
   const uniqDays = [...new Set((store.mx||[]).map(r=>r.date).filter(Boolean))]
     .sort((a,b)=>(parseDate(a)||0)-(parseDate(b)||0));
 
   const newPositions = [];
 
-  // 1. Для каждого анкерного инструмента — собрать сделки по всем дням, разбить LIFO
-  for (const anchorInstr in amap) {
-    const info = amap[anchorInstr];
-    const anchorBase = anchorInstr.replace(/[-_0-9.]/g,'').toUpperCase();
-    const isShort = info.anchorDir === 'Short';
+  // 1. Для каждой конструкции (тега): анкер по своим дням → LIFO-наборы → позиции
+  for (const tag in tagInfo) {
+    const info = tagInfo[tag];
+    const anchorBase = Object.keys(info.mxLegs).find(b => info.mxLegs[b].role === 'anchor')
+                    || Object.keys(info.mxLegs)[0];
+    if (!anchorBase) continue;
+    const anchorLeg = info.mxLegs[anchorBase];
+    const anchorInstr = anchorLeg.instr;
+    const isShort = anchorLeg.dir === 'Short' || anchorLeg.dir === 'Sell';
+    const allowedDays = info.instrDays[anchorInstr] || info.days;
+    // Сделки анкера ТОЛЬКО в дни, где инструмент принадлежал этому тегу
     const atrades = [];
     uniqDays.forEach((d, di) => {
+      if (!allowedDays.includes(d)) return;
       const rep = getMxReportForDate(d);
       if (!rep) return;
       (rep.trades||[]).forEach(t => {
@@ -9342,7 +9387,7 @@ function rebuildSetPositions() {
     if (!atrades.length) continue;
     const sets = splitTradesIntoSets(atrades, isShort);
     sets.forEach((cyc, ci) => {
-      newPositions.push(buildPositionFromSet(info, anchorBase, anchorInstr, cyc, ci, uniqDays));
+      newPositions.push(buildPositionFromSet(info, anchorBase, cyc, ci, uniqDays));
     });
   }
 
@@ -9363,7 +9408,7 @@ function rebuildSetPositions() {
     }
   });
 
-  // 3. Пересчёт объёмов CNY-ноги из привязанных сделок + финальный P&L
+  // 3. Пересчёт объёмов CNY-ноги + финальный P&L
   for (const pos of newPositions) {
     if (pos.legs['CNY'] && pos._legTrades['CNY']) {
       const lt = pos._legTrades['CNY'];
@@ -9843,35 +9888,50 @@ async function autoTagFromReports(date) {
     alert('Записи не созданы. Проверь данные.'); return;
   }
 
-  // ── ЗАХВАТ конструкций для построения с нуля ──
-  // Для каждого набора фиксируем: анкерный инструмент (точное имя, квартал),
-  // направление входа, CNY-инструмент+направление (если есть), FX-инструмент.
-  // Ключ = анкерный инструмент (уникален на конструкцию). Накапливается по дням.
-  if (!store._anchorTags) store._anchorTags = {};
+  // ── ЗАХВАТ конструкций для построения с нуля (ключ = ТЕГ) ──
+  // Фиксируем ВСЕ MX-ноги конструкции (анкер + парная, напр. EURRUBF+CNYRUBF),
+  // CNY-хедж отдельно, FX, и ПОДЕННУЮ привязку каждого инструмента (instrDays) —
+  // чтобы CNYRUBF за 19.06 (часть ERF/CRF) не утёк в CRF/CR1 за 24.06.
+  if (!store._tagInfo) store._tagInfo = {};
   for (const { cluster, tag } of sets) {
     const parts = tag.split('/');
-    const anchorBase = TAG_TO_BASE[parts[0]];
-    if (!anchorBase) continue;
-    // анкерная сделка в кластере (по базе anchorBase)
-    const aT = cluster.find(t => t.instrument.replace(/[-_0-9.]/g,'').toUpperCase() === anchorBase);
-    if (!aT) continue;
-    const anchorInstr = aT.instrument;
-    const anchorDir = entryDir[aT._qb] || aT.direction;
-    // CNY-нога (если тег содержит CR1/CR2)
-    let cnyInstr = null, cnyDir = null;
-    if (parts.some(p => p === 'CR1' || p === 'CR2')) {
-      const cT = cluster.find(t => t.instrument.replace(/[-_0-9.]/g,'').toUpperCase() === 'CNY');
-      if (cT) { cnyInstr = cT.instrument; cnyDir = entryDir[cT._qb] || cT.direction; }
-    }
+    const info = store._tagInfo[tag] || (store._tagInfo[tag] = {
+      tag, mxLegs:{}, cnyInstr:null, cnyDir:null, fxInstr:null, days:[], instrDays:{}
+    });
     // FX-инструмент (последняя часть тега)
     const lastPart = parts[parts.length-1];
     const fxRaw = Object.prototype.hasOwnProperty.call(FX_FOR_TAG, lastPart) ? FX_FOR_TAG[lastPart] : null;
-    const fxInstr = fxRaw || null;
-    store._anchorTags[anchorInstr] = { tag, anchorDir, cnyInstr, cnyDir, fxInstr };
+    if (fxRaw) info.fxInstr = fxRaw;
+    // MX-ноги по частям тега
+    parts.forEach((part, idx) => {
+      const base = TAG_TO_BASE[part];
+      if (!base) return; // FX-часть
+      const tr = cluster.find(t => t.instrument.replace(/[-_0-9.]/g,'').toUpperCase() === base);
+      if (!tr) return;
+      const instr = tr.instrument;
+      const dir = entryDir[tr._qb] || tr.direction;
+      if (base === 'CNY') {
+        // CNY-хедж (из части CR1/CR2)
+        info.cnyInstr = instr; info.cnyDir = dir;
+      } else {
+        const role = (idx === 0) ? 'anchor' : 'pair';
+        info.mxLegs[base] = { instr, dir, role };
+      }
+      if (!info.instrDays[instr]) info.instrDays[instr] = [];
+      if (!info.instrDays[instr].includes(date)) info.instrDays[instr].push(date);
+    });
+    // CNY-хедж тоже привязываем по дням
+    if (info.cnyInstr) {
+      if (!info.instrDays[info.cnyInstr]) info.instrDays[info.cnyInstr] = [];
+      if (!info.instrDays[info.cnyInstr].includes(date)) info.instrDays[info.cnyInstr].push(date);
+    }
+    if (!info.days.includes(date)) info.days.push(date);
   }
 
   // Построение позиций С НУЛЯ: набор = позиция (путь Б)
   rebuildSetPositions();
+
+
 
   // Show preview modal
   const existing2 = document.getElementById('autotag-modal');
