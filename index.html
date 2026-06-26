@@ -1039,8 +1039,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '26.06 22:18';
-const BUILD_DATE    = '26.06.2026 22:18 МСК';
+const BUILD_VERSION = '26.06 22:28';
+const BUILD_DATE    = '26.06.2026 22:28 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -12028,7 +12028,8 @@ function calcManualResults() {
       const allClosed = Object.values(cs.legs).every(l=>l.net===0);
       if (!allClosed) continue; // набор ещё открыт — пропускаем
       const key = a.tag + ' · набор ' + (a.setN||1);
-      (byPos[key] || (byPos[key] = { tag:a.tag, setN:a.setN||1, legs:{} })).legs;
+      const lastDate = (cs.dates||[]).slice().sort().pop();
+      if (!byPos[key]) byPos[key] = { tag:a.tag, setN:a.setN||1, legs:{}, closeDate: lastDate };
       const pos = byPos[key];
       const base = t._platform==='FX' ? t.instrument.replace(/[-_]/g,'').toUpperCase() : t.instrument;
       if (!pos.legs[base]) pos.legs[base] = { platform:t._platform, instrument:t.instrument, trades:[] };
@@ -12048,7 +12049,7 @@ function calcManualResults() {
   // P&L: MX = margin_rub (фьючерсы) или i.pnl из PDF (перпетуалы: CNYRUBF/EURRUBF/USDRUBF)
   // У перпетуалов margin_rub по сделкам ≠ i.pnl из-за фандинга → берём итоговую строку PDF
   const _isPerpetual = instr => /RUBF$/i.test(instr||'');
-  const rep = getMxReportForDate(date);
+  const rep = getMxReportForDate(date); // для CNY-масштаба дня
   // Предвычисляем: для каждого CNY-инструмента — Σ margin_rub за день (итог пропа)
   // и формульный P&L всех конструкций дня с этим CNY (для масштаба)
   const _cnyPdfTot  = {};  // instr → Σ margin_rub за день
@@ -12097,6 +12098,8 @@ function calcManualResults() {
   let dayTotal = 0;
   for (const key of keys) {
     const pos = byPos[key];
+    const posRep = getMxReportForDate(pos.closeDate || date); // PDF дня закрытия
+    const posRate = getRateForDate(pos.closeDate || date) || rate;
     let mxTot = 0, fxUsd = 0, legsHtml = '';
     for (const b in pos.legs) {
       const leg = pos.legs[b];
@@ -12105,7 +12108,7 @@ function calcManualResults() {
       if (leg.platform==='FX') {
         const u = +leg.trades.reduce((s,t)=>s+(t._pnlUsd||0),0).toFixed(2); fxUsd += u;
         const fxVol = +leg.trades.reduce((s,t)=>s+t._vol,0).toFixed(4);
-        legsHtml += `<div style="display:flex;justify-content:space-between;font-size:11px;padding:1px 0;color:var(--text2)"><span>${leg.instrument} <span style="font-size:10px">FX ${fxVol}л</span></span><span class="${u>=0?'pos':'neg'} mono" style="font-size:11px">${(u>=0?'+':'')+u.toFixed(2)}$ = ${fmtRub(Math.round(u*rate))}</span></div>`;
+        legsHtml += `<div style="display:flex;justify-content:space-between;font-size:11px;padding:1px 0;color:var(--text2)"><span>${leg.instrument} <span style="font-size:10px">FX ${fxVol}л</span></span><span class="${u>=0?'pos':'neg'} mono" style="font-size:11px">${(u>=0?'+':'')+u.toFixed(2)}$ = ${fmtRub(Math.round(u*posRate))}</span></div>`;
       } else {
         let m;
         const base = (leg.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
@@ -12118,8 +12121,8 @@ function calcManualResults() {
           const scale = Math.abs(formTot) > 0.01 ? (pdfTot / formTot) : 1;
           m = formula * scale;
         } else if (_isPerpetual(leg.instrument)) {
-          // перпетуал: i.pnl из итоговой строки PDF (включает фандинг)
-          const instrRow = (rep?.instruments||[]).find(i=>i.name===leg.instrument);
+          // перпетуал: i.pnl из итоговой строки PDF дня ЗАКРЫТИЯ (включает фандинг)
+          const instrRow = (posRep?.instruments||[]).find(i=>i.name===leg.instrument);
           m = instrRow ? (instrRow.pnl||0) : leg.trades.reduce((s,t)=>s+(t._margin||0),0);
         } else {
           // фьючерс: Σ margin_rub по сделкам
@@ -12132,7 +12135,7 @@ function calcManualResults() {
         legsHtml += `<div style="display:flex;justify-content:space-between;font-size:11px;padding:1px 0;color:var(--text2)"><span>${leg.instrument} <span style="font-size:10px">${inVR}л / ${outVR}л</span></span><span class="${mR>=0?'pos':'neg'} mono" style="font-size:11px">${fmtRub(mR)}</span></div>`;
       }
     }
-    const total = Math.round(mxTot + fxUsd*rate);
+    const total = Math.round(mxTot + fxUsd*posRate);
     dayTotal += total;
     const cardId = 'mc_' + key.replace(/[^a-z0-9]/gi,'_');
     html += `<div style="border:1px solid var(--border);border-left:4px solid ${total>=0?'var(--green)':'var(--red)'};border-radius:8px;margin-bottom:6px;background:var(--bg2)">
