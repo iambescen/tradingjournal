@@ -1039,8 +1039,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '26.06 20:49';
-const BUILD_DATE    = '26.06.2026 20:49 МСК';
+const BUILD_VERSION = '26.06 20:53';
+const BUILD_DATE    = '26.06.2026 20:53 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -11863,7 +11863,7 @@ function renderManualRaznos() {
   let balWidget = '';
   const setKeys = Object.keys(bal.sets).sort();
   if (setKeys.length) {
-    balWidget = '<div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:16px">';
+    balWidget = '<div style="position:sticky;top:0;z-index:20;background:var(--bg1,var(--bg2));padding:10px 0 12px;margin-bottom:8px;border-bottom:1px solid var(--border);display:flex;flex-wrap:wrap;gap:10px;box-shadow:0 4px 12px rgba(0,0,0,0.15)">';
     for (const sk of setKeys) {
       const s = bal.sets[sk];
       let legsHtml = '';
