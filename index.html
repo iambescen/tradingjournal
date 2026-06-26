@@ -1039,8 +1039,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '26.06 20:36';
-const BUILD_DATE    = '26.06.2026 20:36 МСК';
+const BUILD_VERSION = '26.06 20:41';
+const BUILD_DATE    = '26.06.2026 20:41 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -11663,6 +11663,25 @@ const MANUAL_TAGS = [
   'URF/CR1/USDCNH','CRF/CR1','ERF/CRF/EURCNH','URF/CRF/USDCNH',
 ];
 
+// Какие конструкции содержат данный фьючерс (для фильтра выпадающего списка).
+const _FX_NAMES = ['USDCNH','EURCNH','EURUSD'];
+function tagsForInstrument(instrument, platform) {
+  const base = (platform === 'FX')
+    ? (instrument||'').replace(/[-_]/g,'').toUpperCase()
+    : normMxBase(instrument);
+  if (!base) return MANUAL_TAGS.slice();
+  return MANUAL_TAGS.filter(tag => tag.split('/').some(p => {
+    if (platform === 'FX') return _FX_NAMES.includes(p) && p === base;
+    return TAG_TO_BASE[p] && TAG_TO_BASE[p] === base;
+  }));
+}
+function _tagOptions(instrument, platform, selected) {
+  const allow = tagsForInstrument(instrument, platform);
+  return ['<option value="">— тег —</option>']
+    .concat(allow.map(t => `<option value="${t}" ${t===selected?'selected':''}>${t}</option>`))
+    .join('');
+}
+
 // Стабильный ключ сделки (для хранения разметки)
 function manualKey(t) {
   return [t._platform, t._dateStr, t.time, t.instrument, t._dir, t._price, t._vol].join('|');
@@ -11763,7 +11782,7 @@ function renderManualRaznos() {
     const allSame = g.trades.every(t=>{ const a=getManualAssign(manualKey(t)); return (a&&firstA)?(a.tag===firstA.tag&&a.setN===firstA.setN):(a===firstA); });
     const gTag = allSame && firstA ? firstA.tag : '';
     const gSet = allSame && firstA ? firstA.setN : 1;
-    const gTagSel = ['<option value="">— тег —</option>'].concat(MANUAL_TAGS.map(t=>`<option value="${t}" ${t===gTag?'selected':''}>${t}</option>`)).join('');
+    const gTagSel = _tagOptions(g.instrument, g._platform, gTag);
     // строка группы (шапка)
     rows += `<tr style="background:var(--bg2);border-top:2px solid var(--border)">
       <td style="font-weight:700;color:var(--blue)">${g.instrument} <span style="font-size:10px;color:var(--text2)">${isFx?'FX':'MX'}</span></td>
@@ -11778,7 +11797,7 @@ function renderManualRaznos() {
       const a = getManualAssign(manualKey(t));
       const k = manualKey(t).replace(/'/g,'');
       const dCls = t._dir==='Long'?'pos':'neg';
-      const rowTagSel = ['<option value="">—</option>'].concat(MANUAL_TAGS.map(tg=>`<option value="${tg}" ${a&&a.tag===tg?'selected':''}>${tg}</option>`)).join('');
+      const rowTagSel = _tagOptions(t.instrument, t._platform, a&&a.tag);
       rows += `<tr style="font-size:11px;color:var(--text2)">
         <td style="padding-left:18px">${t.instrument}</td>
         <td class="mono ${dCls}" style="text-align:right">${t._dir==='Long'?'+':'-'}${t._vol} @ ${t._price}</td>
