@@ -1038,8 +1038,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '26.06 11:53';
-const BUILD_DATE    = '26.06.2026 11:53 МСК';
+const BUILD_VERSION = '26.06 14:57';
+const BUILD_DATE    = '26.06.2026 14:57 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -9254,6 +9254,24 @@ function _fxDateTimeKey(s) {
 // Заменяет старую сборку (Проход 1/2 + applyExitsToPosition + checkAndClosePosition).
 // ════════════════════════════════════════════════════════════════════
 
+// Направление входа ноги = направление ПЕРВОЙ хронологической сделки инструмента
+// в разрешённые дни (и опц. в окне). Надёжнее, чем направление из детекции.
+function _firstDirOfLeg(instr, allowedDays, uniqDays, openKey, closeKey) {
+  let best = null, bestKey = Infinity;
+  uniqDays.forEach((d) => {
+    if (allowedDays && !allowedDays.includes(d)) return;
+    const rep = getMxReportForDate(d);
+    if (!rep) return;
+    (rep.trades||[]).forEach(t => {
+      if ((t.instrument||'').toUpperCase() !== instr.toUpperCase()) return;
+      const k = _absKey(d, t.time);
+      if (openKey != null && (k < openKey - 60000 || k > closeKey + 60000)) return;
+      if (k < bestKey) { bestKey = k; best = t.direction; }
+    });
+  });
+  return best; // 'Short' | 'Long' | null
+}
+
 // Строит одну позицию из набора (цикла) анкерной ноги.
 // Собрать сделки ноги (по точному инструменту) в окне набора, только в разрешённые дни,
 // и разделить на entries/exits по направлению входа ноги.
@@ -9313,7 +9331,10 @@ function buildPositionFromSet(info, anchorBase, cyc, ci, uniqDays) {
   for (const b in info.mxLegs) {
     if (b === anchorBase) continue;
     const pl = info.mxLegs[b];
-    const lt = _gatherLegInWindow(pl.instr, pl.dir, info.instrDays[pl.instr], uniqDays, openKey, closeKey);
+    // направление входа парной ноги — по первой её сделке в окне набора
+    const pdir = _firstDirOfLeg(pl.instr, info.instrDays[pl.instr], uniqDays, openKey, closeKey) || pl.dir;
+    pl.dir = pdir;
+    const lt = _gatherLegInWindow(pl.instr, pdir, info.instrDays[pl.instr], uniqDays, openKey, closeKey);
     const inV = lt.entries.reduce((s,t)=>s+Math.abs(t.volume||0),0);
     const outV = lt.exits.reduce((s,t)=>s+Math.abs(t.volume||0),0);
     pos.legs[b] = {
@@ -9326,9 +9347,12 @@ function buildPositionFromSet(info, anchorBase, cyc, ci, uniqDays) {
 
   // CNY-хедж — пустая нога-плейсхолдер (заполнится attributeHedgeTrades позже)
   if (info.cnyInstr) {
+    // направление входа CNY — по первой сделке CNY в окне набора (надёжнее детекции)
+    const cdir = _firstDirOfLeg(info.cnyInstr, info.instrDays[info.cnyInstr], uniqDays, openKey, closeKey) || info.cnyDir;
+    info.cnyDir = cdir;
     pos.legs['CNY'] = {
       platform:'MX', instrument: info.cnyInstr,
-      entry_direction: info.cnyDir==='Long' ? 'Buy' : 'Sell',
+      entry_direction: cdir==='Long' ? 'Buy' : 'Sell',
       vol_in: 0, vol_out: 0, net_volume: 0,
     };
     pos._legTrades['CNY'] = { entries: [], exits: [] };
@@ -9375,7 +9399,6 @@ function rebuildSetPositions() {
     if (!anchorBase) continue;
     const anchorLeg = info.mxLegs[anchorBase];
     const anchorInstr = anchorLeg.instr;
-    const isShort = anchorLeg.dir === 'Short' || anchorLeg.dir === 'Sell';
     const allowedDays = info.instrDays[anchorInstr] || info.days;
     // Сделки анкера ТОЛЬКО в дни, где инструмент принадлежал этому тегу
     const atrades = [];
@@ -9389,6 +9412,13 @@ function rebuildSetPositions() {
       });
     });
     if (!atrades.length) continue;
+    // Направление входа = направление ПЕРВОЙ хронологически сделки анкера
+    // (надёжнее, чем anchorDir из детекции — он на отдельных днях ошибался).
+    const firstTrade = atrades.slice().sort((a,b)=>
+      (a._dayIdx-b._dayIdx) || (timeToMs(a.time)-timeToMs(b.time)))[0];
+    const isShort = firstTrade.direction === 'Short';
+    // Прокидываем фактическое направление в info, чтобы ноги/легтрейды были согласованы
+    anchorLeg.dir = isShort ? 'Short' : 'Long';
     const sets = splitTradesIntoSets(atrades, isShort);
     sets.forEach((cyc, ci) => {
       newPositions.push(buildPositionFromSet(info, anchorBase, cyc, ci, uniqDays));
