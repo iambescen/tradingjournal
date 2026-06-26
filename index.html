@@ -1039,8 +1039,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '26.06 20:41';
-const BUILD_DATE    = '26.06.2026 20:41 МСК';
+const BUILD_VERSION = '26.06 20:45';
+const BUILD_DATE    = '26.06.2026 20:45 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -11682,6 +11682,22 @@ function _tagOptions(instrument, platform, selected) {
     .join('');
 }
 
+// Стабильный цвет по инструменту (для визуального разделения групп).
+function _instrHue(instrument) {
+  const base = normMxBase(instrument) || (instrument||'').replace(/[-_]/g,'').toUpperCase();
+  let h = 0;
+  for (let i = 0; i < base.length; i++) h = (h*31 + base.charCodeAt(i)) % 360;
+  return h;
+}
+function _instrColors(instrument) {
+  const hue = _instrHue(instrument);
+  return {
+    accent: `hsl(${hue},70%,55%)`,        // яркая полоса слева
+    head:   `hsla(${hue},65%,55%,0.18)`,  // фон строки-группы
+    row:    `hsla(${hue},60%,55%,0.07)`,  // фон строк сделок
+  };
+}
+
 // Стабильный ключ сделки (для хранения разметки)
 function manualKey(t) {
   return [t._platform, t._dateStr, t.time, t.instrument, t._dir, t._price, t._vol].join('|');
@@ -11783,9 +11799,10 @@ function renderManualRaznos() {
     const gTag = allSame && firstA ? firstA.tag : '';
     const gSet = allSame && firstA ? firstA.setN : 1;
     const gTagSel = _tagOptions(g.instrument, g._platform, gTag);
+    const col = _instrColors(g.instrument);
     // строка группы (шапка)
-    rows += `<tr style="background:var(--bg2);border-top:2px solid var(--border)">
-      <td style="font-weight:700;color:var(--blue)">${g.instrument} <span style="font-size:10px;color:var(--text2)">${isFx?'FX':'MX'}</span></td>
+    rows += `<tr style="background:${col.head};border-top:3px solid ${col.accent}">
+      <td style="font-weight:700;color:var(--text1);border-left:5px solid ${col.accent};padding-left:8px">${g.instrument} <span style="font-size:10px;color:var(--text2)">${isFx?'FX':'MX'}</span></td>
       <td class="mono" style="text-align:right;font-weight:600">${g.volNet>0?'+':''}${g.volNet}<span style="color:var(--text2);font-weight:400"> / Σ${g.volSum}</span></td>
       <td class="mono" style="text-align:right">${g.t0}</td>
       <td class="mono ${isFx?'':mCls}" style="text-align:right;font-weight:600">${isFx?(g.pnlUsd>=0?'+':'')+g.pnlUsd.toFixed(2)+'$':fmtRub(g.margin)}</td>
@@ -11798,8 +11815,8 @@ function renderManualRaznos() {
       const k = manualKey(t).replace(/'/g,'');
       const dCls = t._dir==='Long'?'pos':'neg';
       const rowTagSel = _tagOptions(t.instrument, t._platform, a&&a.tag);
-      rows += `<tr style="font-size:11px;color:var(--text2)">
-        <td style="padding-left:18px">${t.instrument}</td>
+      rows += `<tr style="font-size:11px;color:var(--text2);background:${col.row}">
+        <td style="padding-left:18px;border-left:5px solid ${col.accent}">${t.instrument}</td>
         <td class="mono ${dCls}" style="text-align:right">${t._dir==='Long'?'+':'-'}${t._vol} @ ${t._price}</td>
         <td class="mono" style="text-align:right">${t.time}</td>
         <td class="mono" style="text-align:right">${t._platform==='FX'?((t._pnlUsd>=0?'+':'')+(t._pnlUsd||0).toFixed(2)+'$'):(t._margin?fmtRub(t._margin):'—')}</td>
