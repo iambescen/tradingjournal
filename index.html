@@ -1039,8 +1039,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '26.06 21:04';
-const BUILD_DATE    = '26.06.2026 21:04 МСК';
+const BUILD_VERSION = '26.06 21:10';
+const BUILD_DATE    = '26.06.2026 21:10 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -11936,7 +11936,10 @@ function calcManualResults() {
     if (!pos.legs[base]) pos.legs[base] = { platform:t._platform, instrument:t.instrument, trades:[] };
     pos.legs[base].trades.push(t);
   }
-  // P&L: MX = Σ margin_rub; FX = Σ net_pnl_usd × курс
+  // P&L: MX = margin_rub (фьючерсы) или i.pnl из PDF (перпетуалы: CNYRUBF/EURRUBF/USDRUBF)
+  // У перпетуалов margin_rub по сделкам ≠ i.pnl из-за фандинга → берём итоговую строку PDF
+  const _isPerpetual = instr => /RUBF$/i.test(instr||'');
+  const rep = getMxReportForDate(date);
   const rate = getRateForDate(date) || 0;
   let html = '<div style="margin-bottom:16px">';
   const keys = Object.keys(byPos).sort();
@@ -11953,7 +11956,16 @@ function calcManualResults() {
         const u = leg.trades.reduce((s,t)=>s+(t._pnlUsd||0),0); fxUsd += u;
         legsHtml += `<div style="display:flex;justify-content:space-between;font-size:12px;padding:2px 0"><span>${leg.instrument} <span style="color:var(--text2)">FX ${leg.trades.reduce((s,t)=>s+t._vol,0).toFixed(2)}л</span></span><span class="${u>=0?'pos':'neg'} mono">${(u>=0?'+':'')+u.toFixed(2)}$ = ${fmtRub(u*rate)}</span></div>`;
       } else {
-        const m = leg.trades.reduce((s,t)=>s+(t._margin||0),0); mxTot += m;
+        let m;
+        if (_isPerpetual(leg.instrument)) {
+          // перпетуал: берём i.pnl из итоговой строки PDF (включает фандинг)
+          const instrRow = (rep?.instruments||[]).find(i=>i.name===leg.instrument);
+          m = instrRow ? (instrRow.pnl||0) : leg.trades.reduce((s,t)=>s+(t._margin||0),0);
+        } else {
+          // фьючерс: Σ margin_rub по сделкам
+          m = leg.trades.reduce((s,t)=>s+(t._margin||0),0);
+        }
+        mxTot += m;
         legsHtml += `<div style="display:flex;justify-content:space-between;font-size:12px;padding:2px 0"><span>${leg.instrument} <span style="color:var(--text2)">вх ${inV}л / вых ${outV}л</span></span><span class="${m>=0?'pos':'neg'} mono">${fmtRub(m)}</span></div>`;
       }
     }
