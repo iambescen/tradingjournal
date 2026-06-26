@@ -1038,8 +1038,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '26.06 11:48';
-const BUILD_DATE    = '26.06.2026 11:48 МСК';
+const BUILD_VERSION = '26.06 11:53';
+const BUILD_DATE    = '26.06.2026 11:53 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -9104,41 +9104,36 @@ const FX_FOR_TAG = {
   CR1: null, CR2: null,
 };
 
-function showAutoTagDialog() {
-  const dates = store.mx.map(r => r.date).filter(Boolean);
+async function showAutoTagDialog() {
+  const dates = (store.mx||[]).map(r => r.date).filter(Boolean);
   if (!dates.length) { alert('Сначала загрузи PDF-отчёт МХ'); return; }
-  // Sort dates descending — closest to today first
-  var sortedDates = dates.slice().sort(function(a, b) {
+  // Все загруженные дни хронологически (старые → новые)
+  const sortedDates = [...new Set(dates)].sort(function(a, b) {
     var pa=a.split('.'), pb=b.split('.');
-    var da=new Date(+pa[2],+pa[1]-1,+pa[0]);
-    var db=new Date(+pb[2],+pb[1]-1,+pb[0]);
-    return db-da;
+    return new Date(+pa[2],+pa[1]-1,+pa[0]) - new Date(+pb[2],+pb[1]-1,+pb[0]);
   });
-  const existing = document.getElementById('autotag-modal');
-  if (existing) existing.remove();
-  const dlg = document.createElement('div');
-  dlg.id = 'autotag-modal';
-  dlg.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.75);z-index:9999;display:flex;align-items:center;justify-content:center';
-  dlg.innerHTML = '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:24px;min-width:320px;box-shadow:0 8px 40px rgba(0,0,0,0.6)">'
-    + '<div style="font-size:15px;font-weight:700;margin-bottom:16px">🤖 Авторазнос сделок</div>'
-    + '<div style="font-size:12px;color:var(--text2);margin-bottom:12px">Выбери дату из загруженных отчётов:</div>'
-    + '<select id="autotag-date-sel" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1);font-size:13px;margin-bottom:16px">'
-    + sortedDates.map(d => '<option value="'+d+'">'+d+'</option>').join('')
-    + '</select>'
-    + '<div style="display:flex;gap:8px;justify-content:flex-end">'
-    + '<button id="atd-cancel" style="padding:6px 14px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1);cursor:pointer">Отмена</button>'
-    + '<button id="atd-ok" style="padding:6px 14px;border:none;border-radius:6px;background:var(--blue);color:#fff;cursor:pointer;font-weight:600">Разнести</button>'
-    + '</div></div>';
-  document.body.appendChild(dlg);
-  document.getElementById('atd-cancel').onclick = function() { dlg.remove(); };
-  document.getElementById('atd-ok').onclick = function() {
-    const d = document.getElementById('autotag-date-sel').value;
-    dlg.remove();
-    autoTagFromReports(d).catch(function(e) {
-      console.error('[AutoTag] Error:', e);
-      alert('Ошибка авторазноса: ' + e.message);
-    });
-  };
+  // Полная пересборка журнала с нуля: детекция по ВСЕМ дням → одна сборка позиций
+  store._tagInfo = {};
+  if (!store.autoLj) store.autoLj = { rows: [] };
+  store.autoLj.rows = [];
+  let totalSets = 0, totalRows = 0;
+  try {
+    for (const d of sortedDates) {
+      const res = await autoTagFromReports(d, { silent: true });
+      if (res) { totalSets += res.sets||0; totalRows += res.rows||0; }
+    }
+    // Одна целостная пересборка позиций после детекции всех дней
+    rebuildSetPositions();
+    if (typeof renderAutoLj === 'function') renderAutoLj();
+    if (typeof renderPositionsTab === 'function') renderPositionsTab();
+    saveStore();
+    alert('✅ Авторазнос завершён.\nДней: ' + sortedDates.length
+      + '\nНаборов: ' + totalSets + '\nЗаписей: ' + totalRows
+      + '\nПозиций: ' + (store.positions||[]).length);
+  } catch (e) {
+    console.error('[AutoTag] Error:', e);
+    alert('Ошибка авторазноса: ' + e.message);
+  }
 }
 
 
@@ -9709,7 +9704,8 @@ function attachSetToPosition(pos, setInfo) {
   pos.sets.push(setInfo);
 }
 
-async function autoTagFromReports(date) {
+async function autoTagFromReports(date, opts) {
+  opts = opts || {};
   try {
   const report = getMxReportForDate(date);
   if (!report || !report.trades || !report.trades.length) {
@@ -9937,12 +9933,21 @@ async function autoTagFromReports(date) {
     if (!info.days.includes(date)) info.days.push(date);
   }
 
-  // Построение позиций С НУЛЯ: набор = позиция (путь Б)
-  rebuildSetPositions();
+  // Построение позиций С НУЛЯ: набор = позиция (путь Б).
+  // В silent-режиме (полный прогон по всем дням) rebuild делается ОДИН раз в конце.
+  if (!opts.silent) rebuildSetPositions();
 
 
 
   // Show preview modal
+  // silent: коммитим записи в авто-журнал без модалки и возвращаем сводку
+  if (opts.silent) {
+    if (!store.autoLj) store.autoLj = { rows: [] };
+    store.autoLj.rows = store.autoLj.rows.filter(function(r) { return r.date !== date; });
+    store.autoLj.rows.push.apply(store.autoLj.rows, newRows);
+    saveStore();
+    return { sets: sets.length, rows: newRows.length };
+  }
   const existing2 = document.getElementById('autotag-modal');
   if (existing2) existing2.remove();
 
