@@ -1039,8 +1039,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '26.06 21:00';
-const BUILD_DATE    = '26.06.2026 21:00 МСК';
+const BUILD_VERSION = '26.06 21:04';
+const BUILD_DATE    = '26.06.2026 21:04 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -11715,9 +11715,12 @@ function getCombinedTradesForManual(date) {
     const dirRaw = (t.dir_open || t.direction || '').toLowerCase();
     const dir = (dirRaw.includes('куп')||dirRaw.includes('buy')||dirRaw.includes('long')) ? 'Long' : 'Short';
     const k = _fxDateTimeKey(odRaw);
+    const clRaw = t.close_time || t.close_date || '';
     out.push({
       _platform:'FX', _dateStr:ds, time:(odRaw.split(' ')[1]||'').substring(0,8), instrument:t.instrument,
       _dir:dir, _price:t.entry_price, _vol:Math.abs(t.qty||0),
+      _closePrice:(t.close_price!=null?t.close_price:null), _closeTime:(clRaw.split(' ')[1]||'').substring(0,8),
+      _fxClosed:true,
       _margin:null, _comm:(t.commission||0), _pnlUsd:(t.net_pnl_usd||0), _comment:(t.comment||''), _dt:new Date(k), _raw:t,
     });
   });
@@ -11782,6 +11785,12 @@ function computeManualBalances(date) {
     const base = t._platform==='FX' ? t.instrument.replace(/[-_]/g,'').toUpperCase() : t.instrument;
     const set = sets[sk] || (sets[sk] = { tag:a.tag, setN:a.setN||1, legs:{} });
     const leg = set.legs[base] || (set.legs[base] = { instrument:t.instrument, platform:t._platform, entryDir:null, inL:0, outL:0, net:0 });
+    if (t._fxClosed) {
+      // FX-сделка cTrader = открытие+закрытие в одной строке → сразу net 0
+      leg.inL += t._vol; leg.outL += t._vol;
+      roleByKey[manualKey(t)] = { role:'fx', net: leg.net, base };
+      continue;
+    }
     if (!leg.entryDir) leg.entryDir = t._dir; // первая сделка ноги = вход
     const isEntry = (t._dir === leg.entryDir);
     if (isEntry) { leg.inL += t._vol; leg.net += t._vol; }
@@ -11838,18 +11847,23 @@ function renderManualRaznos() {
       const dCls = t._dir==='Long'?'pos':'neg';
       const rowTagSel = _tagOptions(t.instrument, t._platform, a&&a.tag);
       const role = bal.roleByKey[manualKey(t)];
-      // нейтральный фон (зебра группы), смысл — полоса слева: вход зелёная, выход красная
+      // нейтральный фон (зебра группы), смысл — полоса слева: вход зелёная, выход красная, FX синяя
       let roleBorder = 'transparent', roleBadge = '';
       if (role) {
-        roleBorder = role.role==='entry' ? 'var(--green)' : 'var(--red)';
-        const lbl = role.role==='entry' ? '▲ вход' : '▼ выход';
-        const lblCol = role.role==='entry' ? 'var(--green)' : 'var(--red)';
-        roleBadge = `<span style="color:${lblCol};font-weight:600">${lbl}</span> <span style="color:var(--text2)">осталось ${role.net}</span>`;
+        if (role.role === 'fx') {
+          roleBorder = 'var(--blue)';
+          roleBadge = `<span style="color:var(--blue);font-weight:600">⇄ FX</span> <span class="${(t._pnlUsd||0)>=0?'pos':'neg'}">${(t._pnlUsd>=0?'+':'')+(t._pnlUsd||0).toFixed(2)}$</span>`;
+        } else {
+          roleBorder = role.role==='entry' ? 'var(--green)' : 'var(--red)';
+          const lbl = role.role==='entry' ? '▲ вход' : '▼ выход';
+          const lblCol = role.role==='entry' ? 'var(--green)' : 'var(--red)';
+          roleBadge = `<span style="color:${lblCol};font-weight:600">${lbl}</span> <span style="color:var(--text2)">осталось ${role.net}</span>`;
+        }
       }
       rows += `<tr style="font-size:11px;background:${col.row}">
         <td style="padding:4px 6px 4px 22px;border-left:4px solid ${roleBorder};color:var(--text2)">${t.instrument}${t._comment?` <span style="font-size:9px;background:var(--bg3);color:var(--blue);padding:1px 5px;border-radius:3px;font-weight:600" title="комментарий cTrader">${t._comment}</span>`:''}</td>
-        <td class="mono ${dCls}" style="text-align:right;padding:4px 6px">${t._dir==='Long'?'+':'−'}${t._vol} <span style="color:var(--text2)">@ ${t._price}</span></td>
-        <td class="mono" style="text-align:right;color:var(--text2);padding:4px 6px">${t.time}</td>
+        <td class="mono ${dCls}" style="text-align:right;padding:4px 6px">${t._dir==='Long'?'+':'−'}${t._vol} <span style="color:var(--text2)">@ ${t._price}${t._fxClosed&&t._closePrice!=null?` → ${t._closePrice}`:''}</span></td>
+        <td class="mono" style="text-align:right;color:var(--text2);padding:4px 6px">${t.time}${t._fxClosed&&t._closeTime?`<span style="opacity:.6">→${t._closeTime}</span>`:''}</td>
         <td class="mono" style="text-align:right;padding:4px 6px">${roleBadge || (t._platform==='FX'?((t._pnlUsd>=0?'+':'')+(t._pnlUsd||0).toFixed(2)+'$'):(t._margin?fmtRub(t._margin):'—'))}</td>
         <td style="padding:3px 6px"><select onchange="setManualAssign('${k}',this.value,this.parentElement.parentElement.querySelector('.rset').value);renderManualRaznos()" style="width:100%;padding:3px;border:1px solid var(--border);border-radius:5px;background:var(--bg2);color:var(--text2);font-size:10px">${rowTagSel}</select></td>
         <td style="padding:3px 6px"><input type="number" min="1" value="${a?a.setN:1}" class="rset" onchange="setManualAssign('${k}',this.parentElement.parentElement.querySelector('select').value,this.value);renderManualRaznos()" style="width:46px;padding:3px;border:1px solid var(--border);border-radius:5px;background:var(--bg2);color:var(--text2);font-size:10px;text-align:center"></td>
