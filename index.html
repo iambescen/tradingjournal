@@ -1039,8 +1039,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '26.06 20:53';
-const BUILD_DATE    = '26.06.2026 20:53 МСК';
+const BUILD_VERSION = '26.06 20:58';
+const BUILD_DATE    = '26.06.2026 20:58 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -11682,19 +11682,13 @@ function _tagOptions(instrument, platform, selected) {
     .join('');
 }
 
-// Стабильный цвет по инструменту (для визуального разделения групп).
-function _instrHue(instrument) {
-  const base = normMxBase(instrument) || (instrument||'').replace(/[-_]/g,'').toUpperCase();
-  let h = 0;
-  for (let i = 0; i < base.length; i++) h = (h*31 + base.charCodeAt(i)) % 360;
-  return h;
-}
-function _instrColors(instrument) {
-  const hue = _instrHue(instrument);
+// Нейтральное выделение групп: зебра через одну + единый акцент.
+// Смысловой цвет (вход/выход) задаётся отдельно полосой слева у строк сделок.
+function _instrColors(instrument, gi) {
   return {
-    accent: `hsl(${hue},70%,55%)`,        // яркая полоса слева
-    head:   `hsla(${hue},65%,55%,0.18)`,  // фон строки-группы
-    row:    `hsla(${hue},60%,55%,0.07)`,  // фон строк сделок
+    accent: 'var(--blue)',                              // тонкий акцент группы
+    head:   'var(--bg3)',                               // фон строки-группы (контрастнее)
+    row:    (gi % 2 === 0) ? 'var(--bg2)' : 'var(--bg-expand)', // зебра по группам
   };
 }
 
@@ -11823,15 +11817,15 @@ function renderManualRaznos() {
     const gTag = allSame && firstA ? firstA.tag : '';
     const gSet = allSame && firstA ? firstA.setN : 1;
     const gTagSel = _tagOptions(g.instrument, g._platform, gTag);
-    const col = _instrColors(g.instrument);
+    const col = _instrColors(g.instrument, gi);
     // строка группы (шапка)
-    rows += `<tr style="background:${col.head};border-top:3px solid ${col.accent}">
-      <td style="font-weight:700;color:var(--text1);border-left:5px solid ${col.accent};padding-left:8px">${g.instrument} <span style="font-size:10px;color:var(--text2)">${isFx?'FX':'MX'}</span></td>
-      <td class="mono" style="text-align:right;font-weight:600">${g.volNet>0?'+':''}${g.volNet}<span style="color:var(--text2);font-weight:400"> / Σ${g.volSum}</span></td>
-      <td class="mono" style="text-align:right">${g.t0}</td>
-      <td class="mono ${isFx?'':mCls}" style="text-align:right;font-weight:600">${isFx?(g.pnlUsd>=0?'+':'')+g.pnlUsd.toFixed(2)+'$':fmtRub(g.margin)}</td>
-      <td><select onchange="applyTagToGroup('${date}',${gi},this.value,this.parentElement.parentElement.querySelector('.gset').value)" style="width:100%;padding:3px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text1);font-size:11px">${gTagSel}</select></td>
-      <td><input type="number" min="1" value="${gSet}" class="gset" onchange="applyTagToGroup('${date}',${gi},this.parentElement.parentElement.querySelector('select').value,this.value)" style="width:48px;padding:3px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text1);font-size:11px;text-align:center"></td>
+    rows += `<tr style="background:${col.head};border-top:2px solid var(--border)">
+      <td style="font-weight:700;color:var(--text1);border-left:4px solid ${col.accent};padding:7px 6px 7px 10px">${g.instrument} <span style="font-size:9px;color:var(--text2);font-weight:600;letter-spacing:.5px">${isFx?'FX':'MX'}</span></td>
+      <td class="mono" style="text-align:right;font-weight:700;padding:7px 6px">${g.volNet>0?'+':''}${g.volNet}<span style="color:var(--text2);font-weight:400;font-size:11px"> /Σ${g.volSum}</span></td>
+      <td class="mono" style="text-align:right;color:var(--text2);padding:7px 6px">${g.t0}</td>
+      <td class="mono ${isFx?'':mCls}" style="text-align:right;font-weight:700;padding:7px 6px">${isFx?(g.pnlUsd>=0?'+':'')+g.pnlUsd.toFixed(2)+'$':fmtRub(g.margin)}</td>
+      <td style="padding:5px 6px"><select onchange="applyTagToGroup('${date}',${gi},this.value,this.parentElement.parentElement.querySelector('.gset').value)" style="width:100%;padding:4px;border:1px solid var(--border);border-radius:5px;background:var(--bg2);color:var(--text1);font-size:11px;font-weight:600">${gTagSel}</select></td>
+      <td style="padding:5px 6px"><input type="number" min="1" value="${gSet}" class="gset" onchange="applyTagToGroup('${date}',${gi},this.parentElement.parentElement.querySelector('select').value,this.value)" style="width:46px;padding:4px;border:1px solid var(--border);border-radius:5px;background:var(--bg2);color:var(--text1);font-size:11px;text-align:center;font-weight:600"></td>
     </tr>`;
     // строки сделок группы
     g.trades.forEach(t => {
@@ -11840,21 +11834,21 @@ function renderManualRaznos() {
       const dCls = t._dir==='Long'?'pos':'neg';
       const rowTagSel = _tagOptions(t.instrument, t._platform, a&&a.tag);
       const role = bal.roleByKey[manualKey(t)];
-      // подсветка роли: вход — зелёная полоса, выход — красная; «осталось N» в наборе
-      let roleBg = col.row, roleBadge = '';
+      // нейтральный фон (зебра группы), смысл — полоса слева: вход зелёная, выход красная
+      let roleBorder = 'transparent', roleBadge = '';
       if (role) {
-        roleBg = role.role==='entry' ? 'hsla(140,55%,45%,0.13)' : 'hsla(0,60%,50%,0.13)';
+        roleBorder = role.role==='entry' ? 'var(--green)' : 'var(--red)';
         const lbl = role.role==='entry' ? '▲ вход' : '▼ выход';
-        const lblCol = role.role==='entry' ? 'var(--profit,#16a34a)' : 'var(--loss,#dc2626)';
-        roleBadge = `<span style="color:${lblCol};font-weight:600">${lbl}</span> <span style="color:var(--text2)">→ осталось ${role.net}</span>`;
+        const lblCol = role.role==='entry' ? 'var(--green)' : 'var(--red)';
+        roleBadge = `<span style="color:${lblCol};font-weight:600">${lbl}</span> <span style="color:var(--text2)">осталось ${role.net}</span>`;
       }
-      rows += `<tr style="font-size:11px;color:var(--text2);background:${roleBg}">
-        <td style="padding-left:18px;border-left:5px solid ${col.accent}">${t.instrument}</td>
-        <td class="mono ${dCls}" style="text-align:right">${t._dir==='Long'?'+':'-'}${t._vol} @ ${t._price}</td>
-        <td class="mono" style="text-align:right">${t.time}</td>
-        <td class="mono" style="text-align:right">${roleBadge || (t._platform==='FX'?((t._pnlUsd>=0?'+':'')+(t._pnlUsd||0).toFixed(2)+'$'):(t._margin?fmtRub(t._margin):'—'))}</td>
-        <td><select onchange="setManualAssign('${k}',this.value,this.parentElement.parentElement.querySelector('.rset').value);renderManualRaznos()" style="width:100%;padding:2px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text2);font-size:10px">${rowTagSel}</select></td>
-        <td><input type="number" min="1" value="${a?a.setN:1}" class="rset" onchange="setManualAssign('${k}',this.parentElement.parentElement.querySelector('select').value,this.value);renderManualRaznos()" style="width:48px;padding:2px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text2);font-size:10px;text-align:center"></td>
+      rows += `<tr style="font-size:11px;background:${col.row}">
+        <td style="padding:4px 6px 4px 22px;border-left:4px solid ${roleBorder};color:var(--text2)">${t.instrument}</td>
+        <td class="mono ${dCls}" style="text-align:right;padding:4px 6px">${t._dir==='Long'?'+':'−'}${t._vol} <span style="color:var(--text2)">@ ${t._price}</span></td>
+        <td class="mono" style="text-align:right;color:var(--text2);padding:4px 6px">${t.time}</td>
+        <td class="mono" style="text-align:right;padding:4px 6px">${roleBadge || (t._platform==='FX'?((t._pnlUsd>=0?'+':'')+(t._pnlUsd||0).toFixed(2)+'$'):(t._margin?fmtRub(t._margin):'—'))}</td>
+        <td style="padding:3px 6px"><select onchange="setManualAssign('${k}',this.value,this.parentElement.parentElement.querySelector('.rset').value);renderManualRaznos()" style="width:100%;padding:3px;border:1px solid var(--border);border-radius:5px;background:var(--bg2);color:var(--text2);font-size:10px">${rowTagSel}</select></td>
+        <td style="padding:3px 6px"><input type="number" min="1" value="${a?a.setN:1}" class="rset" onchange="setManualAssign('${k}',this.parentElement.parentElement.querySelector('select').value,this.value);renderManualRaznos()" style="width:46px;padding:3px;border:1px solid var(--border);border-radius:5px;background:var(--bg2);color:var(--text2);font-size:10px;text-align:center"></td>
       </tr>`;
     });
   });
@@ -11863,22 +11857,24 @@ function renderManualRaznos() {
   let balWidget = '';
   const setKeys = Object.keys(bal.sets).sort();
   if (setKeys.length) {
-    balWidget = '<div style="position:sticky;top:0;z-index:20;background:var(--bg1,var(--bg2));padding:10px 0 12px;margin-bottom:8px;border-bottom:1px solid var(--border);display:flex;flex-wrap:wrap;gap:10px;box-shadow:0 4px 12px rgba(0,0,0,0.15)">';
+    balWidget = '<div style="position:sticky;top:0;z-index:20;background:var(--bg);padding:12px 0;margin-bottom:10px;border-bottom:2px solid var(--border);display:flex;flex-wrap:wrap;gap:10px;box-shadow:0 6px 16px rgba(0,0,0,0.18)">';
     for (const sk of setKeys) {
       const s = bal.sets[sk];
       let legsHtml = '';
       for (const b in s.legs) {
         const lg = s.legs[b];
-        const openCls = lg.net===0 ? 'var(--text2)' : (lg.net>0?'var(--profit,#16a34a)':'var(--loss,#dc2626)');
+        const openCls = lg.net===0 ? 'var(--green)' : 'var(--text1)';
         const status = lg.net===0 ? '✓ закрыта' : ('осталось '+lg.net);
-        legsHtml += `<div style="display:flex;justify-content:space-between;gap:12px;font-size:11px;padding:2px 0">
-          <span>${lg.instrument}</span>
-          <span class="mono" style="color:var(--text2)">+${lg.inL} / −${lg.outL} <span style="color:${openCls};font-weight:600">${status}</span></span>
+        legsHtml += `<div style="display:flex;justify-content:space-between;gap:14px;font-size:11px;padding:2px 0">
+          <span style="color:var(--text2)">${lg.instrument}</span>
+          <span class="mono"><span style="color:var(--green)">+${lg.inL}</span> <span style="color:var(--red)">−${lg.outL}</span> <span style="color:${openCls};font-weight:700">${status}</span></span>
         </div>`;
       }
       const allClosed = Object.values(s.legs).every(l=>l.net===0);
-      balWidget += `<div style="border:1px solid var(--border);border-left:4px solid ${allClosed?'var(--profit,#16a34a)':'var(--orange,#f59e0b)'};border-radius:8px;padding:10px 12px;min-width:240px;background:var(--bg2)">
-        <div style="font-weight:700;color:var(--blue);font-size:12px;margin-bottom:6px">${s.tag} <span style="color:var(--text2);font-weight:400">· набор ${s.setN}</span> ${allClosed?'<span style="color:var(--profit,#16a34a)">●</span>':'<span style="color:var(--orange,#f59e0b)">●</span>'}</div>
+      const statColor = allClosed ? 'var(--green)' : '#f59e0b';
+      balWidget += `<div style="border:1px solid var(--border);border-left:4px solid ${statColor};border-radius:8px;padding:10px 14px;min-width:250px;background:var(--bg2);box-shadow:var(--shadow)">
+        <div style="font-weight:700;color:var(--text1);font-size:12px;margin-bottom:7px;display:flex;align-items:center;gap:6px">
+          <span style="color:${statColor};font-size:9px">●</span>${s.tag} <span style="color:var(--text2);font-weight:500">· набор ${s.setN}</span></div>
         ${legsHtml}
       </div>`;
     }
