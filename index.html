@@ -1038,8 +1038,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '26.06 19:57';
-const BUILD_DATE    = '26.06.2026 19:57 МСК';
+const BUILD_VERSION = '26.06 20:04';
+const BUILD_DATE    = '26.06.2026 20:04 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -8535,12 +8535,38 @@ function calcPositionPnlByFormula(pos) {
     }
 
     const m = calcLegMargin(base, entries, exits, isEntryShort);
-    // P&L ПРОПА = сумма margin_rub (вариационная маржа биржи) по сделкам ноги в наборе.
-    // Это ровно то, что считает проп: с переоценкой переноса, клирингом и знаком из PDF.
-    // Формула (цена пункта) остаётся рядом для прозрачности (avgEntry/avgExit/объём).
+    // ── ГИБРИД P&L ──
+    // Анкер/прочие MX-ноги (уникальны на конструкцию) → margin_rub (логика пропа, с переносом).
+    // CNY-хедж (ОБЩИЙ для нескольких конструкций) → формула делит пропорционально
+    //   по конструкциям, затем масштаб на итог пропа (Σ margin_rub по этому CNY за дни),
+    //   иначе margin_rub концентрируется на одной сделке и достаётся одной конструкции.
     const marginPnl = [...entries, ...exits].reduce((s,t)=>s+(t.margin_rub||0),0);
-    const hasMargin = [...entries, ...exits].some(t => t.margin_rub !== undefined && t.margin_rub !== null);
-    const legPnl = hasMargin ? marginPnl : m.pnl; // фолбэк на формулу, если margin_rub нет
+    let legPnl;
+    if (HEDGE_BASES.includes(base)) {
+      const cnyInstr = (leg.instrument||'').toUpperCase();
+      // Итог пропа по этому CNY-инструменту за дни позиции (Σ margin_rub)
+      let pdfTot = 0;
+      for (const d of allDays) {
+        const rep = getMxReportForDate(d); if (!rep) continue;
+        (rep.trades||[]).forEach(t => {
+          if ((t.instrument||'').toUpperCase() === cnyInstr) pdfTot += t.margin_rub||0;
+        });
+      }
+      // Сумма ФОРМУЛЬНОГО CNY по всем конструкциям с этим же CNY за эти дни
+      let formTot = 0;
+      for (const pp of peerPositions) {
+        const cl = pp._legTrades && pp._legTrades['CNY']; if (!cl) continue;
+        const ppInstr = ((pp.legs['CNY']||{}).instrument||'').toUpperCase();
+        if (ppInstr !== cnyInstr) continue;
+        const ppShort = (pp.legs['CNY']||{}).entry_direction === 'Sell';
+        formTot += calcLegMargin('CNY', cl.entries||[], cl.exits||[], ppShort).pnl;
+      }
+      const scale = Math.abs(formTot) > 0.01 ? (pdfTot / formTot) : 1;
+      legPnl = m.pnl * scale; // формула этой конструкции, откалиброванная на итог пропа
+    } else {
+      const hasMargin = [...entries, ...exits].some(t => t.margin_rub !== undefined && t.margin_rub !== null);
+      legPnl = hasMargin ? marginPnl : m.pnl;
+    }
     result.legs[base] = {
       pnl: legPnl, pnlProp: marginPnl, pnlFormula: m.pnl,
       avgEntry: m.avgEntry, avgExit: m.avgExit,
