@@ -359,6 +359,7 @@
     <button class="nav-btn" onclick="switchTab('constructions', event)" style="display:none">Сделки (старые)</button>
     <button class="nav-btn" onclick="switchTab('autolj', event); renderAutoLj()">Сделки</button>
     <button class="nav-btn" onclick="switchTab('manual', event); renderManualRaznos()">Разнос</button>
+    <button class="nav-btn" onclick="switchTab('cycles', event); renderCycles()">Циклы</button>
     <button class="nav-btn" onclick="switchTab('showcase', event); renderShowcase()">Дневник</button>
     <button class="nav-btn" onclick="switchTab('calc', event); renderCalc()">Калькулятор</button>
   </div>
@@ -1039,8 +1040,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '27.06 13:31';
-const BUILD_DATE    = '27.06.2026 13:31 МСК';
+const BUILD_VERSION = '27.06 13:42';
+const BUILD_DATE    = '27.06.2026 13:42 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -12253,6 +12254,9 @@ setTimeout(() => renderOverviewTab(true), 1000); // render overview on startup
   <div id="tab-manual" class="tab-content">
     <div id="manual-container" style="padding:16px"></div>
   </div>
+  <div id="tab-cycles" class="tab-content">
+    <div id="cycles-container" style="padding:16px"></div>
+  </div>
   <div id="tab-showcase" class="tab-content">
     <div id="showcase-root"></div>
   </div>
@@ -14274,6 +14278,87 @@ function calcEditFx(name, defaultMargin) {
   if (!parsed) { delete overrides[name]; } else { overrides[name] = parsed; }
   localStorage.setItem('calc_fx_v1', JSON.stringify(overrides));
   renderCalc();
+}
+
+// ── Вкладка «Циклы» — построчный P&L по каждому фьючерсу ──
+function renderCycles() {
+  const wrap = document.getElementById('cycles-container');
+  if (!wrap) return;
+  const allDates = [...new Set((store.mx||[]).map(r=>normDate(r.date)).filter(d=>d&&d.length===10))].sort();
+  const instrSet = new Set();
+  for (const d of allDates) {
+    const dr = getMxReportForDate(d);
+    (dr?.trades||[]).forEach(t=>{ if(t.instrument) instrSet.add(t.instrument); });
+  }
+  const instrs = [...instrSet].sort();
+  const sel = store._cyclesInstr || instrs[0] || '';
+  if (!store._cyclesInstr) store._cyclesInstr = sel;
+  const instrSel = instrs.map(i=>`<option value="${i}"${i===sel?' selected':''}>${i}</option>`).join('');
+  const allTrades = [];
+  for (const d of allDates) {
+    const dr = getMxReportForDate(d);
+    (dr?.trades||[]).filter(t=>t.instrument===sel)
+      .forEach(t=>allTrades.push({...t, _dateStr:d,
+        _tradeId: d+'|'+(t._id!=null?t._id:(t.time+'|'+sel+'|'+t.volume))
+      }));
+  }
+  allTrades.sort((a,b)=>a._dateStr!==b._dateStr?(a._dateStr<b._dateStr?-1:1):timeToMs(a.time)-timeToMs(b.time));
+  const rowPnl = {}, cycleOf = {};
+  let cycleStart=0, cycleNum=0;
+  for (let i=0;i<allTrades.length;i++) {
+    const t=allTrades[i];
+    if (!t.margin_rub) continue;
+    const ct=allTrades.slice(cycleStart,i+1);
+    const first=ct[0]; if(!first){cycleStart=i+1;continue;}
+    const entryDir=first.direction, exitDir=entryDir==='Long'?'Short':'Long';
+    const tv=ct.filter(x=>x.direction===exitDir).reduce((s,x)=>s+Math.abs(x.volume||0),0);
+    if(!tv){cycleStart=i+1;continue;}
+    const tc=ct.reduce((s,x)=>s+(x.commission||0),0);
+    const mpl=(t.margin_rub+tc)/tv;
+    ct.forEach(x=>{ cycleOf[x._tradeId]=cycleNum; });
+    ct.filter(x=>x.direction===exitDir).forEach(x=>{
+      rowPnl[x._tradeId]=(rowPnl[x._tradeId]||0)+mpl*Math.abs(x.volume||0);
+    });
+    cycleStart=i+1; cycleNum++;
+  }
+  allTrades.slice(cycleStart).forEach(x=>{ cycleOf[x._tradeId]=-1; });
+  const cycleColors=['hsla(210,100%,60%,0.08)','hsla(120,60%,50%,0.08)','hsla(39,100%,55%,0.08)',
+    'hsla(280,60%,60%,0.08)','hsla(0,70%,60%,0.08)','hsla(180,60%,50%,0.08)'];
+  let rows='', prevCycle=-99;
+  for (const t of allTrades) {
+    const tid=t._tradeId, cn=cycleOf[tid]??-1, pnl=rowPnl[tid], isMargin=!!t.margin_rub;
+    const bg=cn>=0?cycleColors[cn%cycleColors.length]:'transparent';
+    const bt=cn!==prevCycle?'border-top:2px solid var(--border);':'';
+    const a=getManualAssign(tid);
+    const tag=a?`${a.tag} н${a.setN||1}`:'—';
+    const pnlStr=pnl!=null?`<span class="${pnl>=0?'pos':'neg'} mono">${pnl>=0?'+':''}${Math.round(pnl)}</span>`:'—';
+    const mStr=isMargin?`<span style="color:var(--blue);font-weight:700">${fmtRub(t.margin_rub)}</span>`:'—';
+    rows+=`<tr style="background:${bg};${bt}${isMargin?'font-weight:600;':''}" >
+      <td class="mono dim" style="padding:3px 6px;font-size:11px">${(t._dateStr||'').slice(5)} ${t.time}</td>
+      <td style="padding:3px 6px;font-size:11px">${cn>=0?'Ц'+(cn+1):'—'}</td>
+      <td class="mono" style="padding:3px 6px;font-size:11px;color:${t.direction==='Long'?'var(--green)':'var(--red)'}">${t.direction}</td>
+      <td class="mono" style="padding:3px 6px;font-size:11px;text-align:right">${Math.abs(t.volume||0)}</td>
+      <td class="mono dim" style="padding:3px 6px;font-size:11px;text-align:right">${t.price}</td>
+      <td style="padding:3px 6px;font-size:11px;text-align:right">${mStr}</td>
+      <td style="padding:3px 6px;font-size:11px;text-align:right">${pnlStr}</td>
+      <td style="padding:3px 6px;font-size:11px;color:var(--text2)">${tag}</td>
+    </tr>`;
+    prevCycle=cn;
+  }
+  wrap.innerHTML=`
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap">
+      <select onchange="store._cyclesInstr=this.value;renderCycles()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1);font-size:13px">${instrSel}</select>
+      <span style="font-size:11px;color:var(--text2)">Строки с маржой = конец цикла. P&L строки = (маржа+комм)/объём × лоты.</span>
+    </div>
+    <table style="width:100%;border-collapse:collapse">
+      <thead><tr style="border-bottom:2px solid var(--border);color:var(--text2);font-size:10px;text-transform:uppercase">
+        <th style="text-align:left;padding:4px 6px">Дата/Время</th><th style="padding:4px 6px">Цикл</th>
+        <th style="padding:4px 6px">Напр.</th><th style="text-align:right;padding:4px 6px">Лоты</th>
+        <th style="text-align:right;padding:4px 6px">Цена</th><th style="text-align:right;padding:4px 6px">Маржа PDF</th>
+        <th style="text-align:right;padding:4px 6px">P&L строки</th><th style="text-align:left;padding:4px 6px">Конструкция</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
 }
 </script>
 </body>
