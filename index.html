@@ -1039,8 +1039,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '27.06 11:15';
-const BUILD_DATE    = '27.06.2026 11:15 МСК';
+const BUILD_VERSION = '27.06 11:25';
+const BUILD_DATE    = '27.06.2026 11:25 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -12163,7 +12163,7 @@ function calcManualResults() {
         const isCny = HEDGE_BASES && HEDGE_BASES.includes(base);
         if (isCny) {
           // CNY: атрибуция по циклам (margin_per_lot × закрытые_лоты_конструкции)
-          const attribKey = key + '|' + base;
+          const attribKey = key + '|' + leg.instrument; // instrument = 'CNY-9.26'
           m = _cnyAttrib[attribKey] || 0;
         } else if (_isPerpetual(leg.instrument)) {
           // перпетуал: i.pnl из итоговой строки PDF (включает фандинг)
