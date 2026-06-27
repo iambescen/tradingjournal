@@ -1039,8 +1039,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '27.06 12:30';
-const BUILD_DATE    = '27.06.2026 12:30 МСК';
+const BUILD_VERSION = '27.06 12:38';
+const BUILD_DATE    = '27.06.2026 12:38 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -12190,19 +12190,15 @@ function calcManualResults() {
         let m;
         const base = (leg.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
         const isCny = HEDGE_BASES && HEDGE_BASES.includes(base);
+        const closeDay = pos.closeDate || date; // день закрытия якорной ноги
         if (isCny) {
-          // CNY: атрибуция по циклам (margin_per_lot × закрытые_лоты_конструкции)
-          const attribKey = key + '|' + leg.instrument; // instrument = 'CNY-9.26'
+          const attribKey = key + '|' + leg.instrument;
           m = _cnyAttrib[attribKey] || 0;
         } else if (_isPerpetual(leg.instrument)) {
-          // перпетуал: i.pnl из итоговой строки PDF (включает фандинг)
           const instrRow = (rep?.instruments||[]).find(i=>i.name===leg.instrument);
           m = instrRow ? (instrRow.pnl||0) : leg.trades.reduce((s,t)=>s+(t._margin||0),0);
         } else {
-          // фьючерс: Σ margin_rub только по сделкам дня закрытия якоря.
-          // Для переносных наборов (Si открыт 22-го, закрыт 24-го) берём только 24-е,
-          // иначе суммируем маржу переоценки всех дней жизни позиции (22+23+24).
-          const closeDay = pos.closeDate || date;
+          // фьючерс: только сделки дня закрытия якоря
           m = leg.trades.filter(t=>t._dateStr===closeDay).reduce((s,t)=>s+(t._margin||0),0);
         }
         mxTot += m;
