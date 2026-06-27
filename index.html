@@ -1072,8 +1072,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '27.06 15:56';
-const BUILD_DATE    = '27.06.2026 15:56 МСК';
+const BUILD_VERSION = '27.06 16:00';
+const BUILD_DATE    = '27.06.2026 16:00 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -10144,543 +10144,6 @@ function getPosFxTrades(pos) {
 
 
 
-function renderAutoLj() {
-  const container = document.getElementById('autolj-container');
-  if (!container) return;
-  positionsInit();
-  if (!store.autoLj) store.autoLj = { rows: [] };
-
-  const positions = store.positions || [];
-  if (!positions.length) {
-    container.innerHTML = '<div class="empty"><div class="icon">🤖</div>'
-      + '<p>Нет позиций</p>'
-      + '<p style="font-size:12px;color:var(--text2);margin-top:8px">'
-      + 'Загрузи PDF и Excel, затем нажми «🤖 Авторазнос»</p></div>';
-    return;
-  }
-
-  const rate = (currentRate && currentRate.value) || 85;
-
-  // ── P&L helpers (also defined globally below) ───────────────
-  function getPosMxPnlFull(pos) {
-    // НОВЫЙ расчёт: P&L по формуле (avgExit-avgEntry)/tick*step*vol
-    // с якорной привязкой хедж-ноги CNY. Заменяет старый расчёт по PDF margin_rub
-    // (который двоился для общего CNY и был =0 для незакрытых в клиринге).
-    var calc = calcPositionPnlByFormula(pos);
-    var result = {};
-    for (var b in pos.legs) {
-      var leg = pos.legs[b];
-      if (leg.platform !== 'MX') continue;
-      var posVol = leg.vol_in || 0;
-      var lc = calc.legs[b] || { pnl:0, avgEntry:0, avgExit:0, entryVol:0, exitVol:0, closedVol:0, totalComm:0 };
-      // ratio = доля закрытого объёма (для отображения "% дня")
-      var ratio = posVol > 0 ? Math.min((lc.closedVol||0)/posVol, 1) : 0;
-      result[b] = {
-        pnl: lc.pnl,                    // P&L по формуле (уже по сделкам конструкции)
-        ratio: ratio,
-        totalComm: lc.totalComm || 0,
-        avgEntry: lc.avgEntry || 0,
-        avgExit: lc.avgExit || 0,
-        posVol: posVol,
-        closingVol: lc.closedVol || 0,
-        instrument: leg.instrument,
-        _pdfTotal: calc.pdfTotal,       // для блока сверки
-        _mxTotal: calc.mxTotal,
-      };
-    }
-    return result;
-  }
-
-
-  function getPosFxTrades(pos) {
-    var fxTrades = pos.fx_trades || [];
-    if (!fxTrades.length) {
-      var fxInstrs = Object.keys(pos.legs).filter(function(b){return pos.legs[b].platform==='FX';});
-      var posDateISO = normDate(pos.closed_date || pos.opened_date || '');
-      fxTrades = (store.fx||[]).filter(function(t){
-        var ti = (t.instrument||'').replace(/[-_]/g,'').toUpperCase();
-        return fxInstrs.indexOf(ti) >= 0 && normDate(t.close_date||'') === posDateISO;
-      });
-    }
-    return fxTrades;
-  }
-
-  // Read filter/sort state
-  var filterStatus = container._filterStatus || 'all';
-  var filterTag    = container._filterTag    || '';
-  var sortBy       = container._sortBy       || 'date';
-
-  // Unique tags for filter
-  var allTags = [];
-  positions.forEach(function(p){ if (allTags.indexOf(p.tag)<0) allTags.push(p.tag); });
-  allTags.sort();
-
-  // Filter
-  var filtered = positions.filter(function(p){
-    if (filterStatus==='open'   && p.status!=='open')   return false;
-    if (filterStatus==='closed' && p.status!=='closed') return false;
-    if (filterTag && p.tag !== filterTag) return false;
-    return true;
-  });
-
-  // Sort
-  filtered.sort(function(a,b){
-    if (sortBy==='date') {
-      if (a.status==='open' && b.status!=='open') return -1;
-      if (a.status!=='open' && b.status==='open') return 1;
-      return parseDate(b.opened_date||'') - parseDate(a.opened_date||'');
-    }
-    if (sortBy==='pnl') {
-      var fxRateA = (a.closed_date?getRateForDate(normDate(a.closed_date)):rate)||rate;
-      var fxRateB = (b.closed_date?getRateForDate(normDate(b.closed_date)):rate)||rate;
-      var mxA = Object.values(getPosMxPnlFull(a)).reduce(function(s,x){return s+x.pnl;},0);
-      var mxB = Object.values(getPosMxPnlFull(b)).reduce(function(s,x){return s+x.pnl;},0);
-      var fxA = getPosFxTrades(a).reduce(function(s,t){return s+(t.net_pnl_usd||0);},0)*fxRateA;
-      var fxB = getPosFxTrades(b).reduce(function(s,t){return s+(t.net_pnl_usd||0);},0)*fxRateB;
-      return (mxB+fxB)-(mxA+fxA);
-    }
-    return 0;
-  });
-
-  // ── Header ────────────────────────────────────────────────────
-  var openCount   = positions.filter(function(p){return p.status==='open';}).length;
-  var closedCount = positions.filter(function(p){return p.status==='closed';}).length;
-
-  var tagOptions = '<option value="">Все конструкции</option>'
-    + allTags.map(function(t){return '<option value="'+t+'"'+(filterTag===t?' selected':'')+'>'+t+'</option>';}).join('');
-
-  var filterDate = container._filterDate || '';
-
-  // Apply date filter
-  if (filterDate) {
-    filtered = filtered.filter(function(p){
-      return (p.closed_date && p.closed_date === filterDate) ||
-             (p.opened_date && p.opened_date === filterDate);
-    });
-  }
-
-  // Unique close dates for filter
-  var allDates = [];
-  positions.forEach(function(p){
-    var d = p.closed_date || p.opened_date;
-    if (d && allDates.indexOf(d) < 0) allDates.push(d);
-  });
-  allDates.sort(function(a,b){ return parseDate(b) - parseDate(a); });
-
-  var dateOptions = '<option value="">Все даты</option>'
-    + allDates.map(function(d){return '<option value="'+d+'"'+(filterDate===d?' selected':'')+'>'+d+'</option>';}).join('');
-
-  var html = '<div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap">'
-    + '<div style="display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden">'
-    + ['all','open','closed'].map(function(v){
-        var label = v==='all'?'Все':v==='open'?'Открытые':'Закрытые';
-        var active = filterStatus===v;
-        return '<button onclick="document.getElementById(\'autolj-container\')._filterStatus=\''+v+'\';renderAutoLj()" '
-          + 'style="padding:4px 12px;font-size:12px;border:none;cursor:pointer;background:'
-          + (active?'var(--blue)':'var(--bg2)')+';color:'+(active?'#fff':'var(--text1)')+'">'+label+'</button>';
-      }).join('')
-    + '</div>'
-    + '<select onchange="document.getElementById(\'autolj-container\')._filterTag=this.value;renderAutoLj()" '
-    + 'style="font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1)">'
-    + tagOptions + '</select>'
-    + '<select onchange="document.getElementById(\'autolj-container\')._filterDate=this.value;renderAutoLj()" '
-    + 'style="font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1)">'
-    + dateOptions + '</select>'
-    + '<select onchange="document.getElementById(\'autolj-container\')._sortBy=this.value;renderAutoLj()" '
-    + 'style="font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1)">'
-    + '<option value="date"'+(sortBy==='date'?' selected':'')+'>По дате</option>'
-    + '<option value="pnl"'+(sortBy==='pnl'?' selected':'')+'>По P&L</option>'
-    + '</select>'
-    + '<span style="font-size:12px;color:var(--text2)">'+filtered.length+' из '+positions.length+' · Откр: '+openCount+' · Закр: '+closedCount+'</span>'
-    + '<button id="autolj-clear-btn" style="font-size:11px;padding:4px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--red);cursor:pointer;margin-left:auto">Очистить</button>'
-    + '</div>';
-
-  // ── Панель дневной сверки CNY ──
-  // Подтверждает что якорное деление общего CNY между конструкциями корректно:
-  // сумма формульного CNY по всем конструкциям дня ≈ общий PDF margin CNY за день.
-  var cnyRecon = calcDailyCnyReconciliation();
-  if (cnyRecon.length) {
-    var reconRows = cnyRecon.map(function(r){
-      if (!r.hasPdf) {
-        return '<div style="display:flex;align-items:center;gap:12px;padding:6px 0;font-size:12px;border-bottom:1px solid var(--border)">'
-          + '<span style="font-family:monospace;color:var(--text2);min-width:90px">'+r.date+'</span>'
-          + '<span style="color:var(--text2)">формула <b style="font-family:monospace;color:var(--text1)">'+Math.round(r.formulaSum)+' ₽</b></span>'
-          + '<span style="color:var(--text2);font-size:11px;margin-left:auto">⏳ клиринг CNY не закрыт</span>'
-          + '</div>';
-      }
-      var col = r.diffPct < 2 ? 'var(--green)' : (r.diffPct < 5 ? 'var(--amber)' : 'var(--red)');
-      var icon = r.diffPct < 2 ? '✓' : '⚠';
-      return '<div style="display:flex;align-items:center;gap:12px;padding:6px 0;font-size:12px;border-bottom:1px solid var(--border)">'
-        + '<span style="font-family:monospace;color:var(--text2);min-width:90px">'+r.date+'</span>'
-        + '<span style="color:var(--text2)">'+r.posCount+' констр.</span>'
-        + '<span style="color:var(--text2)">формула <b style="font-family:monospace;color:var(--text1)">'+Math.round(r.formulaSum)+'</b></span>'
-        + '<span style="color:var(--text2)">PDF <b style="font-family:monospace;color:var(--text1)">'+Math.round(r.pdfMargin)+'</b></span>'
-        + '<span style="font-family:monospace;font-weight:700;color:'+col+';margin-left:auto">'+icon+' '+(r.diff>=0?'+':'')+Math.round(r.diff)+' ₽ ('+r.diffPct.toFixed(1)+'%)</span>'
-        + '</div>';
-    }).join('');
-    html += '<details style="margin-bottom:16px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">'
-      + '<summary style="padding:10px 14px;cursor:pointer;font-size:12px;font-weight:600;color:var(--text1);user-select:none">'
-      + '🔗 Сверка деления CNY по дням <span style="font-weight:400;color:var(--text2)">— проверка якорной атрибуции хеджа</span></summary>'
-      + '<div style="padding:4px 14px 12px">'
-      + '<div style="font-size:11px;color:var(--text2);margin-bottom:8px">Сумма расчётного CNY по всем конструкциям дня против общего CNY из PDF-клиринга. Совпадение подтверждает корректность деления.</div>'
-      + reconRows
-      + '</div></details>';
-  }
-
-  for (var pi = 0; pi < filtered.length; pi++) {
-    var pos = filtered[pi];
-    var isOpen = pos.status === 'open';
-    var fxRate = (pos.closed_date?getRateForDate(normDate(pos.closed_date)):rate)||rate;
-    var allDays = pos.days || [pos.opened_date];
-
-    // Calc P&L
-    var mxPnlFull = getPosMxPnlFull(pos);
-    var mxPnlSum = Object.values(mxPnlFull).reduce(function(s,x){return s+x.pnl;},0);
-    var mxCommSum = Object.values(mxPnlFull).reduce(function(s,x){return s+(x.totalComm||0);},0);
-    var totalMx = mxPnlSum + mxCommSum;  // P&L по формуле + комиссия MX (комиссия отрицательна)
-    var fxTradesPos = getPosFxTrades(pos);
-    var fxPnlUsd = fxTradesPos.reduce(function(s,t){return s+(t.net_pnl_usd||0);},0);
-    var fxPnlRub = fxPnlUsd * fxRate;  // net_pnl_usd уже включает комиссию FX
-    var totalRub = totalMx + fxPnlRub;
-
-    // Duration
-    var daysCount = allDays.length;
-    var daysStr = allDays.length > 1
-      ? allDays[0]+' — '+allDays[allDays.length-1]+' ('+daysCount+' дн)'
-      : (allDays[0]||pos.opened_date);
-
-    // Total commission — MX proportional + FX comm + FX swap
-    var totalCommAll = Object.values(mxPnlFull).reduce(function(s,x){
-      return s + (x.totalComm||0) * (x.ratio||1);
-    },0);
-    var fxTradesForComm = getPosFxTrades(pos);
-    totalCommAll += fxTradesForComm.reduce(function(s,t){return s+(t.commission||0)+(t.swap||0);},0)
-      * ((getRateForDate(normDate(pos.closed_date||pos.opened_date))||rate)||rate);
-
-    // Spread: avgEntry vs avgExit for each MX leg
-    var spreadParts = [];
-    for (var bsp in mxPnlFull) {
-      var d = mxPnlFull[bsp];
-      if (d.avgEntry && d.avgExit) {
-        var spread = Math.abs(d.avgExit - d.avgEntry);
-        var spec = MX_SPECS[bsp];
-        var spreadPips = spec ? Math.round(spread/spec.tick) : spread.toFixed(4);
-        spreadParts.push(d.instrument+': '+spreadPips+' пп');
-      }
-    }
-
-    // Status
-    var statusLabel = isOpen
-      ? '<span style="color:var(--amber);font-size:11px;font-weight:600">● ОТКРЫТА</span>'
-      : '<span style="color:var(--green);font-size:11px;font-weight:600">✓ ЗАКРЫТА</span>';
-
-    // P&L badge
-    var pnlBadge = '';
-    if (!isOpen) {
-      var tc = totalRub>=0?'var(--green)':'var(--red)';
-      pnlBadge = '<span style="font-family:monospace;font-weight:700;font-size:15px;color:'+tc+'">'
-        + (totalRub>=0?'+':'')+Math.round(totalRub).toLocaleString('ru')+' ₽</span>';
-    } else {
-      pnlBadge = '<span style="font-size:12px;color:var(--amber)">открыта</span>';
-    }
-
-    // Legs
-    var legsHtml = '';
-    for (var bl in pos.legs) {
-      var leg = pos.legs[bl];
-      var netVol = Math.round(Math.abs(leg.net_volume||0)*100)/100;
-      var lc = leg.platform==='MX'?'var(--blue)':'var(--purple)';
-      var volStr = isOpen && netVol>0 ? '<span style="color:var(--amber)">'+netVol+' л</span>' : 'закрыта';
-      legsHtml += '<span style="font-size:11px;background:var(--bg3);border-radius:4px;padding:2px 8px;margin-right:4px">'
-        +'<span style="color:'+lc+';font-weight:700">'+leg.platform+'</span> '+leg.instrument+' '+volStr+'</span>';
-    }
-
-    html += '<div style="background:var(--bg2);border:1px solid var(--border);border-left:3px solid '
-      + (isOpen?'var(--amber)':'var(--green)')
-      + ';border-radius:6px;padding:14px 16px;margin-bottom:12px">';
-
-    // Top row: tag + status | dates + P&L + diary button
-    html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">'
-      + '<div style="display:flex;align-items:center"><span style="font-weight:700;color:var(--blue);font-size:14px">'+pos.tag+(pos._cycleN?' <span style="color:var(--text2);font-weight:600;font-size:11px">· набор '+pos._cycleN+'</span>':'')+'</span>'
-      + ' '+statusLabel+'</div>'
-      + '<div style="text-align:right">'
-      + '<div style="font-size:11px;color:var(--text2);margin-bottom:2px">'+daysStr+'</div>'
-      + pnlBadge+'</div></div>';
-
-    // Arbitrage spread: (MOEX_synthetic / FX_spot - 1) × 100%
-    // For Si/CR/USDCNH: synthetic = Si/CR, spot = USDCNH
-    // For EU/CR/EURCNH: synthetic = EU/CR, spot = EURCNH
-    // For ERF/CRF/EURCNH: synthetic = EURRUBF/CNYRUBF, spot = EURCNH
-    function calcArbSpread(legs, mxPnlData, fxTr) {
-      var tag = pos.tag || '';
-      var entrySpread = null, exitSpread = null;
-
-      // Build prices map from mxPnlData (keys are base names like SI, CNY, EU, EURRUBF etc)
-      var prices = {};
-      for (var b in mxPnlData) {
-        prices[b] = { entry: mxPnlData[b].avgEntry, exit: mxPnlData[b].avgExit };
-      }
-      // CNY = CR in PDF (CNY-9.26 parsed as CNY)
-      if (prices['CNY'] && !prices['CR']) prices['CR'] = prices['CNY'];
-
-      // FX avg entry/exit from fx trades
-      var fxEntryVol=0, fxEntrySum=0, fxExitVol=0, fxExitSum=0;
-      fxTr.forEach(function(t){
-        var q = Math.abs(t.qty||0);
-        fxEntryVol += q;
-        fxEntrySum += (t.entry_price||0)*q;
-        if (t.close_price) { fxExitVol += q; fxExitSum += (t.close_price||0)*q; }
-      });
-      var fxEntry = fxEntryVol ? fxEntrySum/fxEntryVol : 0;
-      var fxExit  = fxExitVol  ? fxExitSum/fxExitVol   : 0;
-
-      // Helper: get price safely
-      var ep = function(b){ return prices[b] ? prices[b].entry : 0; };
-      var xp = function(b){ return prices[b] ? prices[b].exit  : 0; };
-
-      // Квартальные фьючерсы Si и EU котируются в RUB за 1000 единиц
-      // Поэтому Si/1000 = USDRUB, EU/1000 = EURRUB, UC без деления (CNY/USD)
-      // CR (CNY-9.26) котируется в RUB за 1 CNY — без деления
-
-      // Si/CR/USDCNH: синтетик = (Si/1000) / CR → USDCNH
-      if (tag.indexOf('SI')>=0 && tag.indexOf('CR')>=0) {
-        if (ep('SI')&&ep('CR')&&fxEntry)
-          entrySpread = (((ep('SI')/1000)/ep('CR'))/fxEntry - 1)*100;
-        if (xp('SI')&&xp('CR')&&fxExit)
-          exitSpread  = (((xp('SI')/1000)/xp('CR'))/fxExit  - 1)*100;
-
-      // EU/CR/EURCNH: синтетик = (EU/1000) / CR → EURCNH
-      } else if (tag.indexOf('EU1')>=0 && tag.indexOf('CR')>=0) {
-        if (ep('EU')&&ep('CR')&&fxEntry)
-          entrySpread = (((ep('EU')/1000)/ep('CR'))/fxEntry - 1)*100;
-        if (xp('EU')&&xp('CR')&&fxExit)
-          exitSpread  = (((xp('EU')/1000)/xp('CR'))/fxExit  - 1)*100;
-
-      // ERF/CRF/EURCNH: EURRUBF и CNYRUBF — вечники, котируются в RUB за 1 ед.
-      // Синтетик = EURRUBF / CNYRUBF → EURCNH (без деления на 1000)
-      } else if (tag.indexOf('ERF')>=0) {
-        if (ep('EURRUBF')&&ep('CNYRUBF')&&fxEntry)
-          entrySpread = ((ep('EURRUBF')/ep('CNYRUBF'))/fxEntry - 1)*100;
-        if (xp('EURRUBF')&&xp('CNYRUBF')&&fxExit)
-          exitSpread  = ((xp('EURRUBF')/xp('CNYRUBF'))/fxExit  - 1)*100;
-
-      // URF/CRF/USDCNH: вечники без деления
-      } else if (tag.indexOf('URF')>=0) {
-        if (ep('USDRUBF')&&ep('CNYRUBF')&&fxEntry)
-          entrySpread = ((ep('USDRUBF')/ep('CNYRUBF'))/fxEntry - 1)*100;
-        if (xp('USDRUBF')&&xp('CNYRUBF')&&fxExit)
-          exitSpread  = ((xp('USDRUBF')/xp('CNYRUBF'))/fxExit  - 1)*100;
-
-      // UC/USDCNH: UC = USD/CNH фьючерс, цена в CNH за USD → без деления
-      } else if (tag.indexOf('UC')>=0) {
-        if (ep('UC')&&fxEntry) entrySpread = (ep('UC')/fxEntry - 1)*100;
-        if (xp('UC')&&fxExit)  exitSpread  = (xp('UC')/fxExit  - 1)*100;
-
-      // ED/EURUSD: ED = EUR/USD фьючерс → без деления
-      } else if (tag.indexOf('ED')>=0) {
-        if (ep('ED')&&fxEntry) entrySpread = (ep('ED')/fxEntry - 1)*100;
-        if (xp('ED')&&fxExit)  exitSpread  = (xp('ED')/fxExit  - 1)*100;
-      }
-
-      return { entry: entrySpread, exit: exitSpread };
-    }
-
-    var arbSpread = calcArbSpread(pos.legs, mxPnlFull, fxTradesPos);
-
-    // Stats row
-    if (!isOpen) {
-      var spreadStr = '';
-      if (arbSpread.entry !== null) {
-        var ec = arbSpread.entry>=0?'var(--green)':'var(--red)';
-        spreadStr = '<span style="font-size:11px;color:var(--text2)">📏 Спред: вход '
-          + '<b style="color:'+ec+'">'+(arbSpread.entry>=0?'+':'')+arbSpread.entry.toFixed(3)+'%</b>';
-        if (arbSpread.exit !== null) {
-          var xc = arbSpread.exit>=0?'var(--green)':'var(--red)';
-          var delta = arbSpread.exit - arbSpread.entry;
-          var dc = delta<=0?'var(--green)':'var(--red)';
-          spreadStr += ' → закрытие <b style="color:'+xc+'">'+(arbSpread.exit>=0?'+':'')+arbSpread.exit.toFixed(3)+'%</b>'
-            + ' <span style="color:'+dc+';font-size:10px">(Δ'+(delta>=0?'+':'')+delta.toFixed(3)+'%)</span>';
-        }
-        spreadStr += '</span>';
-      }
-      var roiId = 'pos-capital-' + pos.id.replace(/[^a-z0-9]/gi,'_');
-      html += '<div style="display:flex;gap:16px;margin-bottom:8px;flex-wrap:wrap;align-items:center">'
-        + (spreadStr?spreadStr:'')
-        + '<span id="'+roiId+'" style="display:none"></span>'
-        + '</div>';
-    }
-
-    // Legs row
-    html += '<div style="margin-bottom:10px">'+legsHtml+'</div>';
-
-    // Detail section
-    html += '<div style="border-top:1px solid var(--border);padding-top:10px">';
-
-    // Sets
-    if (pos.sets && pos.sets.length) {
-      html += '<div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Наборы</div>';
-      for (var si = 0; si < pos.sets.length; si++) {
-        var s = pos.sets[si];
-        var mxR = (s.rows||[]).filter(function(r){return r.platform==='MX';});
-        var fxR = (s.rows||[]).filter(function(r){return r.platform==='FX';});
-        html += '<div style="margin-bottom:6px;background:var(--bg3);border-radius:4px;padding:6px 10px">'
-          + '<span style="font-size:11px;font-weight:600;color:var(--text2)">Набор №'+s.set_n+' · '+s.date+'</span><br>';
-        mxR.forEach(function(r){
-          var dc = r.direction==='Sell'?'var(--red)':'var(--green)';
-          html += '<span style="font-size:11px;display:inline-block;margin-right:12px;margin-top:3px">'
-            + '<span style="font-size:10px;background:var(--blue);color:#fff;border-radius:2px;padding:0 3px">MX</span> '
-            + '<span style="color:'+dc+'">'+r.direction+'</span> '
-            + '<b>'+r.instrument+'</b> '+r.volume+'л @ <span style="font-family:monospace">'+r.price+'</span></span>';
-        });
-        fxR.forEach(function(r){
-          var dc = r.direction==='Buy'?'var(--green)':'var(--red)';
-          html += '<span style="font-size:11px;display:inline-block;margin-right:12px;margin-top:3px">'
-            + '<span style="font-size:10px;background:#7c3aed;color:#fff;border-radius:2px;padding:0 3px">FX</span> '
-            + '<span style="color:'+dc+'">'+r.direction+'</span> '
-            + '<b>'+r.instrument+'</b> '+r.volume+'л @ <span style="font-family:monospace">'+r.price+'</span></span>';
-        });
-        html += '</div>';
-      }
-    }
-
-    // P&L breakdown (closed only)
-    if (!isOpen) {
-      html += '<div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin:8px 0 6px">Расчёт P&L</div>';
-      var totalMxDisp = 0;
-
-      for (var b2 in mxPnlFull) {
-        var d2 = mxPnlFull[b2];
-        if (!d2.posVol) continue;
-        totalMxDisp += d2.pnl;
-        var pc2 = d2.pnl>=0?'var(--green)':'var(--red)';
-        var pct = d2.ratio < 0.99 ? ' ('+Math.round(d2.ratio*100)+'% дня)' : '';
-        html += '<div style="font-size:11px;display:flex;gap:6px;align-items:center;margin-bottom:4px;padding:4px 8px;background:var(--bg3);border-radius:4px;flex-wrap:wrap">'
-          + '<span style="font-weight:600;min-width:80px">'+d2.instrument+'</span>'
-          + '<span style="color:var(--text2)">вход: <span style="font-family:monospace">'+d2.avgEntry.toFixed(4)+'</span></span>'
-          + '<span style="color:var(--text2)">выход: <span style="font-family:monospace">'+d2.avgExit.toFixed(4)+'</span></span>'
-          + '<span style="color:var(--text2)">'+d2.posVol+'л'+pct+'</span>'
-          + '<span style="color:var(--red);font-size:10px">ком: '+Math.round(d2.totalComm)+' ₽</span>'
-          + '<span style="font-family:monospace;font-weight:700;color:'+pc2+';margin-left:auto">'+(d2.pnl>=0?'+':'')+Math.round(d2.pnl)+' ₽</span>'
-          + '</div>';
-      }
-
-      // FX breakdown
-      var fxInstrList = Object.keys(pos.legs).filter(function(b){return pos.legs[b].platform==='FX';});
-      if (fxInstrList.length > 0) {
-        var fxPnlUsd2 = fxTradesPos.reduce(function(s,t){return s+(t.net_pnl_usd||0);},0);
-        var fxSwap    = fxTradesPos.reduce(function(s,t){return s+(t.swap||0);},0);
-        var fxComm    = fxTradesPos.reduce(function(s,t){return s+(t.commission||0);},0);
-        var fxLots    = fxTradesPos.reduce(function(s,t){return s+Math.abs(t.qty||0);},0);
-        // Avg entry and exit prices from FX trades
-        var fxEntryVol=0,fxEntrySum=0,fxExitVol=0,fxExitSum=0;
-        fxTradesPos.forEach(function(t){
-          var q=Math.abs(t.qty||0);
-          fxEntryVol+=q; fxEntrySum+=(t.entry_price||0)*q;
-          if(t.close_price){fxExitVol+=q;fxExitSum+=(t.close_price||0)*q;}
-        });
-        var fxAvgEntry = fxEntryVol ? fxEntrySum/fxEntryVol : 0;
-        var fxAvgExit  = fxExitVol  ? fxExitSum/fxExitVol   : 0;
-        var fxC = fxPnlUsd2>=0?'var(--green)':'var(--red)';
-        html += '<div style="font-size:11px;display:flex;gap:6px;align-items:center;margin-bottom:4px;padding:4px 8px;background:var(--bg3);border-radius:4px;flex-wrap:wrap">'
-          + '<span style="font-weight:600;min-width:80px">'+fxInstrList.join(',')+'</span>'
-          + (fxAvgEntry?'<span style="color:var(--text2)">вход: <span style="font-family:monospace">'+fxAvgEntry.toFixed(5)+'</span></span>':'')
-          + (fxAvgExit?'<span style="color:var(--text2)">выход: <span style="font-family:monospace">'+fxAvgExit.toFixed(5)+'</span></span>':'')
-          + '<span style="color:var(--text2)">'+fxLots.toFixed(2)+'л</span>'
-          + '<span style="color:var(--text2)">курс: '+fxRate.toFixed(2)+'</span>'
-          + (fxSwap&&Math.abs(fxSwap)>0.0001?'<span style="color:var(--text2);font-size:10px">своп: <span style="color:var(--red)">'+fxSwap.toFixed(2)+'$</span></span>':'')
-          + (fxComm?'<span style="color:var(--red);font-size:10px">ком: '+fxComm.toFixed(2)+'$</span>':'')
-          + '<span style="font-family:monospace;font-weight:700;color:'+fxC+';margin-left:auto">'
-          + (fxPnlUsd2>=0?'+':'')+fxPnlUsd2.toFixed(2)+'$ = '
-          + (fxPnlUsd2>=0?'+':'')+Math.round(fxPnlUsd2*fxRate)+' ₽</span>'
-          + '</div>';
-      }
-
-      // Total line
-      var tc2 = totalRub>=0?'var(--green)':'var(--red)';
-      var mxC2 = totalMx>=0?'var(--green)':'var(--red)';
-      var fxC3 = fxPnlRub>=0?'var(--green)':'var(--red)';
-      var fxCommTot = fxTradesPos.reduce(function(s,t){return s+(t.commission||0)+(t.swap||0);},0);
-      var commTot = Object.values(mxPnlFull).reduce(function(s,x){return s+(x.totalComm||0);},0) + fxCommTot*fxRate;
-      html += '<div style="font-size:11px;display:flex;justify-content:space-between;align-items:center;margin-top:8px;padding-top:6px;border-top:1px dashed var(--border);flex-wrap:wrap;gap:4px">'
-        + '<span style="color:var(--text2)">Комиссии: <span style="color:var(--red);font-family:monospace">'+Math.round(commTot)+' ₽</span></span>'
-        + '<span style="font-family:monospace;font-weight:700">'
-        + '<span style="color:'+mxC2+'">МХ '+(totalMx>=0?'+':'')+Math.round(totalMx)+' ₽</span>'
-        + (fxPnlRub?' <span style="color:var(--text2)">+</span> <span style="color:'+fxC3+'">FX '+(fxPnlRub>=0?'+':'')+Math.round(fxPnlRub)+' ₽</span>':'')
-        + ' <span style="color:var(--text2)">=</span> <span style="color:'+tc2+'">'+(totalRub>=0?'+':'')+Math.round(totalRub)+' ₽</span>'
-        + '</span></div>';
-
-      // ── Блок сверки с PDF ──
-      // Сверка: сравниваем (формула + комиссия) с PDF instr.pnl ТОЛЬКО по якорным (не-хедж) ногам.
-      // CNY (хедж) исключаем: его PDF instr.pnl — общий на весь день по всем конструкциям,
-      // а формула делит его по якорю, поэтому посделочная сверка CNY в одной карточке невозможна
-      // (его формульная сумма по ВСЕМ конструкциям сверяется с общим PDF на уровне дня).
-      var recFormula = 0, recPdf = 0, pdfAvailable = false, hasHedge = false;
-      (pos.days||[pos.closed_date||pos.opened_date]).forEach(function(d){
-        var rep = getMxReportForDate(d);
-        (rep && rep.instruments||[]).forEach(function(i){
-          var ib=(i.name||'').replace(/[-_0-9.]/g,'').toUpperCase();
-          if (!pos.legs[ib]) return;
-          if (HEDGE_BASES.includes(ib)) { hasHedge = true; return; } // CNY не сверяем здесь
-          // закрыта в клиринге, если pnl заметно отличается от чистой комиссии
-          if (Math.abs((i.pnl||0)-(i.commission||0))>0.01) {
-            pdfAvailable = true;
-            recPdf += i.pnl||0;
-            var lc = mxPnlFull[ib];
-            if (lc) recFormula += (lc.pnl||0) + (lc.totalComm||0);
-          }
-        });
-      });
-      if (pdfAvailable) {
-        var diff = recFormula - recPdf;
-        var diffPct = Math.abs(recPdf)>1 ? Math.abs(diff/recPdf*100) : (Math.abs(diff)>1?100:0);
-        var okColor = diffPct < 2 ? 'var(--green)' : (diffPct < 5 ? 'var(--orange,#e8a33d)' : 'var(--red)');
-        var okIcon = diffPct < 2 ? '✓' : '⚠';
-        var hedgeNote = hasHedge ? ' <span style="color:var(--text2)">(CNY сверяется суммой по дню)</span>' : '';
-        html += '<div style="font-size:10px;display:flex;justify-content:space-between;align-items:center;margin-top:4px;padding:3px 8px;background:var(--bg2);border-radius:4px;color:var(--text2)">'
-          + '<span>Сверка с PDF (якорные ноги, с комиссией):</span>'
-          + '<span style="font-family:monospace">формула '+Math.round(recFormula)+' / PDF '+Math.round(recPdf)
-          + ' <span style="color:'+okColor+';font-weight:700">'+okIcon+' '+(diff>=0?'+':'')+Math.round(diff)+'₽ ('+diffPct.toFixed(1)+'%)</span>'+hedgeNote+'</span>'
-          + '</div>';
-      } else {
-        html += '<div style="font-size:10px;margin-top:4px;padding:3px 8px;background:var(--bg2);border-radius:4px;color:var(--text2)">'
-          + 'ℹ️ Расчёт по формуле (цены сделок). PDF-клиринг по якорным ногам ещё не финализирован — сверка появится после закрытия в клиринге.'
-          + '</div>';
-      }
-    }
-
-    html += '</div></div>';
-  }
-
-  if (!filtered.length) {
-    html += '<div style="text-align:center;color:var(--text2);padding:32px">Нет позиций по фильтру</div>';
-  }
-
-  container.innerHTML = html;
-
-  // Trigger async ROI calculation for each closed position
-  filtered.forEach(function(pos) {
-    if (pos.status !== 'closed') return;
-    var rate = (pos.closed_date ? getRateForDate(normDate(pos.closed_date)) : (currentRate&&currentRate.value||85)) || 85;
-    var mxPnlFull2 = getPosMxPnlFull(pos);
-    var totalMx2 = Object.values(mxPnlFull2).reduce(function(s,x){return s+x.pnl;},0);
-    var fxT2 = getPosFxTrades(pos);
-    var fxP2 = fxT2.reduce(function(s,t){return s+(t.net_pnl_usd||0);},0) * rate;
-    var totalRub2 = totalMx2 + fxP2;
-    var roiId = 'pos-capital-' + pos.id.replace(/[^a-z0-9]/gi,'_');
-    updatePositionCapitalUI(roiId.replace('pos-capital-',''), totalRub2);
-  });
-
-  // Wire up clear button
-  var cb = document.getElementById('autolj-clear-btn');
-  if (cb) cb.onclick = function(){
-    if (confirm('Очистить все позиции и авто-журнал?')) {
-      store.positions=[]; store.autoLj={rows:[]};
-      saveStore(); renderAutoLj();
-    }
-  };
-}
-
-
 
 function _renderAutoLjOLD() {
   const container = document.getElementById('autolj-container');
@@ -14503,67 +13966,137 @@ function fixManualPositions(date) {
 function renderAutoLj() {
   const root = document.getElementById('deals-root');
   if (!root) return;
-  const positions = (store.manualPositions || []).slice().sort((a,b)=>(b.closeDate||'').localeCompare(a.closeDate||''));
-  if (!positions.length) {
+  const allPos = (store.manualPositions || []).slice();
+
+  if (!allPos.length) {
     root.innerHTML = `<div style="text-align:center;padding:60px 20px;color:var(--text2)">
-      <div style="font-size:40px;margin-bottom:12px">📋</div>
+      <div style="font-size:36px;margin-bottom:12px">📋</div>
       <div style="font-size:15px;font-weight:600;color:var(--text1);margin-bottom:6px">Нет зафиксированных сделок</div>
-      <div style="font-size:13px">Разнеси сделки во вкладке «Разнос», нажми «Рассчитать», затем «✓ Зафиксировать в Сделки»</div>
+      <div style="font-size:13px;max-width:360px;margin:0 auto">Разнеси сделки во вкладке «Разнос» → «Рассчитать» → «✓ Зафиксировать в Сделки»</div>
     </div>`;
     return;
   }
+
+  // Фильтр состояние
+  const fTag  = root._fTag  || '';
+  const fDate = root._fDate || '';
+  const fSort = root._fSort || 'date';
+
+  let positions = allPos.slice().sort((a,b)=>(b.closeDate||'').localeCompare(a.closeDate||''));
+  if (fTag)  positions = positions.filter(p=>p.tag===fTag);
+  if (fDate) positions = positions.filter(p=>p.closeDate===fDate);
+  if (fSort==='pnl') positions.sort((a,b)=>b.pnlRub-a.pnlRub);
+
   // Статистика
-  const closed = positions.filter(p=>p.status==='closed');
-  const totalPnl = closed.reduce((s,p)=>s+p.pnlRub,0);
-  const best = closed.length ? closed.reduce((a,b)=>b.pnlRub>a.pnlRub?b:a) : null;
-  const statsHtml = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:24px">
-    <div class="card"><div class="label">Всего сделок</div><div class="value" style="color:var(--text)">${closed.length}</div></div>
-    <div class="card"><div class="label">Итог</div><div class="value ${totalPnl>=0?'total':''}" style="${totalPnl<0?'color:var(--red)':''}  ">${fmtRub(totalPnl)}</div></div>
-    ${best?`<div class="card"><div class="label">Лучшая</div><div class="value total">${fmtRub(best.pnlRub)}</div><div class="meta">${best.tag}</div></div>`:''}
+  const totalPnl = allPos.reduce((s,p)=>s+p.pnlRub,0);
+  const best = allPos.length ? allPos.reduce((a,b)=>b.pnlRub>a.pnlRub?b:a) : null;
+  const worst = allPos.length ? allPos.reduce((a,b)=>b.pnlRub<a.pnlRub?b:a) : null;
+  const avgDays = allPos.length ? Math.round(allPos.reduce((s,p)=>{
+    const d = (p.days||[p.openDate,p.closeDate]).length; return s+d;
+  },0)/allPos.length) : 0;
+
+  const statsHtml = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:24px">
+    <div class="card">
+      <div class="label">Всего сделок</div>
+      <div class="value" style="color:var(--text1)">${allPos.length}</div>
+      <div class="meta">зафиксировано</div>
+    </div>
+    <div class="card">
+      <div class="label">Итог P&L</div>
+      <div class="value ${totalPnl>=0?'total':''}" style="${totalPnl<0?'color:var(--red)':''}">${fmtRub(totalPnl)}</div>
+    </div>
+    ${best?`<div class="card">
+      <div class="label">Лучшая</div>
+      <div class="value total">+${fmtRub(best.pnlRub)}</div>
+      <div class="meta">${best.tag}</div>
+    </div>`:''}
+    ${worst&&worst.pnlRub<0?`<div class="card">
+      <div class="label">Худшая</div>
+      <div class="value" style="color:var(--red)">${fmtRub(worst.pnlRub)}</div>
+      <div class="meta">${worst.tag}</div>
+    </div>`:''}
+    <div class="card">
+      <div class="label">Ср. срок</div>
+      <div class="value" style="color:var(--text1)">${avgDays}</div>
+      <div class="meta">дней в сделке</div>
+    </div>
   </div>`;
-  // Список позиций
+
+  // Фильтры
+  const allTags = [...new Set(allPos.map(p=>p.tag))].sort();
+  const allDates = [...new Set(allPos.map(p=>p.closeDate).filter(Boolean))].sort().reverse();
+  const tagOpts = `<option value="">Все конструкции</option>`+allTags.map(t=>`<option value="${t}"${fTag===t?' selected':''}>${t}</option>`).join('');
+  const dateOpts = `<option value="">Все даты</option>`+allDates.map(d=>`<option value="${d}"${fDate===d?' selected':''}>${d}</option>`).join('');
+
+  const filtersHtml = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+    <select onchange="document.getElementById('deals-root')._fTag=this.value;renderAutoLj()" style="padding:6px 10px;border:1px solid var(--border);border-radius:7px;background:var(--bg2);color:var(--text1);font-size:12px;cursor:pointer">${tagOpts}</select>
+    <select onchange="document.getElementById('deals-root')._fDate=this.value;renderAutoLj()" style="padding:6px 10px;border:1px solid var(--border);border-radius:7px;background:var(--bg2);color:var(--text1);font-size:12px;cursor:pointer">${dateOpts}</select>
+    <select onchange="document.getElementById('deals-root')._fSort=this.value;renderAutoLj()" style="padding:6px 10px;border:1px solid var(--border);border-radius:7px;background:var(--bg2);color:var(--text1);font-size:12px;cursor:pointer">
+      <option value="date"${fSort==='date'?' selected':''}>По дате</option>
+      <option value="pnl"${fSort==='pnl'?' selected':''}>По P&L</option>
+    </select>
+    <span style="font-size:12px;color:var(--text2)">${positions.length} из ${allPos.length}</span>
+    <div style="margin-left:auto;display:flex;gap:8px">
+      <button onclick="if(confirm('Очистить Дневник?')){store.positions=[];saveStore();renderAutoLj();alert('Очищено!')}" style="padding:6px 12px;border:1px solid var(--border);border-radius:7px;background:var(--bg2);color:var(--text2);font-size:12px;cursor:pointer">🗑 Очистить Дневник</button>
+      <button onclick="if(confirm('Отправить все в Дневник?')){store.positions=[];(store.manualPositions||[]).forEach(p=>sendToDiary(p.id,true));saveStore();if(typeof renderShowcase==='function')renderShowcase();renderAutoLj();alert('Готово!')}" style="padding:6px 16px;border:none;border-radius:7px;background:var(--blue);color:#fff;font-size:12px;font-weight:600;cursor:pointer">→ Все в Дневник</button>
+    </div>
+  </div>`;
+
+  // Карточки позиций
   let cards = '';
   for (const pos of positions) {
     const isPos = pos.pnlRub >= 0;
-    const daysCount = pos.days ? pos.days.length : 1;
-    const legsHtml = pos.legs.map(l => {
-      const val = l.platform==='FX'
-        ? `<span class="${l.pnlUsd>=0?'pos':'neg'}" style="font-size:12px;font-weight:600;font-family:'SF Mono',monospace">${l.pnlUsd>=0?'+':''}${l.pnlUsd.toFixed(2)}$ = ${fmtRub(l.pnlRub)}</span>`
-        : `<span class="${(l.pnl||0)>=0?'pos':'neg'}" style="font-size:12px;font-weight:600;font-family:'SF Mono',monospace">${fmtRub(+(l.pnl||0).toFixed(2))}</span>`;
-      return `<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border);font-size:12px">
-        <span style="color:var(--text2)">${l.instrument}</span>${val}</div>`;
+    const rate = getRateForDate(pos.closeDate) || 85;
+    const daysArr = pos.days || [pos.openDate, pos.closeDate];
+    const daysCount = daysArr.length;
+    const dayWord = daysCount===1?'день':daysCount<5?'дня':'дней';
+    const inDiary = (store.positions||[]).some(p=>p.id===pos.id);
+
+    // Ноги
+    const legsHtml = (pos.legs||[]).map(l => {
+      const isFX = l.platform==='FX';
+      const pnlVal = isFX ? l.pnlUsd : (l.pnl||0);
+      const pnlRub = isFX ? Math.round((l.pnlUsd||0)*rate) : Math.round(l.pnl||0);
+      const pnlStr = isFX
+        ? `${pnlVal>=0?'+':''}${pnlVal.toFixed(2)}$ = ${fmtRub(pnlRub)}`
+        : fmtRub(pnlRub);
+      const cls = pnlVal>=0?'pos':'neg';
+      return `<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--border)">
+        <span style="font-size:12px;color:var(--text2)">${l.instrument}${isFX?' <span style="font-size:9px;color:var(--purple);font-weight:600">FX</span>':''}</span>
+        <span class="${cls}" style="font-size:12px;font-weight:600;font-family:'SF Mono',monospace">${pnlStr}</span>
+      </div>`;
     }).join('');
-    const delId = pos.id.replace(/[|]/g,'_').replace(/[^a-z0-9_]/gi,'');
+
+    const safeId = pos.id.replace(/'/g,"\'");
     cards += `<div style="background:var(--bg2);border:1px solid var(--border);border-left:3px solid ${isPos?'var(--green)':'var(--red)'};border-radius:10px;margin-bottom:10px;overflow:hidden;box-shadow:var(--shadow)">
-      <div onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'" style="display:flex;justify-content:space-between;align-items:center;padding:14px 16px;cursor:pointer;user-select:none">
-        <div>
-          <div style="font-weight:700;font-size:13px;color:var(--text1)">${pos.tag} <span style="color:var(--text2);font-weight:400;font-size:11px">набор ${pos.setN}</span></div>
-          <div style="font-size:11px;color:var(--text2);margin-top:2px">${pos.openDate} → ${pos.closeDate} · ${daysCount} ${daysCount===1?'день':daysCount<5?'дня':'дней'}</div>
+      <div onclick="const b=this.nextElementSibling;b.style.display=b.style.display==='none'?'block':'none'" style="display:flex;justify-content:space-between;align-items:center;padding:14px 16px;cursor:pointer;user-select:none">
+        <div style="display:flex;flex-direction:column;gap:3px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-weight:700;font-size:13px;color:var(--text1)">${pos.tag}</span>
+            <span style="font-size:10px;color:var(--text2);background:var(--bg3);padding:2px 6px;border-radius:4px">набор ${pos.setN}</span>
+            ${inDiary?'<span style="font-size:10px;color:var(--green);background:var(--green-dim);padding:2px 6px;border-radius:4px">✓ в Дневнике</span>':''}
+          </div>
+          <div style="font-size:11px;color:var(--text2)">${pos.openDate}${pos.closeDate!==pos.openDate?' → '+pos.closeDate:''} · ${daysCount} ${dayWord}</div>
         </div>
         <div style="text-align:right">
           <div class="${isPos?'pos':'neg'}" style="font-weight:700;font-size:16px;font-family:'SF Mono',monospace">${fmtRub(pos.pnlRub)}</div>
-          <div style="font-size:10px;color:var(--text2);margin-top:2px">MX ${fmtRub(pos.mxRub)} + FX ${fmtRub(Math.round(pos.fxUsd*(getRateForDate(pos.closeDate)||85)))}</div>
+          <div style="font-size:10px;color:var(--text2);margin-top:2px">MX ${fmtRub(pos.mxRub)} · FX ${fmtRub(Math.round((pos.fxUsd||0)*rate))}</div>
         </div>
       </div>
-      <div style="display:none;padding:0 16px 12px;border-top:1px solid var(--border)">
-        <div style="padding-top:8px">${legsHtml}</div>
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px">
-          <button onclick="sendToDiary('${pos.id.replace(/'/g,"\'")}')" style="padding:5px 14px;border:none;border-radius:6px;background:var(--blue);color:#fff;font-size:11px;font-weight:600;cursor:pointer">→ В Дневник</button>
-          <button onclick="if(confirm('Удалить сделку?')){store.manualPositions=store.manualPositions.filter(p=>p.id!=='${pos.id.replace(/'/g,"\'")}');saveStore();renderAutoLj()}" style="padding:5px 10px;border:1px solid var(--border);border-radius:6px;background:none;color:var(--text2);font-size:11px;cursor:pointer">✕ Удалить</button>
+      <div style="display:none;border-top:1px solid var(--border);padding:12px 16px">
+        <div style="margin-bottom:12px">${legsHtml}</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;padding-top:4px">
+          <button onclick="sendToDiary('${safeId}');renderAutoLj()" style="padding:6px 16px;border:none;border-radius:7px;background:var(--blue);color:#fff;font-size:12px;font-weight:600;cursor:pointer">${inDiary?'↻ Обновить в Дневнике':'→ В Дневник'}</button>
+          <button onclick="if(confirm('Удалить сделку ${pos.tag}?')){store.manualPositions=(store.manualPositions||[]).filter(p=>p.id!=='${safeId}');saveStore();renderAutoLj()}" style="padding:5px 12px;border:1px solid var(--border);border-radius:7px;background:none;color:var(--text2);font-size:12px;cursor:pointer">✕ Удалить</button>
         </div>
       </div>
     </div>`;
   }
-  root.innerHTML = statsHtml + `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-    <span style="font-size:13px;font-weight:600;color:var(--text1)">Зафиксированные сделки</span>
-    <div style="display:flex;gap:8px">
-      <button onclick="if(confirm('Очистить старые сделки из Дневника (авторазнос)?')){store.positions=[];saveStore();renderAutoLj();alert('Очищено!')}" style="padding:6px 14px;border:1px solid var(--border);border-radius:7px;background:none;color:var(--text2);font-size:12px;cursor:pointer">🗑 Очистить Дневник</button>
-      <button onclick="if(confirm('Отправить все сделки в Дневник?')){store.positions=[];(store.manualPositions||[]).forEach(p=>sendToDiary(p.id,true));saveStore();renderAutoLj();alert('Готово!')}" style="padding:6px 16px;border:none;border-radius:7px;background:var(--blue);color:#fff;font-size:12px;font-weight:600;cursor:pointer">→ Все в Дневник</button>
-    </div>
-  </div>` + cards;
+
+  root.innerHTML = statsHtml + filtersHtml + (positions.length ? cards : `<div style="text-align:center;padding:30px;color:var(--text2);font-size:13px">Нет сделок по выбранным фильтрам</div>`);
 }
 
-// Отправить сделку в store.positions (Дневник)
+
 function sendToDiary(id, silent) {
   if (!store.manualPositions) return;
   const pos = store.manualPositions.find(p=>p.id===id);
