@@ -1039,8 +1039,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '27.06 12:38';
-const BUILD_DATE    = '27.06.2026 12:38 МСК';
+const BUILD_VERSION = '27.06 12:41';
+const BUILD_DATE    = '27.06.2026 12:41 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -12020,7 +12020,9 @@ function calcManualResults() {
   const datesUpTo = allDates.filter(d=>d<=date);
   // allDatesAll — ВСЕ загруженные дни (для rowPnl CNY, включая будущие циклы)
   const allDatesAll = allDates;
-  for (const d of datesUpTo) {
+  // byPosAll строим по ВСЕМ дням (allDatesAll) — чтобы closeDate был правильным
+  // для переносных наборов (Si открыт 22-го, закрыт 24-го → нужны сделки 24-го)
+  for (const d of allDatesAll) {
     for (const t of getCombinedTradesForManual(d)) {
       const a = getManualAssign(manualKey(t));
       if (!a || !a.tag) continue;
@@ -12050,11 +12052,13 @@ function calcManualResults() {
 
   // byPos = только закрытые наборы, у которых ЯКОРНАЯ нога закрылась на текущий день.
   const crossKey = key => key.replace(' · набор ', '|');
+  // Проверяем закрытость по всем сделкам byPosAll (не только до date)
+  const crossSetsAll = computeCrossDayBalances(allDatesAll[allDatesAll.length-1] || date);
   // CNY может закрыться позже — но конструкция показывается в день закрытия якоря.
   // rowPnl уже содержит P&L CNY-строк по _tradeId независимо от дня цикла CNY.
   const byPos = {};
   for (const key of Object.keys(byPosAll)) {
-    const cs = crossSets[crossKey(key)];
+    const cs = crossSetsAll[crossKey(key)];
     if (!cs) continue;
     const allClosed = Object.values(cs.legs).every(l=>l.net===0);
     if (!allClosed) continue;
