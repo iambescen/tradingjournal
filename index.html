@@ -1039,8 +1039,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '27.06 10:43';
-const BUILD_DATE    = '27.06.2026 10:43 МСК';
+const BUILD_VERSION = '27.06 10:49';
+const BUILD_DATE    = '27.06.2026 10:49 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -12009,60 +12009,42 @@ function renderManualRaznos() {
 // Расчёт конструкций из ручной разметки за выбранный день
 function calcManualResults() {
   const date = store._manualDate;
-  // Вариант А: показываем только ЗАКРЫТЫЕ наборы (net=0 по всем MX-ногам
-  // в кросс-дневном балансе). Сделки для расчёта P&L — со ВСЕХ дней набора,
-  // но margin_rub берётся только с тех сделок где оно есть (день закрытия).
+  const trades = getCombinedTradesForManual(date);
+  // группируем по (tag, setN) — берём сделки ВСЕХ дней для переносных наборов
+  // (вход мог быть на прошлом дне, выход сегодня)
   const crossSets = computeCrossDayBalances(date);
+  const byPos = {};
+  // Собираем сделки со всех дней для наборов которые были открыты ранее
   const allDates = [...new Set((store.mx||[]).map(r=>normDate(r.date)).filter(d=>d&&d.length===10))].sort();
   const datesUpTo = allDates.filter(d=>d<=date);
-
-  // Собираем сделки со всех дней для каждого набора
-  const byPos = {};
   for (const d of datesUpTo) {
     for (const t of getCombinedTradesForManual(d)) {
       const a = getManualAssign(manualKey(t));
       if (!a || !a.tag) continue;
-      const sk = a.tag + '|' + (a.setN||1);
-      const cs = crossSets[sk];
-      if (!cs) continue; // набор не в кросс-балансе
-      const allClosed = Object.values(cs.legs).every(l=>l.net===0);
-      if (!allClosed) continue; // набор ещё открыт — пропускаем
       const key = a.tag + ' · набор ' + (a.setN||1);
-      const lastDate = (cs.dates||[]).slice().sort().pop();
-      if (!byPos[key]) byPos[key] = { tag:a.tag, setN:a.setN||1, legs:{}, closeDate: lastDate };
+      (byPos[key] || (byPos[key] = { tag:a.tag, setN:a.setN||1, legs:{} })).legs;
       const pos = byPos[key];
-      const base = t._platform==='FX' ? t.instrument.replace(/[-_]/g,'').toUpperCase() : t.instrument;
+      const base = t._platform==='FX' ? t.instrument.replace(/[-_]/g,'').toUpperCase() : (t.instrument);
       if (!pos.legs[base]) pos.legs[base] = { platform:t._platform, instrument:t.instrument, trades:[] };
       pos.legs[base].trades.push(t);
     }
   }
-  // Показываем только наборы у которых дата ЗАКРЫТИЯ = текущий день
-  // (чтобы не показывать повторно уже посчитанные на прошлых днях)
+  // Вариант А: показываем только ЗАКРЫТЫЕ наборы (net=0 по всем MX-ногам)
   const crossKey = key => key.replace(' · набор ', '|');
   for (const key of Object.keys(byPos)) {
     const cs = crossSets[crossKey(key)];
     if (!cs) { delete byPos[key]; continue; }
-    // Дата последней сделки в кросс-балансе = дата закрытия
-    const lastDate = (cs.dates||[]).slice().sort().pop();
-    if (lastDate !== date) delete byPos[key];
+    const allClosed = Object.values(cs.legs).every(l => l.net === 0);
+    if (!allClosed) delete byPos[key];
   }
   // P&L: MX = margin_rub (фьючерсы) или i.pnl из PDF (перпетуалы: CNYRUBF/EURRUBF/USDRUBF)
   // У перпетуалов margin_rub по сделкам ≠ i.pnl из-за фандинга → берём итоговую строку PDF
   const _isPerpetual = instr => /RUBF$/i.test(instr||'');
-  const rep = getMxReportForDate(date); // для CNY-масштаба дня
+  const rep = getMxReportForDate(date);
   // Предвычисляем: для каждого CNY-инструмента — Σ margin_rub за день (итог пропа)
   // и формульный P&L всех конструкций дня с этим CNY (для масштаба)
-  // ── АЛГОРИТМ CNY: атрибуция по моменту закрытия ──
-  // Логика пропа: маржа фиксируется в момент закрытия серии сделок.
-  // Для каждого CNY-инструмента:
-  //   1. Берём все сделки инструмента по всем дням (хронологически)
-  //   2. Ищем сделки с margin_rub != 0 — это моменты закрытия
-  //   3. В каждый такой момент знаем: какой объём закрыт и какая маржа
-  //   4. margin_per_lot = margin_rub / closed_vol
-  //   5. Смотрим разметку — какие конструкции держали CNY до этого момента
-  //   6. Распределяем маржу пропорционально лотам каждой конструкции
-
-  // Собираем все CNY-инструменты из byPos
+  // CNY: показываем итог из i.pnl PDF по каждому CNY-инструменту отдельно
+  // Не атрибутируем между конструкциями — показываем отдельной строкой в итоге дня
   const _cnyInstrs = new Set();
   for (const key of Object.keys(byPos)) {
     for (const b in byPos[key].legs) {
@@ -12072,91 +12054,16 @@ function calcManualResults() {
       if (HEDGE_BASES && HEDGE_BASES.includes(base)) _cnyInstrs.add(leg.instrument);
     }
   }
-
-  // Для каждого CNY-инструмента считаем attribution
-  const _cnyAttrib = {}; // 'posKey|instrBase' → pnl₽
+  // i.pnl CNY по всем дням набора
+  const _cnyPdfs = {}; // instr → сумма i.pnl за все дни до date
   for (const instr of _cnyInstrs) {
-    // Все сделки инструмента по всем дням хронологически
-    const allTrades = [];
-    for (const d of allDates.filter(d=>d<=date)) {
-      const dayRep = getMxReportForDate(d);
-      (dayRep?.trades||[])
-        .filter(t=>t.instrument===instr)
-        .forEach(t=>allTrades.push({...t, _dateStr:d}));
+    let tot = 0;
+    for (const d of datesUpTo) {
+      const dr = getMxReportForDate(d);
+      const row = (dr?.instruments||[]).find(i=>i.name===instr);
+      if (row) tot += (row.pnl||0);
     }
-    // Сортируем хронологически
-    allTrades.sort((a,b)=>{
-      if (a._dateStr!==b._dateStr) return a._dateStr<b._dateStr?-1:1;
-      return timeToMs(a.time)-timeToMs(b.time);
-    });
-
-    // Бегущий баланс каждой конструкции по CNY (лоты)
-    // Ключ = 'tag|setN', значение = net_lots
-    const posLots = {}; // posKey → net lots at any moment
-
-    // Инициализируем из разметки: Long = вход в позицию (CNY покупается = хедж)
-    // Определим направление входа для каждой конструкции
-    const posEntryDir = {}; // posKey → 'Long'|'Short'
-
-    for (const key of Object.keys(byPos)) {
-      const leg = byPos[key].legs;
-      const base = Object.keys(leg).find(b => {
-        const li = (leg[b].instrument||'');
-        return li === instr;
-      });
-      if (!base) continue;
-      const firstTrade = leg[base].trades.slice().sort((a,b)=>
-        (a._dateStr||'').localeCompare(b._dateStr||'') || timeToMs(a.time)-timeToMs(b.time)
-      )[0];
-      if (firstTrade) posEntryDir[key] = firstTrade._dir;
-      posLots[key] = 0;
-    }
-
-    // Проходим по всем сделкам и обновляем баланс / применяем маржу
-    for (const t of allTrades) {
-      const tKey = `${t._dateStr}|${t.time}|${t.direction}|${t.volume}`;
-      const tMs = timeToMs(t.time);
-
-      // Обновляем балансы конструкций по этой сделке (по разметке)
-      for (const key of Object.keys(byPos)) {
-        const leg = byPos[key].legs;
-        const base = Object.keys(leg).find(b=>(leg[b].instrument||'')=== instr);
-        if (!base) continue;
-        const tagged = leg[base].trades.find(rt=>
-          rt._dateStr===t._dateStr && rt.time===t.time &&
-          rt.direction===t.direction && Math.abs(rt.volume||0)===Math.abs(t.volume||0)
-        );
-        if (!tagged) continue;
-        const entryDir = posEntryDir[key] || 'Long';
-        const vol = Math.abs(t.volume||0);
-        if (t.direction === entryDir) {
-          posLots[key] = (posLots[key]||0) + vol;
-        } else {
-          posLots[key] = (posLots[key]||0) - vol;
-        }
-      }
-
-      // Если у сделки есть margin_rub — это момент закрытия, распределяем
-      if (!t.margin_rub) continue;
-      const closedVol = Math.abs(t.volume||0);
-      if (!closedVol) continue;
-      const marginPerLot = t.margin_rub / closedVol;
-
-      // Суммарные лоты всех конструкций в этот момент
-      const totalLots = Object.values(posLots).reduce((s,v)=>s+Math.max(0,v),0);
-      if (!totalLots) continue;
-
-      // Распределяем пропорционально текущим лотам
-      for (const key of Object.keys(byPos)) {
-        const lots = Math.max(0, posLots[key]||0);
-        if (!lots) continue;
-        const leg = byPos[key].legs;
-        const base = Object.keys(leg).find(b=>(leg[b].instrument||'')===instr);
-        if (!base) continue;
-        const attribKey = key + '|' + base;
-        _cnyAttrib[attribKey] = (_cnyAttrib[attribKey]||0) + marginPerLot * lots;
-      }
-    }
+    _cnyPdfs[instr] = tot;
   }
 
   const rate = getRateForDate(date) || 0;
@@ -12166,8 +12073,6 @@ function calcManualResults() {
   let dayTotal = 0;
   for (const key of keys) {
     const pos = byPos[key];
-    const posRep = getMxReportForDate(pos.closeDate || date); // PDF дня закрытия
-    const posRate = getRateForDate(pos.closeDate || date) || rate;
     let mxTot = 0, fxUsd = 0, legsHtml = '';
     for (const b in pos.legs) {
       const leg = pos.legs[b];
@@ -12176,18 +12081,17 @@ function calcManualResults() {
       if (leg.platform==='FX') {
         const u = +leg.trades.reduce((s,t)=>s+(t._pnlUsd||0),0).toFixed(2); fxUsd += u;
         const fxVol = +leg.trades.reduce((s,t)=>s+t._vol,0).toFixed(4);
-        legsHtml += `<div style="display:flex;justify-content:space-between;font-size:11px;padding:1px 0;color:var(--text2)"><span>${leg.instrument} <span style="font-size:10px">FX ${fxVol}л</span></span><span class="${u>=0?'pos':'neg'} mono" style="font-size:11px">${(u>=0?'+':'')+u.toFixed(2)}$ = ${fmtRub(Math.round(u*posRate))}</span></div>`;
+        legsHtml += `<div style="display:flex;justify-content:space-between;font-size:11px;padding:1px 0;color:var(--text2)"><span>${leg.instrument} <span style="font-size:10px">FX ${fxVol}л</span></span><span class="${u>=0?'pos':'neg'} mono" style="font-size:11px">${(u>=0?'+':'')+u.toFixed(2)}$ = ${fmtRub(Math.round(u*rate))}</span></div>`;
       } else {
         let m;
         const base = (leg.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
         const isCny = HEDGE_BASES && HEDGE_BASES.includes(base);
         if (isCny) {
-          // Берём атрибуцию по моменту закрытия (посчитана выше)
-          const attribKey = key + '|' + base;
-          m = _cnyAttrib[attribKey] || 0;
+          // CNY не атрибутируется по конструкциям — показывается отдельной строкой
+          continue;
         } else if (_isPerpetual(leg.instrument)) {
-          // перпетуал: i.pnl из итоговой строки PDF дня ЗАКРЫТИЯ (включает фандинг)
-          const instrRow = (posRep?.instruments||[]).find(i=>i.name===leg.instrument);
+          // перпетуал: i.pnl из итоговой строки PDF (включает фандинг)
+          const instrRow = (rep?.instruments||[]).find(i=>i.name===leg.instrument);
           m = instrRow ? (instrRow.pnl||0) : leg.trades.reduce((s,t)=>s+(t._margin||0),0);
         } else {
           // фьючерс: Σ margin_rub по сделкам
@@ -12200,7 +12104,7 @@ function calcManualResults() {
         legsHtml += `<div style="display:flex;justify-content:space-between;font-size:11px;padding:1px 0;color:var(--text2)"><span>${leg.instrument} <span style="font-size:10px">${inVR}л / ${outVR}л</span></span><span class="${mR>=0?'pos':'neg'} mono" style="font-size:11px">${fmtRub(mR)}</span></div>`;
       }
     }
-    const total = Math.round(mxTot + fxUsd*posRate);
+    const total = Math.round(mxTot + fxUsd*rate);
     dayTotal += total;
     const cardId = 'mc_' + key.replace(/[^a-z0-9]/gi,'_');
     html += `<div style="border:1px solid var(--border);border-left:4px solid ${total>=0?'var(--green)':'var(--red)'};border-radius:8px;margin-bottom:6px;background:var(--bg2)">
@@ -12214,6 +12118,19 @@ function calcManualResults() {
       </div>
     </div>`;
   }
+  // CNY отдельной строкой
+  let cnyHtml = '';
+  for (const instr of _cnyInstrs) {
+    const pnl = Math.round(_cnyPdfs[instr]||0);
+    if (!pnl) continue;
+    cnyHtml += `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 12px;border:1px solid var(--border);border-left:4px solid var(--text2);border-radius:8px;margin-bottom:6px;background:var(--bg2)">
+      <span style="color:var(--text2);font-size:13px">${instr} <span style="font-size:10px">(хедж, итого PDF за период)</span></span>
+      <span class="${pnl>=0?'pos':'neg'} mono" style="font-weight:700;font-size:14px">${fmtRub(pnl)}</span>
+    </div>`;
+    dayTotal += pnl;
+  }
+  if (cnyHtml) html += cnyHtml;
+
   html += `<div style="text-align:right;font-weight:700;font-size:15px;padding:8px">Итого за день: <span class="${Math.round(dayTotal)>=0?'pos':'neg'}">${fmtRub(Math.round(dayTotal))}</span></div></div>`;
   const resEl = document.getElementById('manual-results');
   if (resEl) resEl.innerHTML = html;
