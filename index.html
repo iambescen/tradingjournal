@@ -1057,8 +1057,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '27.06 16:17';
-const BUILD_DATE    = '27.06.2026 16:17 МСК';
+const BUILD_VERSION = '27.06 16:21';
+const BUILD_DATE    = '27.06.2026 16:21 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -14153,6 +14153,7 @@ function renderAutoLj() {
     </select>
     <span style="font-size:12px;color:var(--text2)">${positions.length} из ${allPos.length}</span>
     <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap">
+      <button onclick="recalcSpreads()" style="padding:6px 12px;border:1px solid var(--border);border-radius:7px;background:var(--bg2);color:var(--text2);font-size:12px;cursor:pointer">↻ Спреды</button>
       <button onclick="exportDealsCSV()" style="padding:6px 12px;border:1px solid var(--border);border-radius:7px;background:var(--bg2);color:var(--text2);font-size:12px;cursor:pointer">↓ CSV</button>
       <button onclick="if(confirm('Очистить Дневник?')){store.positions=[];saveStore();renderAutoLj()}" style="padding:6px 12px;border:1px solid var(--border);border-radius:7px;background:var(--bg2);color:var(--text2);font-size:12px;cursor:pointer">🗑 Очистить Дневник</button>
       <button onclick="if(confirm('Отправить все в Дневник?')){store.positions=[];(store.manualPositions||[]).forEach(p=>sendToDiary(p.id,true));saveStore();if(typeof renderShowcase==='function')renderShowcase();renderAutoLj();alert('Готово!')}" style="padding:6px 16px;border:none;border-radius:7px;background:var(--blue);color:#fff;font-size:12px;font-weight:600;cursor:pointer">→ Все в Дневник</button>
@@ -14229,6 +14230,53 @@ function renderAutoLj() {
   root.innerHTML = statsHtml + chartHtml + filtersHtml +
     (positions.length ? cards : `<div style="text-align:center;padding:30px;color:var(--text2);font-size:13px">Нет сделок по фильтрам</div>`);
 }
+
+// Пересчитать спреды для уже зафиксированных позиций без повторного разноса
+function recalcSpreads() {
+  const positions = store.manualPositions || [];
+  if (!positions.length) return alert('Нет зафиксированных сделок');
+  let updated = 0;
+  const allDates = [...new Set((store.mx||[]).map(r=>normDate(r.date)).filter(d=>d&&d.length===10))].sort();
+
+  for (const manPos of positions) {
+    // Собираем legs из данных разметки (те же что при фиксации)
+    const datesUpTo = allDates.filter(d=>d<=manPos.closeDate);
+    const byPosKey = manPos.tag + ' · набор ' + manPos.setN;
+    const legMap = {}; // instrument → {trades, platform}
+
+    for (const d of datesUpTo) {
+      for (const t of getCombinedTradesForManual(d)) {
+        const a = getManualAssign(manualKey(t));
+        if (!a || a.tag !== manPos.tag || (a.setN||1) !== manPos.setN) continue;
+        const key = t.instrument;
+        if (!legMap[key]) legMap[key] = { platform: t._platform, instrument: t.instrument, trades: [] };
+        legMap[key].trades.push(t);
+      }
+    }
+
+    // Строим pos-объект с legs для calcManualSpread
+    const posObj = { tag: manPos.tag, setN: manPos.setN, legs: legMap };
+    const sp = calcManualSpread(posObj, datesUpTo);
+
+    if (sp.entry != null || sp.exit != null) {
+      manPos.spreadEntry = sp.entry;
+      manPos.spreadExit  = sp.exit;
+      updated++;
+    }
+  }
+
+  saveStore();
+  // Обновляем и Дневник если позиции там есть
+  (store.positions||[]).forEach(dp => {
+    const mp = positions.find(p=>p.id===dp.id);
+    if (mp) { dp.spreadEntry = mp.spreadEntry; dp.spreadExit = mp.spreadExit; }
+  });
+  saveStore();
+
+  renderAutoLj();
+  alert(`✓ Спреды пересчитаны для ${updated} из ${positions.length} сделок`);
+}
+
 
 function exportDealsCSV() {
   const pos = store.manualPositions || [];
