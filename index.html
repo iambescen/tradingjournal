@@ -1039,8 +1039,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '27.06 12:03';
-const BUILD_DATE    = '27.06.2026 12:03 МСК';
+const BUILD_VERSION = '27.06 12:22';
+const BUILD_DATE    = '27.06.2026 12:22 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -12189,12 +12189,16 @@ function calcManualResults() {
           const instrRow = (rep?.instruments||[]).find(i=>i.name===leg.instrument);
           m = instrRow ? (instrRow.pnl||0) : leg.trades.reduce((s,t)=>s+(t._margin||0),0);
         } else {
-          // фьючерс: Σ margin_rub по сделкам
-          m = leg.trades.reduce((s,t)=>s+(t._margin||0),0);
+          // фьючерс: Σ margin_rub только по сделкам дня закрытия якоря.
+          // Для переносных наборов (Si открыт 22-го, закрыт 24-го) берём только 24-е,
+          // иначе суммируем маржу переоценки всех дней жизни позиции (22+23+24).
+          const closeDay = pos.closeDate || date;
+          m = leg.trades.filter(t=>t._dateStr===closeDay).reduce((s,t)=>s+(t._margin||0),0);
         }
         mxTot += m;
         // Комиссия: только для фьючерсов (margin_rub не включает комиссию).
         // Перпетуалы (i.pnl) и CNY (rowPnl) уже включают комиссию.
+        // Берём комиссию со ВСЕХ дней набора (включая день открытия).
         const legComm = (!isCny && !_isPerpetual(leg.instrument))
           ? leg.trades.reduce((s,t)=>s+(t._comm||0),0) : 0;
         mxTot += legComm;
