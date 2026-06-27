@@ -1072,8 +1072,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '27.06 15:46';
-const BUILD_DATE    = '27.06.2026 15:46 МСК';
+const BUILD_VERSION = '27.06 15:54';
+const BUILD_DATE    = '27.06.2026 15:54 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -14556,7 +14556,7 @@ function renderAutoLj() {
   }
   root.innerHTML = statsHtml + `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
     <span style="font-size:13px;font-weight:600;color:var(--text1)">Зафиксированные сделки</span>
-    <button onclick="if(confirm('Отправить все сделки в Дневник?')){(store.manualPositions||[]).forEach(p=>sendToDiary(p.id,true));renderAutoLj();alert('Готово!')" style="padding:6px 16px;border:none;border-radius:7px;background:var(--blue);color:#fff;font-size:12px;font-weight:600;cursor:pointer">→ Все в Дневник</button>
+    <button onclick="if(confirm('Отправить все сделки в Дневник?')){(store.manualPositions||[]).forEach(p=>sendToDiary(p.id,true));saveStore();renderAutoLj();alert('Готово!')}" style="padding:6px 16px;border:none;border-radius:7px;background:var(--blue);color:#fff;font-size:12px;font-weight:600;cursor:pointer">→ Все в Дневник</button>
   </div>` + cards;
 }
 
@@ -14567,19 +14567,33 @@ function sendToDiary(id, silent) {
   if (!pos) return;
   if (!store.positions) store.positions = [];
   // Не дублировать
-  const existIdx = store.positions.findIndex(p=>p.id===id||p.tag===pos.tag&&p.setN===pos.setN&&p.opened_date===pos.openDate);
+  const existIdx = store.positions.findIndex(p=>p.id===id);
+  // legs как объект (ключ = instrument) для совместимости с renderShowcase
+  const legs = {};
+  (pos.legs||[]).forEach(l => {
+    const key = l.instrument;
+    legs[key] = {
+      platform: l.platform,
+      instrument: l.instrument,
+      entry_direction: l.platform==='FX' ? 'Buy' : 'Long',
+      vol_in: 0,
+      pnl: l.pnl || 0,
+      pnl_usd: l.pnlUsd || 0,
+    };
+  });
   const entry = {
-    id, tag: pos.tag, set: pos.setN,
-    opened_date: pos.openDate, closed_date: pos.closeDate,
+    id,
+    tag: pos.tag,
+    set: pos.setN,
+    opened_date: pos.openDate,
+    closed_date: pos.closeDate,
     status: 'closed',
-    pnl_rub: pos.pnlRub, mx_rub: pos.mxRub, fx_usd: pos.fxUsd,
+    pnl_rub: pos.pnlRub,
+    mx_rub: pos.mxRub,
+    fx_usd: pos.fxUsd,
     days: pos.days || [pos.openDate, pos.closeDate],
     note: 'ручной разнос',
-    legs: pos.legs.map(l => ({
-      instrument: l.instrument, platform: l.platform,
-      pnl: l.pnl||0, pnlUsd: l.pnlUsd||0,
-      entry_direction: 'Long'
-    }))
+    legs,
   };
   if (existIdx >= 0) store.positions[existIdx] = entry;
   else store.positions.push(entry);
