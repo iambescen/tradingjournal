@@ -1039,8 +1039,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '27.06 13:00';
-const BUILD_DATE    = '27.06.2026 13:00 МСК';
+const BUILD_VERSION = '27.06 13:05';
+const BUILD_DATE    = '27.06.2026 13:05 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -12020,6 +12020,7 @@ function calcManualResults() {
   const byPosAll = {}; // все наборы (для CNY-атрибуции)
   const allDates = [...new Set((store.mx||[]).map(r=>normDate(r.date)).filter(d=>d&&d.length===10))].sort();
   const datesUpTo = allDates.filter(d=>d<=date);
+  const allDatesAll = allDates; // все загруженные дни (для rowPnl по всем циклам)
   for (const d of datesUpTo) {
     for (const t of getCombinedTradesForManual(d)) {
       const a = getManualAssign(manualKey(t));
