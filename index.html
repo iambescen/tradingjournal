@@ -1040,8 +1040,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '27.06 14:29';
-const BUILD_DATE    = '27.06.2026 14:29 МСК';
+const BUILD_VERSION = '27.06 14:37';
+const BUILD_DATE    = '27.06.2026 14:37 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -12153,6 +12153,8 @@ function calcManualResults() {
         }
         mxTot += m;
         const mR = m;
+        const inVR = +leg.trades.filter(t=>t._dir==='Long').reduce((s,t)=>s+t._vol,0).toFixed(4);
+        const outVR = +leg.trades.filter(t=>t._dir==='Short').reduce((s,t)=>s+t._vol,0).toFixed(4);
         legsHtml += `<div style="display:flex;justify-content:space-between;font-size:11px;padding:1px 0;color:var(--text2)"><span>${leg.instrument} <span style="font-size:10px">${inVR}л / ${outVR}л</span></span><span class="${mR>=0?'pos':'neg'} mono" style="font-size:11px">${fmtRub(mR.toFixed(2))}</span></div>`;
       }
     }
