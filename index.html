@@ -1040,8 +1040,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '27.06 14:13';
-const BUILD_DATE    = '27.06.2026 14:13 МСК';
+const BUILD_VERSION = '27.06 14:24';
+const BUILD_DATE    = '27.06.2026 14:24 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -11825,8 +11825,8 @@ function computeCrossDayBalances(currentDate) {
 }
 
 
-// ── buildRowPnl: вычисляет P&L на каждую строку для всех инструментов ──
-// Результат: { _tradeId → pnl₽ }. Вызывается из renderCycles и calcManualResults.
+// ── buildRowPnl: вычисляет P&L и комиссию на каждую строку для всех инструментов ──
+// Результат: { _tradeId → { pnl, comm } }. Вызывается из renderCycles, renderManualRaznos, calcManualResults.
 function buildRowPnl() {
   const allDates = [...new Set((store.mx||[]).map(r=>normDate(r.date)).filter(d=>d&&d.length===10))].sort();
   const instrSet = new Set();
@@ -11834,7 +11834,7 @@ function buildRowPnl() {
     const dr = getMxReportForDate(d);
     (dr?.trades||[]).forEach(t=>{ if(t.instrument) instrSet.add(t.instrument); });
   }
-  const rowPnl = {}; // _tradeId → pnl₽
+  const rowPnl = {}; // _tradeId → { pnl, comm }
   for (const instr of instrSet) {
     const allTrades = [];
     for (const d of allDates) {
@@ -11854,10 +11854,14 @@ function buildRowPnl() {
       const entryDir=first.direction, exitDir=entryDir==='Long'?'Short':'Long';
       const tv=ct.filter(x=>x.direction===exitDir).reduce((s,x)=>s+Math.abs(x.volume||0),0);
       if(!tv){cycleStart=i+1;continue;}
-      const tc=ct.reduce((s,x)=>s+(x.commission||0),0);
-      const mpl=(t.margin_rub+tc)/tv;
+      const totalCycleComm=ct.reduce((s,x)=>s+(x.commission||0),0);
+      const marginPerLot=(t.margin_rub+totalCycleComm)/tv;
+      const commPerLot=totalCycleComm/tv;
       ct.filter(x=>x.direction===exitDir).forEach(x=>{
-        rowPnl[x._tradeId]=(rowPnl[x._tradeId]||0)+mpl*Math.abs(x.volume||0);
+        const vol=Math.abs(x.volume||0);
+        if(!rowPnl[x._tradeId]) rowPnl[x._tradeId]={pnl:0,comm:0};
+        rowPnl[x._tradeId].pnl+=marginPerLot*vol;
+        rowPnl[x._tradeId].comm+=commPerLot*vol;
       });
       cycleStart=i+1;
     }
@@ -12023,7 +12027,7 @@ function renderManualRaznos() {
         <td class="mono ${dCls}" style="text-align:right;padding:4px 6px">${t._dir==='Long'?'+':'−'}${t._vol} <span style="color:var(--text2)">@ ${t._price}${t._fxClosed&&t._closePrice!=null?` → ${t._closePrice}`:''}</span></td>
         <td class="mono" style="text-align:right;color:var(--text2);padding:4px 6px">${t.time}${t._fxClosed&&t._closeTime?`<span style="opacity:.6">→${t._closeTime}</span>`:''}</td>
         <td class="mono" style="text-align:right;padding:4px 6px">${roleBadge || (t._platform==='FX'?((t._pnlUsd>=0?'+':'')+(t._pnlUsd||0).toFixed(2)+'$'):(t._margin?fmtRub(t._margin):'—'))}</td>
-        <td class="mono" style="text-align:right;padding:4px 6px;font-size:10px">${(()=>{ const p=_raznosRowPnl[manualKey(t)]; return p!=null?`<span class="${p>=0?'pos':'neg'}">${p>=0?'+':''}${Math.round(p)}</span>`:''; })()}</td>
+        <td class="mono" style="text-align:right;padding:4px 6px;font-size:10px">${(()=>{ const r=_raznosRowPnl[manualKey(t)]; return r!=null?`<span class="${r.pnl>=0?'pos':'neg'}" title="комм: ${r.comm.toFixed(2)}">${r.pnl>=0?'+':''}${r.pnl.toFixed(2)}</span>`:''; })()}</td>
         <td style="padding:3px 6px"><select onchange="setManualAssign('${k}',this.value,this.parentElement.parentElement.querySelector('.rset').value);renderManualRaznos()" style="width:100%;padding:3px;border:1px solid var(--border);border-radius:5px;background:var(--bg2);color:var(--text2);font-size:10px">${rowTagSel}</select></td>
         <td style="padding:3px 6px"><input type="number" min="1" value="${a?a.setN:1}" class="rset" onchange="setManualAssign('${k}',this.parentElement.parentElement.querySelector('select').value,this.value);renderManualRaznos()" style="width:46px;padding:3px;border:1px solid var(--border);border-radius:5px;background:var(--bg2);color:var(--text2);font-size:10px;text-align:center"></td>
       </tr>`;
@@ -12106,17 +12110,18 @@ function calcManualResults() {
   // Суммируем P&L строк по конструкциям из разметки — только за текущий день.
   // Строки других дней (переносы) появятся в расчёте тех дней когда они были.
   const _rowPnl = buildRowPnl();
-  const _mxAttrib = {}; // 'posKey|instrument' → pnl₽
+  const _mxAttrib = {}; // 'posKey|instrument' → { pnl, comm }
 
-  // Берём строки только текущего дня
   for (const t of getCombinedTradesForManual(date)) {
     if (t._platform !== 'MX') continue;
     const a = getManualAssign(manualKey(t));
     if (!a || !a.tag) continue;
-    const pnl = _rowPnl[manualKey(t)];
-    if (pnl == null) continue;
+    const r = _rowPnl[manualKey(t)];
+    if (!r) continue;
     const pk = a.tag + ' · набор ' + (a.setN||1);
-    _mxAttrib[pk+'|'+t.instrument] = (_mxAttrib[pk+'|'+t.instrument]||0) + pnl;
+    if (!_mxAttrib[pk+'|'+t.instrument]) _mxAttrib[pk+'|'+t.instrument] = {pnl:0, comm:0};
+    _mxAttrib[pk+'|'+t.instrument].pnl += r.pnl;
+    _mxAttrib[pk+'|'+t.instrument].comm += r.comm;
   }
   const rate = getRateForDate(date) || 0;
   let html = '<div style="margin-bottom:16px">';
@@ -12140,18 +12145,15 @@ function calcManualResults() {
         let m;
         const base = (leg.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
         if (_isPerpetual(leg.instrument)) {
-          // перпетуал (CNYRUBF/EURRUBF/USDRUBF): i.pnl из PDF (включает фандинг и комиссию)
           const instrRow = (rep?.instruments||[]).find(i=>i.name===leg.instrument);
           m = instrRow ? (instrRow.pnl||0) : leg.trades.reduce((s,t)=>s+(t._margin||0),0);
         } else {
-          // все фьючерсы (Si, Eu, ED, UCNY, CNY и др.): rowPnl через _mxAttrib
-          m = _mxAttrib[key+'|'+leg.instrument] || 0;
+          const r = _mxAttrib[key+'|'+leg.instrument];
+          m = r ? r.pnl : 0;
         }
         mxTot += m;
-        const mR = Math.round(m);
-        const inVR = Math.round(inV*100)/100;
-        const outVR = Math.round(outV*100)/100;
-        legsHtml += `<div style="display:flex;justify-content:space-between;font-size:11px;padding:1px 0;color:var(--text2)"><span>${leg.instrument} <span style="font-size:10px">${inVR}л / ${outVR}л</span></span><span class="${mR>=0?'pos':'neg'} mono" style="font-size:11px">${fmtRub(mR)}</span></div>`;
+        const mR = r ? r.pnl : m;
+        legsHtml += `<div style="display:flex;justify-content:space-between;font-size:11px;padding:1px 0;color:var(--text2)"><span>${leg.instrument} <span style="font-size:10px">${inVR}л / ${outVR}л</span></span><span class="${mR>=0?'pos':'neg'} mono" style="font-size:11px">${fmtRub(mR.toFixed(2))}</span></div>`;
       }
     }
     const total = Math.round(mxTot + fxUsd*rate);
@@ -14314,22 +14316,24 @@ function renderCycles() {
   allTrades.slice(cycleStart).forEach(x=>{ cycleOf[x._tradeId]=-1; });
   const cycleColors=['hsla(210,100%,60%,0.08)','hsla(120,60%,50%,0.08)','hsla(39,100%,55%,0.08)',
     'hsla(280,60%,60%,0.08)','hsla(0,70%,60%,0.08)','hsla(180,60%,50%,0.08)'];
-  let rows='', prevCycle=-99;
+    let rows='', prevCycle=-99;
   for (const t of allTrades) {
-    const tid=t._tradeId, cn=cycleOf[tid]??-1, pnl=rowPnl[tid], isMargin=!!t.margin_rub;
+    const tid=t._tradeId, cn=cycleOf[tid]??-1, r=rowPnl[tid], isMargin=!!t.margin_rub;
     const bg=cn>=0?cycleColors[cn%cycleColors.length]:'transparent';
     const bt=cn!==prevCycle?'border-top:2px solid var(--border);':'';
     const a=getManualAssign(tid);
     const tag=a?`${a.tag} н${a.setN||1}`:'—';
-    const pnlStr=pnl!=null?`<span class="${pnl>=0?'pos':'neg'} mono">${pnl>=0?'+':''}${Math.round(pnl)}</span>`:'—';
+    const pnlStr=r!=null?`<span class="${r.pnl>=0?'pos':'neg'} mono">${r.pnl>=0?'+':''}${r.pnl.toFixed(2)}</span>`:'—';
+    const commStr=r!=null?`<span style="color:var(--red);font-size:10px">${r.comm.toFixed(2)}</span>`:'—';
     const mStr=isMargin?`<span style="color:var(--blue);font-weight:700">${fmtRub(t.margin_rub)}</span>`:'—';
-    rows+=`<tr style="background:${bg};${bt}${isMargin?'font-weight:600;':''}" >
+    rows+=`<tr style="background:${bg};${bt}${isMargin?'font-weight:600;':''}">
       <td class="mono dim" style="padding:3px 6px;font-size:11px">${(t._dateStr||'').slice(5)} ${t.time}</td>
       <td style="padding:3px 6px;font-size:11px">${cn>=0?'Ц'+(cn+1):'—'}</td>
       <td class="mono" style="padding:3px 6px;font-size:11px;color:${t.direction==='Long'?'var(--green)':'var(--red)'}">${t.direction}</td>
       <td class="mono" style="padding:3px 6px;font-size:11px;text-align:right">${Math.abs(t.volume||0)}</td>
       <td class="mono dim" style="padding:3px 6px;font-size:11px;text-align:right">${t.price}</td>
       <td style="padding:3px 6px;font-size:11px;text-align:right">${mStr}</td>
+      <td style="padding:3px 6px;font-size:11px;text-align:right">${commStr}</td>
       <td style="padding:3px 6px;font-size:11px;text-align:right">${pnlStr}</td>
       <td style="padding:3px 6px;font-size:11px;color:var(--text2)">${tag}</td>
     </tr>`;
@@ -14338,13 +14342,14 @@ function renderCycles() {
   wrap.innerHTML=`
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap">
       <select onchange="store._cyclesInstr=this.value;renderCycles()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1);font-size:13px">${instrSel}</select>
-      <span style="font-size:11px;color:var(--text2)">Строки с маржой = конец цикла. P&L строки = (маржа+комм)/объём × лоты.</span>
+      <span style="font-size:11px;color:var(--text2)">Строки с маржой = конец цикла. P&L включает комиссию. Hover на P&L → комиссия отдельно.</span>
     </div>
     <table style="width:100%;border-collapse:collapse">
       <thead><tr style="border-bottom:2px solid var(--border);color:var(--text2);font-size:10px;text-transform:uppercase">
         <th style="text-align:left;padding:4px 6px">Дата/Время</th><th style="padding:4px 6px">Цикл</th>
         <th style="padding:4px 6px">Напр.</th><th style="text-align:right;padding:4px 6px">Лоты</th>
         <th style="text-align:right;padding:4px 6px">Цена</th><th style="text-align:right;padding:4px 6px">Маржа PDF</th>
+        <th style="text-align:right;padding:4px 6px">Комм</th>
         <th style="text-align:right;padding:4px 6px">P&L строки</th><th style="text-align:left;padding:4px 6px">Конструкция</th>
       </tr></thead>
       <tbody>${rows}</tbody>
