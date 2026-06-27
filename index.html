@@ -1072,8 +1072,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '27.06 15:54';
-const BUILD_DATE    = '27.06.2026 15:54 МСК';
+const BUILD_VERSION = '27.06 15:56';
+const BUILD_DATE    = '27.06.2026 15:56 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -14556,7 +14556,10 @@ function renderAutoLj() {
   }
   root.innerHTML = statsHtml + `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
     <span style="font-size:13px;font-weight:600;color:var(--text1)">Зафиксированные сделки</span>
-    <button onclick="if(confirm('Отправить все сделки в Дневник?')){(store.manualPositions||[]).forEach(p=>sendToDiary(p.id,true));saveStore();renderAutoLj();alert('Готово!')}" style="padding:6px 16px;border:none;border-radius:7px;background:var(--blue);color:#fff;font-size:12px;font-weight:600;cursor:pointer">→ Все в Дневник</button>
+    <div style="display:flex;gap:8px">
+      <button onclick="if(confirm('Очистить старые сделки из Дневника (авторазнос)?')){store.positions=[];saveStore();renderAutoLj();alert('Очищено!')}" style="padding:6px 14px;border:1px solid var(--border);border-radius:7px;background:none;color:var(--text2);font-size:12px;cursor:pointer">🗑 Очистить Дневник</button>
+      <button onclick="if(confirm('Отправить все сделки в Дневник?')){store.positions=[];(store.manualPositions||[]).forEach(p=>sendToDiary(p.id,true));saveStore();renderAutoLj();alert('Готово!')}" style="padding:6px 16px;border:none;border-radius:7px;background:var(--blue);color:#fff;font-size:12px;font-weight:600;cursor:pointer">→ Все в Дневник</button>
+    </div>
   </div>` + cards;
 }
 
