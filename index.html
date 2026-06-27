@@ -1039,8 +1039,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '26.06 22:28';
-const BUILD_DATE    = '26.06.2026 22:28 МСК';
+const BUILD_VERSION = '27.06 10:23';
+const BUILD_DATE    = '27.06.2026 10:23 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -12114,12 +12114,22 @@ function calcManualResults() {
         const base = (leg.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
         const isCny = HEDGE_BASES && HEDGE_BASES.includes(base);
         if (isCny) {
-          // CNY-хедж: формула пропорционально объёму, масштаб на итог пропа за день
-          const formula = _cnyFormula(leg.trades);
-          const formTot = _cnyFormTot[leg.instrument] || 0;
-          const pdfTot  = _cnyPdfTot[leg.instrument]  || 0;
-          const scale = Math.abs(formTot) > 0.01 ? (pdfTot / formTot) : 1;
-          m = formula * scale;
+          // CNY-хедж: для переносных наборов (сделки с разных дней) масштаб
+          // по дню ломается — берём Σ margin_rub по сделкам набора напрямую.
+          // Масштаб применяем только если все сделки набора одного дня.
+          const tradeDates = [...new Set(leg.trades.map(t=>t._dateStr).filter(Boolean))];
+          const isSingleDay = tradeDates.length <= 1;
+          if (isSingleDay) {
+            // Однодневный набор: формула × масштаб (как раньше)
+            const formula = _cnyFormula(leg.trades);
+            const formTot = _cnyFormTot[leg.instrument] || 0;
+            const pdfTot  = _cnyPdfTot[leg.instrument]  || 0;
+            const scale = Math.abs(formTot) > 0.01 ? (pdfTot / formTot) : 1;
+            m = formula * scale;
+          } else {
+            // Переносной набор: Σ margin_rub по сделкам набора (уже со знаком из PDF)
+            m = leg.trades.reduce((s,t)=>s+(t._margin||0),0);
+          }
         } else if (_isPerpetual(leg.instrument)) {
           // перпетуал: i.pnl из итоговой строки PDF дня ЗАКРЫТИЯ (включает фандинг)
           const instrRow = (posRep?.instruments||[]).find(i=>i.name===leg.instrument);
