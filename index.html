@@ -1057,8 +1057,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '27.06 16:21';
-const BUILD_DATE    = '27.06.2026 16:21 МСК';
+const BUILD_VERSION = '27.06 16:24';
+const BUILD_DATE    = '27.06.2026 16:24 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -11767,120 +11767,117 @@ setTimeout(() => renderOverviewTab(true), 1000); // render overview on startup
 <script>
 // ── Overview: Constructions Analytics ──
 async function renderOvConstructions() {
-  return; // removed from overview
-  ljInit();
+  const el = document.getElementById('ov-construction-analytics') || document.getElementById('ov-constructions');
+  if (!el) return;
 
-  const tagged = store.lj.rows.filter(r => r.tag);
-  if (!tagged.length) { el.innerHTML = ''; return; }
-
-  // Group by tag+set+date
-  const groups = {};
-  for (const r of tagged) {
-    const key = `${r.tag}||${r.set||1}||${r.date}`;
-    if (!groups[key]) groups[key] = { tag: r.tag, set: r.set||1, date: r.date, rows: [] };
-    groups[key].rows.push(r);
+  const positions = store.manualPositions || [];
+  if (!positions.length) {
+    el.innerHTML = '<div style="padding:16px;color:var(--text2);font-size:13px">Нет зафиксированных сделок. Зафиксируй сделки во вкладке «Сделки».</div>';
+    return;
   }
 
-  // Filter by current overview period
-  const [periodFrom, periodTo] = _ovPeriodRange ? _ovPeriodRange() : [0, Infinity];
-  const cards = Object.values(groups).filter(g => {
-    const ms = parseDate(g.date);
-    return ms >= periodFrom && ms <= periodTo;
-  }).sort((a,b) => parseDate(b.date)-parseDate(a.date));
+  // Фильтр по периоду обзора
+  const [periodFrom, periodTo] = typeof _ovPeriodRange==='function' ? _ovPeriodRange() : [0, Infinity];
 
-  if (!cards.length) { el.innerHTML = ''; return; }
+  const filtered = positions.filter(p => {
+    const ms = parseDate(p.closeDate || p.openDate || '');
+    return ms >= periodFrom && ms <= periodTo;
+  });
+
+  if (!filtered.length) {
+    el.innerHTML = '<div style="padding:16px;color:var(--text2);font-size:13px">Нет сделок за выбранный период.</div>';
+    return;
+  }
+
+  // Группируем по тегу конструкции
+  const byTag = {};
+  for (const pos of filtered) {
+    const tag = pos.tag;
+    if (!byTag[tag]) byTag[tag] = { count:0, pnlRub:0, frozen:0, spreads:[], days:[] };
+    byTag[tag].count++;
+    byTag[tag].pnlRub += pos.pnlRub || 0;
+    if (pos.spreadEntry != null) byTag[tag].spreads.push({ entry: pos.spreadEntry, exit: pos.spreadExit });
+    const d = (pos.days || [pos.openDate, pos.closeDate]).length;
+    byTag[tag].days.push(d);
+
+    // Капитал (ГО) — async
+    try {
+      // Строим минимальный pos-объект для calcPositionCapital
+      const fakePos = { tag, opened_date: pos.openDate, closed_date: pos.closeDate, days: pos.days || [], legs: {} };
+      (pos.legs||[]).forEach(l => { fakePos.legs[l.instrument] = { platform: l.platform, instrument: l.instrument, entry_direction: 'Long', vol_in: 0 }; });
+      const cap = await calcPositionCapital(fakePos);
+      if (cap && cap.totalFrozen > 0) byTag[tag].frozen += cap.totalFrozen;
+    } catch(e) {}
+  }
 
   const rate = currentRate?.value || 85;
-
-  // Aggregate stats per tag
-  const byTag = {};
-  for (const g of cards) {
-    if (!byTag[g.tag]) byTag[g.tag] = { count:0, pnlRub:0, frozen:0, deals:[] };
-    byTag[g.tag].count++;
-    byTag[g.tag].deals.push(g);
-
-    // P&L
-    const mxLegs = g.rows.filter(r=>r.platform==='MX');
-    const fxLegs = g.rows.filter(r=>r.platform==='FX');
-
-    for (const ig of Object.values((() => {
-      const m={};
-      for(const r of mxLegs){const k=r.instrument;if(!m[k])m[k]={instrument:k,rows:[]};m[k].rows.push(r);}
-      return m;
-    })())) {
-      const sorted=[...ig.rows].sort((a,b)=>a.time.localeCompare(b.time));
-      const ed=sorted[0]?.direction||''; const ieb=ed==='Buy'||ed==='L';
-      const ev=ig.rows.filter(r=>ieb?(r.direction==='Buy'||r.direction==='L'):(r.direction==='Sell'||r.direction==='S')).reduce((s,r)=>s+(r.volume||0),0);
-      const pd=calcMxLegPnl(ig.instrument,ev,g.date);
-      if(pd) byTag[g.tag].pnlRub += pd.pnl+pd.commission;
-    }
-    for(const r of fxLegs){
-      const pd=calcFxLegPnl(r.instrument,g.date);
-      if(pd) byTag[g.tag].pnlRub += (pd.pnl+pd.swap+pd.commission)*rate;
-    }
-
-    // Capital
-    const cap = await calcGroupCapital(g);
-    byTag[g.tag].frozen += cap.totalFrozen;
-  }
-
   const sortedTags = Object.entries(byTag).sort((a,b) => b[1].pnlRub - a[1].pnlRub);
-  const hasPnl = sortedTags.some(([,v]) => v.pnlRub !== 0);
+  const totalPnl = sortedTags.reduce((s,[,v])=>s+v.pnlRub, 0);
+  const totalFrozen = sortedTags.reduce((s,[,v])=>s+v.frozen, 0);
 
   const rows = sortedTags.map(([tag, v]) => {
-    const roc = v.frozen > 0 && hasPnl ? (v.pnlRub / v.frozen * 100) : null;
-    const pc = v.pnlRub>=0?'var(--green)':'var(--red)';
-    const rc = roc!=null?(roc>=0?'var(--green)':'var(--red)'):'var(--text2)';
-    const avgPnl = v.count > 0 ? v.pnlRub / v.count : 0;
-    return `<tr style="border-bottom:1px solid var(--border);font-size:12px">
-      <td style="padding:6px 10px;font-weight:700;color:var(--blue)">${esc(tag)}</td>
-      <td style="padding:6px 10px;text-align:center;color:var(--text2)">${v.count}</td>
-      <td style="padding:6px 10px;text-align:right;font-family:monospace;font-weight:700;color:${pc}">${v.pnlRub>=0?'+':''}${Math.round(v.pnlRub).toLocaleString('ru')} ₽</td>
-      <td style="padding:6px 10px;text-align:right;font-family:monospace;color:var(--text2)">${Math.round(avgPnl).toLocaleString('ru')} ₽</td>
-      <td style="padding:6px 10px;text-align:right;font-family:monospace;font-weight:600;color:${rc}">${roc!=null?(roc>=0?'+':'')+roc.toFixed(2)+'%':'—'}</td>
-      <td style="padding:6px 10px;text-align:right;font-family:monospace;color:var(--text2);font-size:11px">${v.frozen>0?Math.round(v.frozen).toLocaleString('ru')+' ₽':'—'}</td>
+    const roc = v.frozen > 0 ? (v.pnlRub / v.frozen * 100) : null;
+    const avgPnl = v.count > 0 ? Math.round(v.pnlRub / v.count) : 0;
+    const avgDays = v.days.length > 0 ? (v.days.reduce((s,d)=>s+d,0)/v.days.length).toFixed(1) : '—';
+    const pc = v.pnlRub>=0 ? 'var(--green)' : 'var(--red)';
+    const rc = roc!=null ? (roc>=0?'var(--green)':'var(--red)') : 'var(--text2)';
+
+    // Средний спред входа
+    const spreads = v.spreads.filter(s=>s.entry!=null);
+    const avgEntry = spreads.length ? (spreads.reduce((s,x)=>s+x.entry,0)/spreads.length).toFixed(3)+'%' : '—';
+    const exited = spreads.filter(s=>s.exit!=null);
+    const avgExit = exited.length ? (exited.reduce((s,x)=>s+x.exit,0)/exited.length).toFixed(3)+'%' : '—';
+
+    return `<tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:7px 10px;font-weight:700;color:var(--blue);font-size:12px">${esc(tag)}</td>
+      <td style="padding:7px 10px;text-align:center;color:var(--text2);font-size:12px">${v.count}</td>
+      <td style="padding:7px 10px;text-align:right;font-family:monospace;font-weight:700;color:${pc};font-size:12px">${v.pnlRub>=0?'+':''}${Math.round(v.pnlRub).toLocaleString('ru')} ₽</td>
+      <td style="padding:7px 10px;text-align:right;font-family:monospace;color:var(--text2);font-size:12px">${avgPnl.toLocaleString('ru')} ₽</td>
+      <td style="padding:7px 10px;text-align:right;font-family:monospace;color:var(--text2);font-size:11px">${avgDays} дн</td>
+      <td style="padding:7px 10px;text-align:right;font-family:monospace;color:var(--text2);font-size:11px">${avgEntry}</td>
+      <td style="padding:7px 10px;text-align:right;font-family:monospace;color:var(--text2);font-size:11px">${avgExit}</td>
+      <td style="padding:7px 10px;text-align:right;font-family:monospace;font-weight:600;color:${rc};font-size:12px">${roc!=null?(roc>=0?'+':'')+roc.toFixed(2)+'%':'—'}</td>
     </tr>`;
   }).join('');
 
-  const totalPnl = sortedTags.reduce((s,[,v])=>s+v.pnlRub,0);
-  const totalFrozen = sortedTags.reduce((s,[,v])=>s+v.frozen,0);
-  const totalRoc = totalFrozen>0 ? totalPnl/totalFrozen*100 : null;
-  const tc = totalPnl>=0?'var(--green)':'var(--red)';
+  const totalRoc = totalFrozen > 0 ? totalPnl/totalFrozen*100 : null;
+  const tc = totalPnl>=0 ? 'var(--green)' : 'var(--red)';
 
   el.innerHTML = `
-  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:14px 16px;margin-top:8px">
-    <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">
+  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;box-shadow:var(--shadow)">
+    <div style="padding:12px 16px;border-bottom:1px solid var(--border);font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.7px">
       📊 Аналитика по конструкциям
     </div>
     <div style="overflow-x:auto">
-      <table style="width:100%;border-collapse:collapse;min-width:500px">
+      <table style="width:100%;border-collapse:collapse;min-width:600px">
         <thead>
-          <tr style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;border-bottom:2px solid var(--border)">
-            <th style="padding:5px 10px;text-align:left;font-weight:600">Конструкция</th>
-            <th style="padding:5px 10px;text-align:center;font-weight:600">Сделок</th>
-            <th style="padding:5px 10px;text-align:right;font-weight:600">P&L итого</th>
-            <th style="padding:5px 10px;text-align:right;font-weight:600">P&L ср./сд.</th>
-            <th style="padding:5px 10px;text-align:right;font-weight:600">ROC</th>
-            <th style="padding:5px 10px;text-align:right;font-weight:600">Заморожено</th>
+          <tr style="background:var(--bg3);font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.7px;border-bottom:1px solid var(--border)">
+            <th style="padding:6px 10px;text-align:left;font-weight:700">Конструкция</th>
+            <th style="padding:6px 10px;text-align:center;font-weight:700">Сделок</th>
+            <th style="padding:6px 10px;text-align:right;font-weight:700">P&L итого</th>
+            <th style="padding:6px 10px;text-align:right;font-weight:700">P&L ср./сд.</th>
+            <th style="padding:6px 10px;text-align:right;font-weight:700">Ср. срок</th>
+            <th style="padding:6px 10px;text-align:right;font-weight:700">Спред вход</th>
+            <th style="padding:6px 10px;text-align:right;font-weight:700">Спред выход</th>
+            <th style="padding:6px 10px;text-align:right;font-weight:700">ROC</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
         <tfoot>
-          <tr style="font-size:12px;font-weight:700;border-top:2px solid var(--border)">
-            <td style="padding:6px 10px">Итого</td>
-            <td style="padding:6px 10px;text-align:center;color:var(--text2)">${cards.length}</td>
-            <td style="padding:6px 10px;text-align:right;font-family:monospace;color:${tc}">${totalPnl>=0?'+':''}${Math.round(totalPnl).toLocaleString('ru')} ₽</td>
-            <td style="padding:6px 10px"></td>
-            <td style="padding:6px 10px;text-align:right;font-family:monospace;color:${totalRoc!=null?(totalRoc>=0?'var(--green)':'var(--red)'):'var(--text2)'}">${totalRoc!=null?(totalRoc>=0?'+':'')+totalRoc.toFixed(2)+'%':'—'}</td>
-            <td style="padding:6px 10px;text-align:right;font-family:monospace;color:var(--text2)">${totalFrozen>0?Math.round(totalFrozen).toLocaleString('ru')+' ₽':'—'}</td>
+          <tr style="font-size:12px;font-weight:700;border-top:2px solid var(--border);background:var(--bg3)">
+            <td style="padding:7px 10px">Итого</td>
+            <td style="padding:7px 10px;text-align:center;color:var(--text2)">${filtered.length}</td>
+            <td style="padding:7px 10px;text-align:right;font-family:monospace;color:${tc}">${totalPnl>=0?'+':''}${Math.round(totalPnl).toLocaleString('ru')} ₽</td>
+            <td colspan="4"></td>
+            <td style="padding:7px 10px;text-align:right;font-family:monospace;color:${totalRoc!=null?(totalRoc>=0?'var(--green)':'var(--red)'):'var(--text2)'}">${totalRoc!=null?(totalRoc>=0?'+':'')+totalRoc.toFixed(2)+'%':'—'}</td>
           </tr>
         </tfoot>
       </table>
     </div>
   </div>`;
 }
-</script>
-<script>
+
+
 // ═══════════════════════════════════════════════════════════════
 // ── SHOWCASE TAB ──
 // ═══════════════════════════════════════════════════════════════
