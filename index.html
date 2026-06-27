@@ -1040,8 +1040,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '27.06 14:09';
-const BUILD_DATE    = '27.06.2026 14:09 МСК';
+const BUILD_VERSION = '27.06 14:13';
+const BUILD_DATE    = '27.06.2026 14:13 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -12103,23 +12103,20 @@ function calcManualResults() {
   const rep = getMxReportForDate(date);
   // Предвычисляем: для каждого CNY-инструмента — Σ margin_rub за день (итог пропа)
   // и формульный P&L всех конструкций дня с этим CNY (для масштаба)
-  // Суммируем P&L строк по конструкциям из разметки.
-  // buildRowPnl() уже всё посчитал правильно — просто складываем.
+  // Суммируем P&L строк по конструкциям из разметки — только за текущий день.
+  // Строки других дней (переносы) появятся в расчёте тех дней когда они были.
   const _rowPnl = buildRowPnl();
   const _mxAttrib = {}; // 'posKey|instrument' → pnl₽
 
-  // Проходим по всем размеченным MX-строкам всех дней
-  const allDates2 = [...new Set((store.mx||[]).map(r=>normDate(r.date)).filter(d=>d&&d.length===10))].sort();
-  for (const d of allDates2) {
-    for (const t of getCombinedTradesForManual(d)) {
-      if (t._platform !== 'MX') continue;
-      const a = getManualAssign(manualKey(t));
-      if (!a || !a.tag) continue;
-      const pnl = _rowPnl[manualKey(t)];
-      if (pnl == null) continue;
-      const pk = a.tag + ' · набор ' + (a.setN||1);
-      _mxAttrib[pk+'|'+t.instrument] = (_mxAttrib[pk+'|'+t.instrument]||0) + pnl;
-    }
+  // Берём строки только текущего дня
+  for (const t of getCombinedTradesForManual(date)) {
+    if (t._platform !== 'MX') continue;
+    const a = getManualAssign(manualKey(t));
+    if (!a || !a.tag) continue;
+    const pnl = _rowPnl[manualKey(t)];
+    if (pnl == null) continue;
+    const pk = a.tag + ' · набор ' + (a.setN||1);
+    _mxAttrib[pk+'|'+t.instrument] = (_mxAttrib[pk+'|'+t.instrument]||0) + pnl;
   }
   const rate = getRateForDate(date) || 0;
   let html = '<div style="margin-bottom:16px">';
