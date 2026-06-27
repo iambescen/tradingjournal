@@ -1039,8 +1039,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '27.06 12:46';
-const BUILD_DATE    = '27.06.2026 12:46 МСК';
+const BUILD_VERSION = '27.06 12:52';
+const BUILD_DATE    = '27.06.2026 12:52 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -12013,16 +12013,14 @@ function renderManualRaznos() {
 // Расчёт конструкций из ручной разметки за выбранный день
 function calcManualResults() {
   const date = store._manualDate;
-  // crossSets по всем дням (не только до date) — чтобы CNY-циклы закрытые позже тоже считались
+  const trades = getCombinedTradesForManual(date);
+  // группируем по (tag, setN) — берём сделки ВСЕХ дней для переносных наборов
+  // (вход мог быть на прошлом дне, выход сегодня)
   const crossSets = computeCrossDayBalances(date);
   const byPosAll = {}; // все наборы (для CNY-атрибуции)
   const allDates = [...new Set((store.mx||[]).map(r=>normDate(r.date)).filter(d=>d&&d.length===10))].sort();
   const datesUpTo = allDates.filter(d=>d<=date);
-  // allDatesAll — ВСЕ загруженные дни (для rowPnl CNY, включая будущие циклы)
-  const allDatesAll = allDates;
-  // byPosAll строим по ВСЕМ дням (allDatesAll) — чтобы closeDate был правильным
-  // для переносных наборов (Si открыт 22-го, закрыт 24-го → нужны сделки 24-го)
-  for (const d of allDatesAll) {
+  for (const d of datesUpTo) {
     for (const t of getCombinedTradesForManual(d)) {
       const a = getManualAssign(manualKey(t));
       if (!a || !a.tag) continue;
@@ -12034,39 +12032,23 @@ function calcManualResults() {
       pos.legs[base].trades.push(t);
     }
   }
-  // Проставляем closeDate (из ВСЕХ дней) и anchorDateUpTo (из datesUpTo — для показа)
+  // Проставляем closeDate из crossSets
+  const crossKey = key => key.replace(' · набор ', '|');
   for (const key of Object.keys(byPosAll)) {
-    const pos = byPosAll[key];
-    let anchorClose = null;    // из всех дней — для margin_rub
-    let anchorUpTo = null;     // только до date — для определения дня показа
-    for (const b in pos.legs) {
-      const leg = pos.legs[b];
-      if (leg.platform === 'FX') continue;
-      const base = (leg.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
-      if (HEDGE_BASES && HEDGE_BASES.includes(base)) continue;
-      const allD = leg.trades.map(t=>t._dateStr).filter(Boolean).sort();
-      const ld = allD[allD.length-1];
-      if (!anchorClose || ld > anchorClose) anchorClose = ld;
-      // только сделки до date
-      const upToD = leg.trades.map(t=>t._dateStr).filter(d=>d&&d<=date).sort();
-      const ldUpTo = upToD[upToD.length-1];
-      if (ldUpTo && (!anchorUpTo || ldUpTo > anchorUpTo)) anchorUpTo = ldUpTo;
-    }
-    pos.closeDate = anchorClose || date;
-    pos.anchorDateUpTo = anchorUpTo || null;
+    const cs = crossSets[crossKey(key)];
+    if (cs) byPosAll[key].closeDate = (cs.dates||[]).slice().sort().pop();
   }
 
-  // byPos = только закрытые наборы, у которых ЯКОРНАЯ нога закрылась на текущий день.
-  const crossKey = key => key.replace(' · набор ', '|');
-  const crossSetsAll = computeCrossDayBalances(allDatesAll[allDatesAll.length-1] || date);
+  // byPos = только закрытые наборы с lastDate === date (для отображения P&L)
   const byPos = {};
   for (const key of Object.keys(byPosAll)) {
-    const cs = crossSetsAll[crossKey(key)];
+    const cs = crossSets[crossKey(key)];
     if (!cs) continue;
     const allClosed = Object.values(cs.legs).every(l=>l.net===0);
     if (!allClosed) continue;
-    const pos = byPosAll[key];
-    if (pos.anchorDateUpTo === date) byPos[key] = pos;
+    const lastDate = (cs.dates||[]).slice().sort().pop();
+    if (lastDate !== date) continue;
+    byPos[key] = byPosAll[key];
   }
   // P&L: MX = margin_rub (фьючерсы) или i.pnl из PDF (перпетуалы: CNYRUBF/EURRUBF/USDRUBF)
   // У перпетуалов margin_rub по сделкам ≠ i.pnl из-за фандинга → берём итоговую строку PDF
@@ -12094,10 +12076,9 @@ function calcManualResults() {
   }
 
   for (const instr of _cnyInstrs) {
-    // Этап 1: все сделки инструмента по ВСЕМ загруженным дням (включая после date)
-    // чтобы CNY-циклы закрытые позже тоже учитывались (ретроактивный P&L)
+    // Этап 1: все сделки инструмента по всем дням хронологически
     const allTrades = [];
-    for (const d of allDatesAll) {
+    for (const d of datesUpTo) {
       const dr = getMxReportForDate(d);
       (dr?.trades||[]).filter(t=>t.instrument===instr)
         .forEach(t=>allTrades.push({...t, _dateStr:d,
@@ -12176,32 +12157,31 @@ function calcManualResults() {
       const inV  = leg.trades.filter(t=>t._dir==='Long').reduce((s,t)=>s+t._vol,0);
       const outV = leg.trades.filter(t=>t._dir==='Short').reduce((s,t)=>s+t._vol,0);
       if (leg.platform==='FX') {
-        // FX: только сделки дня закрытия якоря (не суммировать со всех дней набора)
-        const fxTrades = leg.trades.filter(t=>t._dateStr===closeDay);
-        const u = +fxTrades.reduce((s,t)=>s+(t._pnlUsd||0),0).toFixed(2); fxUsd += u;
-        const fxVol = +fxTrades.reduce((s,t)=>s+t._vol,0).toFixed(4);
+        // FX: net_pnl_usd уже включает комиссию (это net P&L из cTrader)
+        const u = +leg.trades.reduce((s,t)=>s+(t._pnlUsd||0),0).toFixed(2); fxUsd += u;
+        const fxVol = +leg.trades.reduce((s,t)=>s+t._vol,0).toFixed(4);
         legsHtml += `<div style="display:flex;justify-content:space-between;font-size:11px;padding:1px 0;color:var(--text2)"><span>${leg.instrument} <span style="font-size:10px">FX ${fxVol}л</span></span><span class="${u>=0?'pos':'neg'} mono" style="font-size:11px">${(u>=0?'+':'')+u.toFixed(2)}$ = ${fmtRub(Math.round(u*rate))}</span></div>`;
       } else {
         let m;
         const base = (leg.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
         const isCny = HEDGE_BASES && HEDGE_BASES.includes(base);
-        const closeDay = pos.closeDate || date; // день закрытия якорной ноги
         if (isCny) {
-          const attribKey = key + '|' + leg.instrument;
+          // CNY: атрибуция по циклам (margin_per_lot × закрытые_лоты_конструкции)
+          const attribKey = key + '|' + leg.instrument; // instrument = 'CNY-9.26'
           m = _cnyAttrib[attribKey] || 0;
         } else if (_isPerpetual(leg.instrument)) {
+          // перпетуал: i.pnl из итоговой строки PDF (включает фандинг)
           const instrRow = (rep?.instruments||[]).find(i=>i.name===leg.instrument);
           m = instrRow ? (instrRow.pnl||0) : leg.trades.reduce((s,t)=>s+(t._margin||0),0);
         } else {
-          // фьючерс: только сделки дня закрытия якоря
-          m = leg.trades.filter(t=>t._dateStr===closeDay).reduce((s,t)=>s+(t._margin||0),0);
+          // фьючерс: Σ margin_rub по сделкам
+          m = leg.trades.reduce((s,t)=>s+(t._margin||0),0);
         }
         mxTot += m;
-        // Комиссия: только для фьючерсов, только за день закрытия якоря.
-        // margin_rub + commission = i.pnl (PDF net). Комиссия за другие дни
-        // (входной день переносного набора) не включается в margin_rub.
+        // Комиссия: только для фьючерсов (margin_rub не включает комиссию).
+        // Перпетуалы (i.pnl) и CNY (rowPnl) уже включают комиссию.
         const legComm = (!isCny && !_isPerpetual(leg.instrument))
-          ? leg.trades.filter(t=>t._dateStr===closeDay).reduce((s,t)=>s+(t._comm||0),0) : 0;
+          ? leg.trades.reduce((s,t)=>s+(t._comm||0),0) : 0;
         mxTot += legComm;
         const mR = Math.round(m + legComm);
         const inVR = Math.round(inV*100)/100;
