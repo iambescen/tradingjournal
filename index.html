@@ -1057,8 +1057,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '27.06 16:30';
-const BUILD_DATE    = '27.06.2026 16:30 МСК';
+const BUILD_VERSION = '27.06 16:33';
+const BUILD_DATE    = '27.06.2026 16:33 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -14257,9 +14257,9 @@ function recalcSpreads() {
     const posObj = { tag: manPos.tag, setN: manPos.setN, legs: legMap };
     const sp = calcManualSpread(posObj, datesUpTo);
 
-    if (sp.entry != null || sp.exit != null) {
+    if (sp.entry !== null && sp.entry !== undefined) {
       manPos.spreadEntry = sp.entry;
-      manPos.spreadExit  = sp.exit;
+      manPos.spreadExit  = sp.exit !== undefined ? sp.exit : null;
       updated++;
     }
   }
