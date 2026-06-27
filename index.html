@@ -1040,8 +1040,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '27.06 13:54';
-const BUILD_DATE    = '27.06.2026 13:54 МСК';
+const BUILD_VERSION = '27.06 14:09';
+const BUILD_DATE    = '27.06.2026 14:09 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -12103,36 +12103,22 @@ function calcManualResults() {
   const rep = getMxReportForDate(date);
   // Предвычисляем: для каждого CNY-инструмента — Σ margin_rub за день (итог пропа)
   // и формульный P&L всех конструкций дня с этим CNY (для масштаба)
-  // Атрибуция P&L по конструкциям через buildRowPnl() + getManualAssign()
-  // Та же логика что в вкладке Циклы: итерация внутри каждого цикла инструмента,
-  // атрибуция через getManualAssign(ct._tradeId) прямо в момент цикла.
+  // Суммируем P&L строк по конструкциям из разметки.
+  // buildRowPnl() уже всё посчитал правильно — просто складываем.
+  const _rowPnl = buildRowPnl();
   const _mxAttrib = {}; // 'posKey|instrument' → pnl₽
-  {
-    const allDates2 = [...new Set((store.mx||[]).map(r=>normDate(r.date)).filter(d=>d&&d.length===10))].sort();
-    const instrSet2 = new Set();
-    for (const d of allDates2){const dr=getMxReportForDate(d);(dr?.trades||[]).forEach(t=>{if(t.instrument)instrSet2.add(t.instrument);});}
-    for (const instr of instrSet2) {
-      const at=[];
-      for (const d of allDates2){const dr=getMxReportForDate(d);(dr?.trades||[]).filter(t=>t.instrument===instr).forEach(t=>at.push({...t,_dateStr:d,_tradeId:d+'|'+(t._id!=null?t._id:(t.time+'|'+instr+'|'+t.volume))}));}
-      at.sort((a,b)=>a._dateStr!==b._dateStr?(a._dateStr<b._dateStr?-1:1):timeToMs(a.time)-timeToMs(b.time));
-      let cs=0;
-      for (let i=0;i<at.length;i++) {
-        const t=at[i]; if(!t.margin_rub) continue;
-        const ct=at.slice(cs,i+1), first=ct[0]; if(!first){cs=i+1;continue;}
-        const entryDir=first.direction, exitDir=entryDir==='Long'?'Short':'Long';
-        const tv=ct.filter(x=>x.direction===exitDir).reduce((s,x)=>s+Math.abs(x.volume||0),0);
-        if(!tv){cs=i+1;continue;}
-        const tc=ct.reduce((s,x)=>s+(x.commission||0),0), mpl=(t.margin_rub+tc)/tv;
-        // Атрибуция внутри цикла: смотрим разметку для каждой выходной строки
-        for (const x of ct.filter(x=>x.direction===exitDir)) {
-          const pnl=mpl*Math.abs(x.volume||0);
-          const a=getManualAssign(x._tradeId);
-          if (!a||!a.tag) continue;
-          const pk=a.tag+' · набор '+(a.setN||1);
-          _mxAttrib[pk+'|'+instr]=(_mxAttrib[pk+'|'+instr]||0)+pnl;
-        }
-        cs=i+1;
-      }
+
+  // Проходим по всем размеченным MX-строкам всех дней
+  const allDates2 = [...new Set((store.mx||[]).map(r=>normDate(r.date)).filter(d=>d&&d.length===10))].sort();
+  for (const d of allDates2) {
+    for (const t of getCombinedTradesForManual(d)) {
+      if (t._platform !== 'MX') continue;
+      const a = getManualAssign(manualKey(t));
+      if (!a || !a.tag) continue;
+      const pnl = _rowPnl[manualKey(t)];
+      if (pnl == null) continue;
+      const pk = a.tag + ' · набор ' + (a.setN||1);
+      _mxAttrib[pk+'|'+t.instrument] = (_mxAttrib[pk+'|'+t.instrument]||0) + pnl;
     }
   }
   const rate = getRateForDate(date) || 0;
