@@ -1039,8 +1039,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '27.06 10:26';
-const BUILD_DATE    = '27.06.2026 10:26 МСК';
+const BUILD_VERSION = '27.06 10:29';
+const BUILD_DATE    = '27.06.2026 10:29 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -12115,11 +12115,15 @@ function calcManualResults() {
         const isCny = HEDGE_BASES && HEDGE_BASES.includes(base);
         if (isCny) {
           // CNY-хедж: делим пропорционально объёму PER ДЕНЬ, масштабируем на
-          // margin_rub каждого дня отдельно. Это работает и для однодневных,
-          // и для переносных наборов (22-й + 24-й считаются независимо).
-          const allTradeDates = [...new Set(leg.trades.map(t=>t._dateStr).filter(Boolean))];
+          // margin_rub каждого дня отдельно.
+          // ВАЖНО: берём дни из ЯКОРНОЙ ноги (не CNY), чтобы не тянуть CNY-сделки
+          // дней когда хедж торговался в других конструкциях (23-й для EU1/CR1).
+          const anchorBase = Object.keys(pos.legs).find(b => b !== 'CNY' && b !== base && !HEDGE_BASES.includes(b));
+          const anchorTrades = anchorBase ? pos.legs[anchorBase].trades : leg.trades;
+          const allTradeDates = [...new Set(anchorTrades.map(t=>t._dateStr).filter(Boolean))];
           m = 0;
           for (const td of allTradeDates) {
+            // CNY-сделки этого набора за этот день (только размеченные на этот тег+набор)
             const dayTrades = leg.trades.filter(t=>t._dateStr===td);
             const dayRep = getMxReportForDate(td);
             // Все CNY-сделки этого инструмента за этот день
