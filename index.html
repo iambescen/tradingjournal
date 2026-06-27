@@ -1039,8 +1039,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '27.06 13:14';
-const BUILD_DATE    = '27.06.2026 13:14 МСК';
+const BUILD_VERSION = '27.06 13:17';
+const BUILD_DATE    = '27.06.2026 13:17 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -12114,15 +12114,25 @@ function calcManualResults() {
       const base=Object.keys(legMap).find(b=>(legMap[b].instrument||'')===instr);
       if (!base) continue;
       const trades=legMap[base].trades;
+      if (!trades.length) continue;
       // Определяем направление входа (первая хронологическая сделка)
       const sorted=trades.slice().sort((a,b)=>(a._dateStr||'').localeCompare(b._dateStr||'')||timeToMs(a.time)-timeToMs(b.time));
       const entryDir=sorted[0]?._dir||sorted[0]?.direction;
       const exitDir=entryDir==='Long'?'Short':'Long';
+      // Диапазон набора: от первой до последней сделки
+      const firstDate=sorted[0]._dateStr;
+      const firstTime=sorted[0].time;
+      const lastDate=sorted[sorted.length-1]._dateStr;
+      const lastTime=sorted[sorted.length-1].time;
       let posTotal=0;
       for (const rt of trades) {
-        // Берём rowPnl только для выходных строк (не входных)
         const rtDir=rt._dir||rt.direction;
         if (rtDir!==exitDir) continue;
+        // Только строки внутри временного диапазона набора
+        const td=rt._dateStr||'';
+        const tt=rt.time||'';
+        if (td<firstDate||(td===firstDate&&tt<firstTime)) continue;
+        if (td>lastDate||(td===lastDate&&tt>lastTime)) continue;
         const tid=rt._tradeId||(rt._dateStr+'|'+(rt._raw?._id!=null?rt._raw._id:(rt.time+'|'+instr+'|'+(rt._vol||rt.volume))));
         if (_rowPnl[tid]!=null) posTotal+=_rowPnl[tid];
       }
