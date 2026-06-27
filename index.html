@@ -1040,8 +1040,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '27.06 13:42';
-const BUILD_DATE    = '27.06.2026 13:42 МСК';
+const BUILD_VERSION = '27.06 13:54';
+const BUILD_DATE    = '27.06.2026 13:54 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -11824,12 +11824,55 @@ function computeCrossDayBalances(currentDate) {
   return sets;
 }
 
+
+// ── buildRowPnl: вычисляет P&L на каждую строку для всех инструментов ──
+// Результат: { _tradeId → pnl₽ }. Вызывается из renderCycles и calcManualResults.
+function buildRowPnl() {
+  const allDates = [...new Set((store.mx||[]).map(r=>normDate(r.date)).filter(d=>d&&d.length===10))].sort();
+  const instrSet = new Set();
+  for (const d of allDates) {
+    const dr = getMxReportForDate(d);
+    (dr?.trades||[]).forEach(t=>{ if(t.instrument) instrSet.add(t.instrument); });
+  }
+  const rowPnl = {}; // _tradeId → pnl₽
+  for (const instr of instrSet) {
+    const allTrades = [];
+    for (const d of allDates) {
+      const dr = getMxReportForDate(d);
+      (dr?.trades||[]).filter(t=>t.instrument===instr)
+        .forEach(t=>allTrades.push({...t, _dateStr:d,
+          _tradeId: d+'|'+(t._id!=null?t._id:(t.time+'|'+instr+'|'+t.volume))
+        }));
+    }
+    allTrades.sort((a,b)=>a._dateStr!==b._dateStr?(a._dateStr<b._dateStr?-1:1):timeToMs(a.time)-timeToMs(b.time));
+    let cycleStart=0;
+    for (let i=0;i<allTrades.length;i++) {
+      const t=allTrades[i];
+      if (!t.margin_rub) continue;
+      const ct=allTrades.slice(cycleStart,i+1);
+      const first=ct[0]; if(!first){cycleStart=i+1;continue;}
+      const entryDir=first.direction, exitDir=entryDir==='Long'?'Short':'Long';
+      const tv=ct.filter(x=>x.direction===exitDir).reduce((s,x)=>s+Math.abs(x.volume||0),0);
+      if(!tv){cycleStart=i+1;continue;}
+      const tc=ct.reduce((s,x)=>s+(x.commission||0),0);
+      const mpl=(t.margin_rub+tc)/tv;
+      ct.filter(x=>x.direction===exitDir).forEach(x=>{
+        rowPnl[x._tradeId]=(rowPnl[x._tradeId]||0)+mpl*Math.abs(x.volume||0);
+      });
+      cycleStart=i+1;
+    }
+  }
+  return rowPnl;
+}
+
 function renderManualRaznos() {
   const wrap = document.getElementById('manual-container');
   if (!wrap) return;
   const dates = [...new Set((store.mx||[]).map(r=>normDate(r.date)).filter(d=>d&&d.length===10))]
     .sort().reverse();
   if (!dates.length) { wrap.innerHTML = '<div class="empty"><div class="icon">📋</div><p>Загрузите PDF-отчёт МХ</p></div>'; return; }
+  // Предвычисляем P&L на каждую строку (используется в столбце P&L и в calcManualResults)
+  const _raznosRowPnl = buildRowPnl();
   if (!store._manualDate || !dates.includes(store._manualDate)) store._manualDate = dates[0];
   const date = store._manualDate;
 
@@ -11980,6 +12023,7 @@ function renderManualRaznos() {
         <td class="mono ${dCls}" style="text-align:right;padding:4px 6px">${t._dir==='Long'?'+':'−'}${t._vol} <span style="color:var(--text2)">@ ${t._price}${t._fxClosed&&t._closePrice!=null?` → ${t._closePrice}`:''}</span></td>
         <td class="mono" style="text-align:right;color:var(--text2);padding:4px 6px">${t.time}${t._fxClosed&&t._closeTime?`<span style="opacity:.6">→${t._closeTime}</span>`:''}</td>
         <td class="mono" style="text-align:right;padding:4px 6px">${roleBadge || (t._platform==='FX'?((t._pnlUsd>=0?'+':'')+(t._pnlUsd||0).toFixed(2)+'$'):(t._margin?fmtRub(t._margin):'—'))}</td>
+        <td class="mono" style="text-align:right;padding:4px 6px;font-size:10px">${(()=>{ const p=_raznosRowPnl[manualKey(t)]; return p!=null?`<span class="${p>=0?'pos':'neg'}">${p>=0?'+':''}${Math.round(p)}</span>`:''; })()}</td>
         <td style="padding:3px 6px"><select onchange="setManualAssign('${k}',this.value,this.parentElement.parentElement.querySelector('.rset').value);renderManualRaznos()" style="width:100%;padding:3px;border:1px solid var(--border);border-radius:5px;background:var(--bg2);color:var(--text2);font-size:10px">${rowTagSel}</select></td>
         <td style="padding:3px 6px"><input type="number" min="1" value="${a?a.setN:1}" class="rset" onchange="setManualAssign('${k}',this.parentElement.parentElement.querySelector('select').value,this.value);renderManualRaznos()" style="width:46px;padding:3px;border:1px solid var(--border);border-radius:5px;background:var(--bg2);color:var(--text2);font-size:10px;text-align:center"></td>
       </tr>`;
@@ -12004,6 +12048,7 @@ function renderManualRaznos() {
         <th style="text-align:right;padding:6px">Объём / цена</th>
         <th style="text-align:right;padding:6px">Время</th>
         <th style="text-align:right;padding:6px">Маржа/P&L</th>
+        <th style="text-align:right;padding:6px">P&L строки</th>
         <th style="text-align:left;padding:6px;width:180px">Конструкция</th>
         <th style="text-align:center;padding:6px">Набор</th>
       </tr></thead>
@@ -12058,74 +12103,36 @@ function calcManualResults() {
   const rep = getMxReportForDate(date);
   // Предвычисляем: для каждого CNY-инструмента — Σ margin_rub за день (итог пропа)
   // и формульный P&L всех конструкций дня с этим CNY (для масштаба)
-  // ── rowPnl: единый алгоритм для ВСЕХ MX-фьючерсов ──
-  // Итерация идёт ВНУТРИ каждого цикла инструмента:
-  // 1. Цикл = от начала до строки с margin_rub
-  // 2. margin_per_lot = (margin_rub + Σcomm_цикла) / closedVol_цикла
-  // 3. rowPnl[_tradeId] = лоты × margin_per_lot (только выходные строки)
-  // 4. Атрибуция: внутри цикла смотрим разметку → конструкция получает
-  //    сумму rowPnl только своих строк ЭТОГО цикла
-
-  const _allMxInstrs = new Set();
+  // Атрибуция P&L по конструкциям через buildRowPnl() + getManualAssign()
+  // Та же логика что в вкладке Циклы: итерация внутри каждого цикла инструмента,
+  // атрибуция через getManualAssign(ct._tradeId) прямо в момент цикла.
   const _mxAttrib = {}; // 'posKey|instrument' → pnl₽
-
-  for (const key of Object.keys(byPosAll)) {
-    for (const b in byPosAll[key].legs) {
-      const leg = byPosAll[key].legs[b];
-      if (leg.platform !== 'MX') continue;
-      _allMxInstrs.add(leg.instrument);
-    }
-  }
-
-  for (const instr of _allMxInstrs) {
-    // Все сделки инструмента хронологически по всем дням
-    const allTrades = [];
-    for (const d of allDatesAll) {
-      const dr = getMxReportForDate(d);
-      (dr?.trades||[]).filter(t=>t.instrument===instr)
-        .forEach(t=>allTrades.push({...t, _dateStr:d,
-          _tradeId: d+'|'+(t._id!=null?t._id:(t.time+'|'+instr+'|'+t.volume))
-        }));
-    }
-    allTrades.sort((a,b)=>
-      a._dateStr!==b._dateStr?(a._dateStr<b._dateStr?-1:1)
-        :timeToMs(a.time)-timeToMs(b.time));
-
-    // Обрабатываем цикл за циклом
-    let cycleStart = 0;
-    for (let i = 0; i < allTrades.length; i++) {
-      const t = allTrades[i];
-      if (!t.margin_rub) continue;
-
-      // Цикл [cycleStart..i]
-      const cycleTrades = allTrades.slice(cycleStart, i+1);
-      const first = cycleTrades[0];
-      if (!first) { cycleStart = i+1; continue; }
-      const entryDir = first.direction;
-      const exitDir = entryDir === 'Long' ? 'Short' : 'Long';
-
-      const totalClosedVol = cycleTrades
-        .filter(ct=>ct.direction===exitDir)
-        .reduce((s,ct)=>s+Math.abs(ct.volume||0),0);
-      if (!totalClosedVol) { cycleStart = i+1; continue; }
-
-      const totalCycleComm = cycleTrades.reduce((s,ct)=>s+(ct.commission||0),0);
-      const marginPerLot = (t.margin_rub + totalCycleComm) / totalClosedVol;
-
-      // Выходные строки цикла с их rowPnl
-      const cycleExitTrades = cycleTrades.filter(ct=>ct.direction===exitDir);
-
-      // Атрибуция ВНУТРИ цикла: для каждой выходной строки смотрим разметку
-      for (const ct of cycleExitTrades) {
-        const pnl = marginPerLot * Math.abs(ct.volume||0);
-        // Найдём соответствующую строку в getCombinedTradesForManual по _tradeId
-        const a = getManualAssign(ct._tradeId);
-        if (!a || !a.tag) continue;
-        const posKey = a.tag + ' · набор ' + (a.setN||1);
-        _mxAttrib[posKey+'|'+instr] = (_mxAttrib[posKey+'|'+instr]||0) + pnl;
+  {
+    const allDates2 = [...new Set((store.mx||[]).map(r=>normDate(r.date)).filter(d=>d&&d.length===10))].sort();
+    const instrSet2 = new Set();
+    for (const d of allDates2){const dr=getMxReportForDate(d);(dr?.trades||[]).forEach(t=>{if(t.instrument)instrSet2.add(t.instrument);});}
+    for (const instr of instrSet2) {
+      const at=[];
+      for (const d of allDates2){const dr=getMxReportForDate(d);(dr?.trades||[]).filter(t=>t.instrument===instr).forEach(t=>at.push({...t,_dateStr:d,_tradeId:d+'|'+(t._id!=null?t._id:(t.time+'|'+instr+'|'+t.volume))}));}
+      at.sort((a,b)=>a._dateStr!==b._dateStr?(a._dateStr<b._dateStr?-1:1):timeToMs(a.time)-timeToMs(b.time));
+      let cs=0;
+      for (let i=0;i<at.length;i++) {
+        const t=at[i]; if(!t.margin_rub) continue;
+        const ct=at.slice(cs,i+1), first=ct[0]; if(!first){cs=i+1;continue;}
+        const entryDir=first.direction, exitDir=entryDir==='Long'?'Short':'Long';
+        const tv=ct.filter(x=>x.direction===exitDir).reduce((s,x)=>s+Math.abs(x.volume||0),0);
+        if(!tv){cs=i+1;continue;}
+        const tc=ct.reduce((s,x)=>s+(x.commission||0),0), mpl=(t.margin_rub+tc)/tv;
+        // Атрибуция внутри цикла: смотрим разметку для каждой выходной строки
+        for (const x of ct.filter(x=>x.direction===exitDir)) {
+          const pnl=mpl*Math.abs(x.volume||0);
+          const a=getManualAssign(x._tradeId);
+          if (!a||!a.tag) continue;
+          const pk=a.tag+' · набор '+(a.setN||1);
+          _mxAttrib[pk+'|'+instr]=(_mxAttrib[pk+'|'+instr]||0)+pnl;
+        }
+        cs=i+1;
       }
-
-      cycleStart = i+1;
     }
   }
   const rate = getRateForDate(date) || 0;
