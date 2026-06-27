@@ -1039,8 +1039,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '27.06 11:39';
-const BUILD_DATE    = '27.06.2026 11:39 МСК';
+const BUILD_VERSION = '27.06 11:44';
+const BUILD_DATE    = '27.06.2026 11:44 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -12109,13 +12109,15 @@ function calcManualResults() {
         .reduce((s,t)=>s+Math.abs(t.volume||0),0);
       if (!totalClosedVol) { cycleStart = i+1; continue; }
 
-      const marginPerLot = t.margin_rub / totalClosedVol;
 
-      // Проставляем P&L каждой выходной строке цикла (margin + commission)
+      // Суммарная комиссия цикла — распределяем пропорционально на выходные строки
+      const totalCycleComm = cycleTrades.reduce((s,t)=>s+(t.commission||0),0);
+      const marginPerLot = totalClosedVol > 0 ? (t.margin_rub + totalCycleComm) / totalClosedVol : 0;
+
+      // Проставляем P&L каждой выходной строке цикла (уже включает пропорциональную комиссию)
       for (const ct of cycleTrades) {
         if (ct.direction !== exitDir) continue;
-        const pnl = marginPerLot * Math.abs(ct.volume||0) + (ct.commission||0);
-        rowPnl[ct._tradeId] = (rowPnl[ct._tradeId]||0) + pnl;
+        rowPnl[ct._tradeId] = (rowPnl[ct._tradeId]||0) + marginPerLot * Math.abs(ct.volume||0);
       }
 
       cycleStart = i+1;
