@@ -1039,8 +1039,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '27.06 11:06';
-const BUILD_DATE    = '27.06.2026 11:06 МСК';
+const BUILD_VERSION = '27.06 11:15';
+const BUILD_DATE    = '27.06.2026 11:15 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -1436,6 +1436,7 @@ async function parsePDFFile(file) {
     if (!inTrades) continue;
     const m = line.match(tradeRx);
     if (m) trades.push({
+      _id:        trades.length, // уникальный ID строки в отчёте (порядковый номер)
       time:       m[1],
       date_short: m[2],
       instrument: m[3],
@@ -11694,6 +11695,8 @@ function _instrColors(instrument, gi) {
 
 // Стабильный ключ сделки (для хранения разметки)
 function manualKey(t) {
+  // Используем _tradeId если есть (стабильный ID из парсера), иначе фолбэк
+  if (t._tradeId) return t._tradeId;
   return [t._platform, t._dateStr, t.time, t.instrument, t._dir, t._price, t._vol].join('|');
 }
 
@@ -11706,6 +11709,7 @@ function getCombinedTradesForManual(date) {
       _platform:'MX', _dateStr:t._dateStr, time:t.time||'', instrument:t.instrument,
       _dir:t.direction, _price:t.price, _vol:Math.abs(t.volume||0),
       _margin:(t.margin_rub||0), _comm:(t.commission||0), _pnlUsd:null, _dt:t._dt, _raw:t,
+      _tradeId: t._dateStr + '|' + (t._id != null ? t._id : (t.time+'|'+t.instrument+'|'+t.volume)),
     });
   });
   (store.fx||[]).forEach(t => {
@@ -12053,12 +12057,12 @@ function calcManualResults() {
   // Предвычисляем: для каждого CNY-инструмента — Σ margin_rub за день (итог пропа)
   // и формульный P&L всех конструкций дня с этим CNY (для масштаба)
   // ── CNY: атрибуция по циклам (логика пропа) ──
-  // Алгоритм: идём по всем сделкам CNY хронологически.
-  // Строка с margin_rub != 0 = конец цикла (полное закрытие позиции по CNY).
-  // Цикл: все сделки от предыдущего закрытия до текущего.
-  // margin_per_lot = margin_rub / суммарный_закрытый_объём_цикла
-  // Атрибуция: из разметки знаем сколько лотов CNY держала каждая конструкция в цикле
-  // → P&L конструкции = её_закрытые_лоты_в_цикле × margin_per_lot
+  // Этап 1: по всем сделкам CNY хронологически считаем P&L на каждую строку
+  //   - маржа появляется в конце цикла (полное закрытие позиции)
+  //   - margin_per_lot = margin_rub / суммарный_закрытый_объём_цикла
+  //   - каждой выходной строке: pnl = её_лоты × margin_per_lot
+  //   - ключ строки = dateStr|_id (уникальный ID из парсера)
+  // Этап 2: из разметки суммируем P&L строк конструкции
 
   const _cnyInstrs = new Set();
   const _cnyAttrib = {}; // 'posKey|base' → pnl₽
@@ -12072,45 +12076,34 @@ function calcManualResults() {
   }
 
   for (const instr of _cnyInstrs) {
-    // Все сделки инструмента по всем дням хронологически
+    // Этап 1: все сделки инструмента по всем дням хронологически
     const allTrades = [];
     for (const d of datesUpTo) {
       const dr = getMxReportForDate(d);
       (dr?.trades||[]).filter(t=>t.instrument===instr)
-        .forEach(t=>allTrades.push({...t, _dateStr:d}));
+        .forEach(t=>allTrades.push({...t, _dateStr:d,
+          _tradeId: d + '|' + (t._id != null ? t._id : (t.time+'|'+instr+'|'+t.volume))
+        }));
     }
     allTrades.sort((a,b)=>
       a._dateStr!==b._dateStr ? (a._dateStr<b._dateStr?-1:1)
         : timeToMs(a.time)-timeToMs(b.time));
 
-    // Для каждой конструкции с этим CNY — её размеченные сделки (lookup по byPosAll)
-    const posTagged = {}; // posKey → Set of trade keys
-    for (const key of Object.keys(byPosAll)) {
-      const leg = byPosAll[key].legs;
-      const base = Object.keys(leg).find(b=>(leg[b].instrument||'')===instr);
-      if (!base) continue;
-      posTagged[key] = new Set(
-        leg[base].trades.map(t=>`${t._dateStr}|${t.time}|${t._dir||t.direction}|${Math.abs(t._vol||t.volume||0)}`)
-      );
-    }
+    // P&L на каждую строку (по _tradeId)
+    const rowPnl = {}; // _tradeId → pnl₽
 
-    // Разбиваем на циклы: каждый цикл заканчивается строкой с margin_rub != 0
     let cycleStart = 0;
     for (let i = 0; i < allTrades.length; i++) {
       const t = allTrades[i];
       if (!t.margin_rub) continue;
 
-      // Цикл: сделки [cycleStart..i]
       const cycleTrades = allTrades.slice(cycleStart, i+1);
-
-      // Суммарный закрытый объём цикла (все сделки в направлении ЗАКРЫТИЯ)
-      // Определяем направление входа по первой сделке цикла
       const firstTrade = cycleTrades[0];
       if (!firstTrade) { cycleStart = i+1; continue; }
-      const entryDir = firstTrade.direction; // первая сделка = вход
+      const entryDir = firstTrade.direction;
       const exitDir = entryDir === 'Long' ? 'Short' : 'Long';
 
-      // Закрытый объём = сумма выходных сделок цикла
+      // Суммарный закрытый объём = сумма выходных сделок цикла
       const totalClosedVol = cycleTrades
         .filter(t=>t.direction===exitDir)
         .reduce((s,t)=>s+Math.abs(t.volume||0),0);
@@ -12118,24 +12111,32 @@ function calcManualResults() {
 
       const marginPerLot = t.margin_rub / totalClosedVol;
 
-      // Для каждой конструкции: сколько лотов она закрыла в этом цикле
-      for (const key of Object.keys(posTagged)) {
-        const tagged = posTagged[key];
-        let posClosedVol = 0;
-        for (const ct of cycleTrades) {
-          if (ct.direction !== exitDir) continue;
-          const tk = `${ct._dateStr}|${ct.time}|${ct.direction}|${Math.abs(ct.volume||0)}`;
-          if (tagged.has(tk)) posClosedVol += Math.abs(ct.volume||0);
-        }
-        if (!posClosedVol) continue;
-        const leg = byPosAll[key].legs;
-        const base = Object.keys(leg).find(b=>(leg[b].instrument||'')===instr);
-        if (!base) continue;
-        const attribKey = key + '|' + base;
-        _cnyAttrib[attribKey] = (_cnyAttrib[attribKey]||0) + marginPerLot * posClosedVol;
+      // Проставляем P&L каждой выходной строке цикла
+      for (const ct of cycleTrades) {
+        if (ct.direction !== exitDir) continue;
+        rowPnl[ct._tradeId] = (rowPnl[ct._tradeId]||0) + marginPerLot * Math.abs(ct.volume||0);
       }
 
       cycleStart = i+1;
+    }
+
+    // Этап 2: из разметки (byPosAll) суммируем P&L строк по конструкциям
+    for (const key of Object.keys(byPosAll)) {
+      const leg = byPosAll[key].legs;
+      const base = Object.keys(leg).find(b=>(leg[b].instrument||'')===instr);
+      if (!base) continue;
+      let posTotal = 0;
+      for (const rt of leg[base].trades) {
+        // _tradeId из разметки = manualKey(t) который мы сохранили при разметке
+        // Но нужно найти соответствующую строку в allTrades по _tradeId
+        const tid = rt._tradeId || rt._raw?._tradeId ||
+          (rt._dateStr + '|' + (rt._raw?._id != null ? rt._raw._id
+            : (rt.time+'|'+instr+'|'+(rt._vol||rt.volume))));
+        if (rowPnl[tid] != null) posTotal += rowPnl[tid];
+      }
+      if (!posTotal) continue;
+      const attribKey = key + '|' + base;
+      _cnyAttrib[attribKey] = (_cnyAttrib[attribKey]||0) + posTotal;
     }
   }
 
