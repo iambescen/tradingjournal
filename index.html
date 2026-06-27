@@ -471,21 +471,6 @@
   <div id="tab-funds" class="tab-content">
 
     <!-- Сверка денег: P&L сделок vs изменение баланса + эффективность ребалансировок -->
-    <div class="section" id="sec-recon">
-      <div class="section-header" onclick="toggleSection('recon')">
-        <div class="section-title">
-          <span class="dot-inline" style="background:var(--green)"></span>
-          Сверка денег
-          <span class="section-badge" style="background:var(--bg3);color:var(--text2)" id="recon-badge">—</span>
-        </div>
-        <div class="section-actions" onclick="event.stopPropagation()">
-          <span class="chevron" id="chevron-recon">▼</span>
-        </div>
-      </div>
-      <div class="section-body collapsed" id="body-recon">
-        <div id="recon-content" style="padding:18px 20px 20px"></div>
-      </div>
-    </div>
 
     <!-- Unified timeline -->
     <div class="section" id="sec-unified">
@@ -1072,8 +1057,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '27.06 16:08';
-const BUILD_DATE    = '27.06.2026 16:08 МСК';
+const BUILD_VERSION = '27.06 16:11';
+const BUILD_DATE    = '27.06.2026 16:11 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
