@@ -1039,8 +1039,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '27.06 10:29';
-const BUILD_DATE    = '27.06.2026 10:29 МСК';
+const BUILD_VERSION = '27.06 10:43';
+const BUILD_DATE    = '27.06.2026 10:43 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -12052,43 +12052,111 @@ function calcManualResults() {
   const rep = getMxReportForDate(date); // для CNY-масштаба дня
   // Предвычисляем: для каждого CNY-инструмента — Σ margin_rub за день (итог пропа)
   // и формульный P&L всех конструкций дня с этим CNY (для масштаба)
-  const _cnyPdfTot  = {};  // instr → Σ margin_rub за день
-  const _cnyFormTot = {};  // instr → Σ формульного P&L всех конструкций с этим CNY
-  // первый проход: формульный P&L каждой CNY-ноги
-  function _cnyFormula(trades) {
-    const entries = trades.filter(t=>t._dir==='Short'); // CNY вход Short
-    const exits   = trades.filter(t=>t._dir==='Long');
-    const inV  = entries.reduce((s,t)=>s+t._vol,0);
-    const outV = exits.reduce((s,t)=>s+t._vol,0);
-    const eSum = entries.reduce((s,t)=>s+t._vol*t._price,0);
-    const xSum = exits.reduce((s,t)=>s+t._vol*t._price,0);
-    const avgE = inV>0 ? eSum/inV : 0;
-    const avgX = outV>0 ? xSum/outV : 0;
-    const closed = Math.min(inV, outV);
-    const spec = MX_SPECS['CNY'] || { tick:0.001, step:1 };
-    return closed>0 ? (avgE - avgX) / spec.tick * spec.step * closed : 0;
-  }
-  // Собираем по инструменту все CNY-ноги дня и их формулу
-  const _cnyByInstr = {}; // instr → [{pos_key, trades}]
+  // ── АЛГОРИТМ CNY: атрибуция по моменту закрытия ──
+  // Логика пропа: маржа фиксируется в момент закрытия серии сделок.
+  // Для каждого CNY-инструмента:
+  //   1. Берём все сделки инструмента по всем дням (хронологически)
+  //   2. Ищем сделки с margin_rub != 0 — это моменты закрытия
+  //   3. В каждый такой момент знаем: какой объём закрыт и какая маржа
+  //   4. margin_per_lot = margin_rub / closed_vol
+  //   5. Смотрим разметку — какие конструкции держали CNY до этого момента
+  //   6. Распределяем маржу пропорционально лотам каждой конструкции
+
+  // Собираем все CNY-инструменты из byPos
+  const _cnyInstrs = new Set();
   for (const key of Object.keys(byPos)) {
-    const pos = byPos[key];
-    for (const b in pos.legs) {
-      const leg = pos.legs[b];
-      if (leg.platform!=='MX') continue;
+    for (const b in byPos[key].legs) {
+      const leg = byPos[key].legs[b];
+      if (leg.platform !== 'MX') continue;
       const base = (leg.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
-      if (!HEDGE_BASES || !HEDGE_BASES.includes(base)) continue;
-      const instr = leg.instrument;
-      if (!_cnyByInstr[instr]) _cnyByInstr[instr] = [];
-      _cnyByInstr[instr].push({ key, trades: leg.trades });
+      if (HEDGE_BASES && HEDGE_BASES.includes(base)) _cnyInstrs.add(leg.instrument);
     }
   }
-  for (const instr in _cnyByInstr) {
-    // Σ margin_rub за день по этому CNY-инструменту
-    _cnyPdfTot[instr] = (rep?.trades||[])
-      .filter(t=>t.instrument===instr)
-      .reduce((s,t)=>s+(t.margin_rub||0),0);
-    // Σ формульного P&L по всем конструкциям с этим CNY
-    _cnyFormTot[instr] = _cnyByInstr[instr].reduce((s,e)=>s+_cnyFormula(e.trades),0);
+
+  // Для каждого CNY-инструмента считаем attribution
+  const _cnyAttrib = {}; // 'posKey|instrBase' → pnl₽
+  for (const instr of _cnyInstrs) {
+    // Все сделки инструмента по всем дням хронологически
+    const allTrades = [];
+    for (const d of allDates.filter(d=>d<=date)) {
+      const dayRep = getMxReportForDate(d);
+      (dayRep?.trades||[])
+        .filter(t=>t.instrument===instr)
+        .forEach(t=>allTrades.push({...t, _dateStr:d}));
+    }
+    // Сортируем хронологически
+    allTrades.sort((a,b)=>{
+      if (a._dateStr!==b._dateStr) return a._dateStr<b._dateStr?-1:1;
+      return timeToMs(a.time)-timeToMs(b.time);
+    });
+
+    // Бегущий баланс каждой конструкции по CNY (лоты)
+    // Ключ = 'tag|setN', значение = net_lots
+    const posLots = {}; // posKey → net lots at any moment
+
+    // Инициализируем из разметки: Long = вход в позицию (CNY покупается = хедж)
+    // Определим направление входа для каждой конструкции
+    const posEntryDir = {}; // posKey → 'Long'|'Short'
+
+    for (const key of Object.keys(byPos)) {
+      const leg = byPos[key].legs;
+      const base = Object.keys(leg).find(b => {
+        const li = (leg[b].instrument||'');
+        return li === instr;
+      });
+      if (!base) continue;
+      const firstTrade = leg[base].trades.slice().sort((a,b)=>
+        (a._dateStr||'').localeCompare(b._dateStr||'') || timeToMs(a.time)-timeToMs(b.time)
+      )[0];
+      if (firstTrade) posEntryDir[key] = firstTrade._dir;
+      posLots[key] = 0;
+    }
+
+    // Проходим по всем сделкам и обновляем баланс / применяем маржу
+    for (const t of allTrades) {
+      const tKey = `${t._dateStr}|${t.time}|${t.direction}|${t.volume}`;
+      const tMs = timeToMs(t.time);
+
+      // Обновляем балансы конструкций по этой сделке (по разметке)
+      for (const key of Object.keys(byPos)) {
+        const leg = byPos[key].legs;
+        const base = Object.keys(leg).find(b=>(leg[b].instrument||'')=== instr);
+        if (!base) continue;
+        const tagged = leg[base].trades.find(rt=>
+          rt._dateStr===t._dateStr && rt.time===t.time &&
+          rt.direction===t.direction && Math.abs(rt.volume||0)===Math.abs(t.volume||0)
+        );
+        if (!tagged) continue;
+        const entryDir = posEntryDir[key] || 'Long';
+        const vol = Math.abs(t.volume||0);
+        if (t.direction === entryDir) {
+          posLots[key] = (posLots[key]||0) + vol;
+        } else {
+          posLots[key] = (posLots[key]||0) - vol;
+        }
+      }
+
+      // Если у сделки есть margin_rub — это момент закрытия, распределяем
+      if (!t.margin_rub) continue;
+      const closedVol = Math.abs(t.volume||0);
+      if (!closedVol) continue;
+      const marginPerLot = t.margin_rub / closedVol;
+
+      // Суммарные лоты всех конструкций в этот момент
+      const totalLots = Object.values(posLots).reduce((s,v)=>s+Math.max(0,v),0);
+      if (!totalLots) continue;
+
+      // Распределяем пропорционально текущим лотам
+      for (const key of Object.keys(byPos)) {
+        const lots = Math.max(0, posLots[key]||0);
+        if (!lots) continue;
+        const leg = byPos[key].legs;
+        const base = Object.keys(leg).find(b=>(leg[b].instrument||'')===instr);
+        if (!base) continue;
+        const attribKey = key + '|' + base;
+        _cnyAttrib[attribKey] = (_cnyAttrib[attribKey]||0) + marginPerLot * lots;
+      }
+    }
   }
 
   const rate = getRateForDate(date) || 0;
@@ -12114,36 +12182,9 @@ function calcManualResults() {
         const base = (leg.instrument||'').replace(/[-_0-9.]/g,'').toUpperCase();
         const isCny = HEDGE_BASES && HEDGE_BASES.includes(base);
         if (isCny) {
-          // CNY-хедж: делим пропорционально объёму PER ДЕНЬ, масштабируем на
-          // margin_rub каждого дня отдельно.
-          // ВАЖНО: берём дни из ЯКОРНОЙ ноги (не CNY), чтобы не тянуть CNY-сделки
-          // дней когда хедж торговался в других конструкциях (23-й для EU1/CR1).
-          const anchorBase = Object.keys(pos.legs).find(b => b !== 'CNY' && b !== base && !HEDGE_BASES.includes(b));
-          const anchorTrades = anchorBase ? pos.legs[anchorBase].trades : leg.trades;
-          const allTradeDates = [...new Set(anchorTrades.map(t=>t._dateStr).filter(Boolean))];
-          m = 0;
-          for (const td of allTradeDates) {
-            // CNY-сделки этого набора за этот день (только размеченные на этот тег+набор)
-            const dayTrades = leg.trades.filter(t=>t._dateStr===td);
-            const dayRep = getMxReportForDate(td);
-            // Все CNY-сделки этого инструмента за этот день
-            const allDayCnyTrades = (dayRep?.trades||[]).filter(t=>t.instrument===leg.instrument);
-            const dayPdfTot = allDayCnyTrades.reduce((s,t)=>s+(t.margin_rub||0),0);
-            // Формульный P&L этого набора за этот день
-            const dayFormula = _cnyFormula(dayTrades);
-            // Формульный P&L ВСЕХ наборов с этим CNY за этот день
-            let allFormTot = 0;
-            for (const k2 in byPos) {
-              const p2 = byPos[k2];
-              if (!p2.legs[base]) continue;
-              const p2instr = p2.legs[base].instrument;
-              if (p2instr !== leg.instrument) continue;
-              const p2day = p2.legs[base].trades.filter(t=>t._dateStr===td);
-              allFormTot += _cnyFormula(p2day);
-            }
-            const scale = Math.abs(allFormTot) > 0.01 ? (dayPdfTot / allFormTot) : 1;
-            m += dayFormula * scale;
-          }
+          // Берём атрибуцию по моменту закрытия (посчитана выше)
+          const attribKey = key + '|' + base;
+          m = _cnyAttrib[attribKey] || 0;
         } else if (_isPerpetual(leg.instrument)) {
           // перпетуал: i.pnl из итоговой строки PDF дня ЗАКРЫТИЯ (включает фандинг)
           const instrRow = (posRep?.instruments||[]).find(i=>i.name===leg.instrument);
