@@ -1065,8 +1065,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '28.06 12:49';
-const BUILD_DATE    = '28.06.2026 12:49 МСК';
+const BUILD_VERSION = '28.06 12:51';
+const BUILD_DATE    = '28.06.2026 12:51 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -12273,28 +12273,35 @@ function renderShowcase() {
         }
         const dirLabel = isShort ? 'Шорт' : 'Лонг';
         const dirColor = isShort ? C.loss : C.profit;
-        const vol = leg.vol_in ? leg.vol_in + 'л' : '';
-        // Движение цены в %
+        // Движение цены — цены входа/выхода + % изменения
         let moveHtml = '';
-        if (showMode === 'private') {
+        if (leg.entry) {
           const fmtP = v => isFX ? v.toFixed(5) : (Number.isInteger(v) ? v : v.toFixed(2));
-          if (leg.entry) {
+          if (showMode === 'private') {
+            // В режиме "для себя" — реальные цены
             moveHtml = '<span style="font-family:monospace;color:'+C.ink2+';font-size:12px">'
               + fmtP(leg.entry) + (leg.exit ? ' → ' + fmtP(leg.exit) : '') + '</span>';
+          } else {
+            // В режиме "для показа" — цены тоже показываем (они не секретные)
+            moveHtml = '<span style="font-family:monospace;color:'+C.ink2+';font-size:12px">'
+              + fmtP(leg.entry) + (leg.exit ? ' → ' + fmtP(leg.exit) : '') + '</span>';
+            // Дополнительно % движения
+            if (leg.exit) {
+              const movePct = (leg.exit - leg.entry) / leg.entry * 100;
+              const favorable = isShort ? movePct < 0 : movePct > 0;
+              const mc = favorable ? C.profit : C.loss;
+              moveHtml += ' <span style="font-variant-numeric:tabular-nums;color:'+mc+';font-weight:600;font-size:11px">'
+                + (movePct>=0?'+':'') + movePct.toFixed(2) + '%</span>';
+            }
           }
-        } else if (leg.entry && leg.exit) {
-          const movePct = (leg.exit - leg.entry) / leg.entry * 100;
-          const favorable = isShort ? movePct < 0 : movePct > 0;
-          const mc = favorable ? C.profit : C.loss;
-          moveHtml = '<span style="font-variant-numeric:tabular-nums;color:'+mc+';font-weight:600">'
-            + (movePct>=0?'+':'') + movePct.toFixed(2) + '%</span>';
-        } else if (leg.entry) {
+        } else if (!isOpen) {
+          moveHtml = '<span style="color:'+C.ink2+';font-size:11px">нет данных</span>';
+        } else {
           moveHtml = '<span style="color:'+C.gold+';font-size:11px">в позиции</span>';
         }
         return '<div style="display:flex;align-items:center;gap:10px;padding:6px 0;font-size:12px">'
           + '<span style="color:'+C.ink2+';min-width:80px">'+label+'</span>'
           + '<span style="color:'+dirColor+';font-weight:600;font-size:11px;min-width:42px">'+dirLabel+'</span>'
-          + (vol ? '<span style="color:'+C.ink2+';font-size:11px">'+vol+'</span>' : '')
           + moveHtml
           + '</div>';
       }).join('');
