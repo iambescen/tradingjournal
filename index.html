@@ -1065,8 +1065,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '28.06 14:01';
-const BUILD_DATE    = '28.06.2026 14:01 МСК';
+const BUILD_VERSION = '28.06 14:06';
+const BUILD_DATE    = '28.06.2026 14:06 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -14922,52 +14922,71 @@ function recalcSpreads() {
 // Применить сумму планировщика во все карточки конструкций
 function applyPlannerToCalc() {
   const _pl = (()=>{ try{return JSON.parse(localStorage.getItem('pos_planner_v1')||'{}');}catch(e){return{};} })();
-  const count = parseInt(_pl.count||'1')||1;
+  const count   = parseInt(_pl.count||'1')||1;
   const reserve = parseInt(_pl.reserve||'20')||20;
 
-  // Берём свободную маржу из текущего состояния
+  // Считаем свободную маржу — тот же алгоритм что в планировщике
   const state = (()=>{ try{return JSON.parse(localStorage.getItem('calc_state_v1')||'{}');}catch(e){return{};} })();
-  const mxBal = parseFloat(state['_mxBal']||'0') || (()=>{ try{const r=store.mx; const last=r&&r[r.length-1]; return last?.balance||0;}catch(e){return 0;} })();
-  const leverage = 1; // упрощённо
-  const availableMx = mxBal;
+  const mxBalManual = parseFloat(state['_mxBal']||'0')||0;
+  const mxBalPdf = (()=>{ try{ const r=store.mx; const d=r&&r[r.length-1]; return d?.balance||0; }catch(e){return 0;} })();
+  const mxBal = mxBalManual||mxBalPdf||0;
+  const availableMx = mxBal * ((currentRate?.leverage)||1);
 
-  // Свободная маржа = доступно - занято открытыми позициями
-  // Берём из того же расчёта что и в планировщике — сохраним как data атрибут
-  const plannerEl = document.querySelector('[data-free-mx]');
-  const freeMx = plannerEl ? parseFloat(plannerEl.dataset.freeMx) : availableMx;
-  const perSlot = Math.round(freeMx * (1 - reserve/100) / count);
-
-  if (!perSlot || perSlot <= 0) return alert('Нет данных о свободной марже');
-
-  // Подставляем во все поля депозита в карточках
-  let applied = 0;
-  document.querySelectorAll('[id$="_dep"]').forEach(el => {
-    el.value = perSlot;
-    if (typeof calcDealPotential === 'function') {
-      const wrap = el.closest('[data-calcid]');
-      if (wrap) {
-        const calcId = wrap.dataset.calcid;
-        const tag = wrap.dataset.tag;
-        const go = parseFloat(wrap.dataset.go)||0;
-        const roc = wrap.dataset.roc !== '' ? parseFloat(wrap.dataset.roc) : null;
-        const se = wrap.dataset.se !== '' ? parseFloat(wrap.dataset.se) : null;
-        const sx = wrap.dataset.sx !== '' ? parseFloat(wrap.dataset.sx) : null;
-        calcDealPotential(calcId, tag, go, roc, se, sx);
+  // Занятое ГО из разноса
+  let usedMx = 0;
+  try {
+    const allDates = [...new Set((store.mx||[]).map(r=>normDate(r.date)).filter(d=>d&&d.length===10))].sort();
+    const goOv = (()=>{ try{return JSON.parse(localStorage.getItem('calc_go_v1')||'{}');}catch(e){return{};} })();
+    const sMap = {};
+    for (const d of allDates) {
+      for (const t of getCombinedTradesForManual(d)) {
+        const a = getManualAssign(manualKey(t));
+        if (!a||!a.tag) continue;
+        const sk = a.tag+'|'+(a.setN||1);
+        if (!sMap[sk]) sMap[sk]={tag:a.tag,legs:{}};
+        if (!sMap[sk].legs[t.instrument]) sMap[sk].legs[t.instrument]={in:0,out:0,platform:t._platform||'MX'};
+        const v=Math.abs(t._vol||0);
+        if (t._dir==='Long'||t._dir?.toLowerCase()==='buy') sMap[sk].legs[t.instrument].in+=v;
+        else sMap[sk].legs[t.instrument].out+=v;
       }
     }
-    applied++;
+    for (const [,s] of Object.entries(sMap)) {
+      const isOpen = Object.values(s.legs).some(l=>l.platform!=='FX'&&Math.abs(l.in-l.out)>0.0001);
+      if (!isOpen) continue;
+      const con = (typeof CALC_CONSTRUCTIONS!=='undefined'?CALC_CONSTRUCTIONS:[])
+        .find(c=>c.tag===s.tag||c.tag.split('/')[0]===s.tag.split('/')[0]);
+      if (!con) continue;
+      for (const cL of con.legs||[]) {
+        if (!cL.isMx) continue;
+        const lD = Object.entries(s.legs).find(([i])=>i===cL.name||i.replace(/[-.].*$/,'').toUpperCase()===cL.name?.replace(/[-.].*$/,'').toUpperCase());
+        if (!lD) continue;
+        const openV = Math.abs(lD[1].in-lD[1].out);
+        const g = (cL.goKey&&goOv[cL.goKey])?goOv[cL.goKey]:(cL.go||0);
+        usedMx += g * openV;
+      }
+    }
+  } catch(e) {}
+
+  const freeMx = Math.max(0, availableMx - usedMx);
+  const perSlot = Math.round(freeMx * (1 - reserve/100) / count);
+
+  if (!perSlot || perSlot <= 0) {
+    alert(`Нет данных о балансе МХ.\nБаланс МХ: ${Math.round(mxBal).toLocaleString('ru')} ₽\nДоступно: ${Math.round(availableMx).toLocaleString('ru')} ₽\nЗанято: ${Math.round(usedMx).toLocaleString('ru')} ₽`);
+    return;
+  }
+
+  // Подставляем в поля депозита в карточках Сделок
+  let applied = 0;
+  document.querySelectorAll('[id$="_dep"]').forEach(el => {
+    if (!el.id.startsWith('dpc_')) { // не трогаем поле P&L калькулятора
+      el.value = perSlot;
+      el.dispatchEvent(new Event('input'));
+      applied++;
+    }
   });
 
-  if (applied) {
-    // Сохраняем депозит в deal_calc_v1
-    try {
-      const saved = JSON.parse(localStorage.getItem('deal_calc_v1')||'{}');
-      // Обновляем все теги
-      document.querySelectorAll('[data-calcid]').forEach(wrap => {
-        if (wrap.dataset.tag) saved[wrap.dataset.tag+'_dep'] = perSlot;
-      });
-      localStorage.setItem('deal_calc_v1', JSON.stringify(saved));
-    } catch(e) {}
+  if (applied === 0) {
+    alert(`На 1 позицию: ${perSlot.toLocaleString('ru')} ₽\n\nОткрой вкладку Сделки → раскрой карточку конструкции → нажми «Рассчитать» — значение подставится автоматически.`);
   }
 }
 
