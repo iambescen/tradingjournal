@@ -1065,8 +1065,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '28.06 12:35';
-const BUILD_DATE    = '28.06.2026 12:35 МСК';
+const BUILD_VERSION = '28.06 12:43';
+const BUILD_DATE    = '28.06.2026 12:43 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -12086,13 +12086,13 @@ async function calcDiaryRoi(pos) {
   const rate = (pos.closed_date ? getRateForDate(normDate(pos.closed_date)) : (currentRate&&currentRate.value||85)) || 85;
   const days = (pos.days||[pos.closed_date||pos.opened_date]).length || 1;
 
-  // Позиции из ручного разноса — P&L уже посчитан
-  if (pos.note === 'ручной разнос' && pos.pnl_rub != null) {
-    const totalRub = pos.pnl_rub;
-    let totalFrozen = 0;
-    try { const cap = await calcPositionCapital(pos); totalFrozen = cap&&cap.totalFrozen||0; } catch(e) {}
-    const roi = totalFrozen > 0 ? (totalRub/totalFrozen*100) : null;
-    const annual = roi!=null ? roi*(365/days) : null;
+  // Позиции из ручного разноса — используем сохранённые данные напрямую
+  if (pos.note === 'ручной разнос') {
+    const totalRub = pos.pnl_rub || 0;
+    const totalFrozen = pos.goRub || 0;
+    // Берём из сохранённых данных если есть
+    const roi    = pos.rocPct    != null ? pos.rocPct    : (totalFrozen > 0 ? totalRub/totalFrozen*100 : null);
+    const annual = pos.rocAnnual != null ? pos.rocAnnual : (roi!=null ? roi*(365/days) : null);
     return { roi, annual, days, totalFrozen, isProfit: totalRub>=0, pnlRub: totalRub };
   }
 
