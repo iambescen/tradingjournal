@@ -1057,8 +1057,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '28.06 10:08';
-const BUILD_DATE    = '28.06.2026 10:08 МСК';
+const BUILD_VERSION = '28.06 10:13';
+const BUILD_DATE    = '28.06.2026 10:13 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -13929,8 +13929,19 @@ function calcManualSpread(pos, datesUpTo) {
       const isEntry = isFX
         ? (isEntryLong ? (tDir.toLowerCase()==='long'||tDir.toLowerCase()==='buy') : (tDir.toLowerCase()==='short'||tDir.toLowerCase()==='sell'))
         : (isEntryLong ? tDir==='Long' : tDir==='Short');
-      if (isEntry) { prices[b].entrySum+=price*vol; prices[b].entryVol+=vol; }
-      else         { prices[b].exitSum+=price*vol;  prices[b].exitVol+=vol; }
+      if (isEntry) {
+        prices[b].entrySum += price * vol;
+        prices[b].entryVol += vol;
+        // Для FX: цена закрытия сделки = цена выхода
+        const closeP = t._closePrice || t._raw?.close_price || 0;
+        if (isFX && closeP) {
+          prices[b].exitSum += closeP * vol;
+          prices[b].exitVol += vol;
+        }
+      } else {
+        prices[b].exitSum += price * vol;
+        prices[b].exitVol += vol;
+      }
     }
   }
 
