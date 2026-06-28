@@ -1065,8 +1065,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '28.06 12:19';
-const BUILD_DATE    = '28.06.2026 12:19 МСК';
+const BUILD_VERSION = '28.06 12:22';
+const BUILD_DATE    = '28.06.2026 12:22 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -10634,7 +10634,7 @@ function renderOverviewTab(force) {
     if (canvas && typeof Chart !== 'undefined') {
       _drawOverviewCharts(..._args);
       renderBenchmark();
-  renderConstructionAnalytics();     // async LQDT benchmark
+  setTimeout(() => renderOvConstructions(), 80);  // аналитика по конструкциям из manualPositions
       renderWeeklyTable();   // weekly/monthly stats
       // Hide chart boxes with no data
       if (!hasMx) { const el=document.getElementById('ch-mx-bal'); if(el) el.closest('div[style*="border"]').style.display='none'; }
