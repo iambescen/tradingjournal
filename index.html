@@ -1290,8 +1290,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '28.06 18:44';
-const BUILD_DATE    = '28.06.2026 18:44 МСК';
+const BUILD_VERSION = '28.06 18:48';
+const BUILD_DATE    = '28.06.2026 18:48 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -14250,6 +14250,14 @@ function unlockApp() {
     updateDashboard();
     renderOverviewTab(true);
   } catch(e) { console.warn('[unlockApp render]', e); }
+  // Синхронизировать мобильное меню с активной вкладкой
+  try {
+    const activeTab = document.querySelector('.tab-content.active');
+    if (activeTab) {
+      const tabName = activeTab.id.replace('tab-', '');
+      _syncMobileNav(tabName);
+    }
+  } catch(e) {}
   // Повторно после подгрузки курсов/ГО
   setTimeout(function(){ try { updateDashboard(); renderOverviewTab(true); } catch(e){} }, 800);
 }
