@@ -1065,8 +1065,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '28.06 14:06';
-const BUILD_DATE    = '28.06.2026 14:06 МСК';
+const BUILD_VERSION = '28.06 14:08';
+const BUILD_DATE    = '28.06.2026 14:08 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -14925,12 +14925,14 @@ function applyPlannerToCalc() {
   const count   = parseInt(_pl.count||'1')||1;
   const reserve = parseInt(_pl.reserve||'20')||20;
 
-  // Считаем свободную маржу — тот же алгоритм что в планировщике
+  // Баланс МХ — тот же алгоритм что в _renderCalcInner
   const state = (()=>{ try{return JSON.parse(localStorage.getItem('calc_state_v1')||'{}');}catch(e){return{};} })();
+  const mxBalPdf = (store.mx||[]).length
+    ? (store.mx||[]).slice().sort((a,b)=>normDate(b.date).localeCompare(normDate(a.date)))[0]?.balance_end||0 : 0;
   const mxBalManual = parseFloat(state['_mxBal']||'0')||0;
-  const mxBalPdf = (()=>{ try{ const r=store.mx; const d=r&&r[r.length-1]; return d?.balance||0; }catch(e){return 0;} })();
-  const mxBal = mxBalManual||mxBalPdf||0;
-  const availableMx = mxBal * ((currentRate?.leverage)||1);
+  const mxBal = mxBalManual > 0 ? mxBalManual : mxBalPdf;
+  const leverage = 7;
+  const availableMx = mxBal * leverage;
 
   // Занятое ГО из разноса
   let usedMx = 0;
