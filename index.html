@@ -1065,8 +1065,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '28.06 14:31';
-const BUILD_DATE    = '28.06.2026 14:31 МСК';
+const BUILD_VERSION = '28.06 14:39';
+const BUILD_DATE    = '28.06.2026 14:39 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -14971,7 +14971,24 @@ function applyPlannerToCalc() {
     for (const con of CALC_CONSTRUCTIONS) cs[con.tag.replace(/[/]/g,'_')+'_budget'] = perSlot;
   }
   localStorage.setItem('calc_state_v1', JSON.stringify(cs));
+
+  // Сохраняем значения P&L блока перед перерисовкой
+  const _mx  = document.getElementById('dpc_mx')?.value;
+  const _fx  = document.getElementById('dpc_fx')?.value;
+  const _rt  = document.getElementById('dpc_rate')?.value;
+
   renderCalc();
+
+  // Восстанавливаем значения P&L блока после перерисовки
+  requestAnimationFrame(() => {
+    const mxEl = document.getElementById('dpc_mx');
+    const fxEl = document.getElementById('dpc_fx');
+    const rtEl = document.getElementById('dpc_rate');
+    if (mxEl && _mx) mxEl.value = _mx;
+    if (fxEl && _fx) fxEl.value = _fx;
+    if (rtEl && _rt) rtEl.value = _rt;
+    if (typeof calcDealPnl === 'function') calcDealPnl();
+  });
 }
 
 
