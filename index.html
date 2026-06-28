@@ -1065,8 +1065,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '28.06 11:35';
-const BUILD_DATE    = '28.06.2026 11:35 МСК';
+const BUILD_VERSION = '28.06 11:37';
+const BUILD_DATE    = '28.06.2026 11:37 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -14556,6 +14556,24 @@ function recalcAll() {
         const mgPerLot = parseFloat(fxOv3[l.instrument] || cLeg3?.marginPerLot || 0);
         l.goPerLot = mgPerLot;
         l.goTotal = mgPerLot > 0 ? +(mgPerLot * (l.entryVol||0)).toFixed(2) : 0;
+        // Курс если не сохранён
+        if (!l.rate) l.rate = +(getRateForDate(manPos.closeDate) || 85).toFixed(2);
+        // avgExit из _closePrice если не сохранён — поищем в trades через разметку
+        if (!l.avgExit) {
+          const allDates2 = (manPos.days||[manPos.openDate,manPos.closeDate]).slice().sort();
+          const fxTrades2 = [];
+          for (const d of allDates2) {
+            for (const t of getCombinedTradesForManual(d)) {
+              const a = getManualAssign(manualKey(t));
+              if (a && a.tag===manPos.tag && (a.setN||1)===manPos.setN && t.instrument===l.instrument && t._closePrice)
+                fxTrades2.push(t);
+            }
+          }
+          if (fxTrades2.length) {
+            const cpVol2 = fxTrades2.reduce((s,t)=>s+Math.abs(t._vol||0),0);
+            if (cpVol2>0) l.avgExit = +(fxTrades2.reduce((s,t)=>s+t._closePrice*Math.abs(t._vol||0),0)/cpVol2).toFixed(5);
+          }
+        }
       } else {
         const gpl = (cLeg3?.goKey && goOv3[cLeg3.goKey]) ? goOv3[cLeg3.goKey] : (cLeg3?.go || 0);
         l.goPerLot = gpl;
