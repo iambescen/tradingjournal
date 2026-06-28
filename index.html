@@ -1065,8 +1065,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '28.06 11:32';
-const BUILD_DATE    = '28.06.2026 11:32 МСК';
+const BUILD_VERSION = '28.06 11:35';
+const BUILD_DATE    = '28.06.2026 11:35 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -14543,6 +14543,27 @@ function recalcAll() {
   }
 
   // Автоматически синхронизируем ВСЕ позиции в Дневник
+  // Дополнительно: пересчитываем goPerLot/goTotal из существующих legs.entryVol
+  const goOv3 = (() => { try { return JSON.parse(localStorage.getItem('calc_go_v1')||'{}'); } catch(e) { return {}; } })();
+  const fxOv3 = (() => { try { return JSON.parse(localStorage.getItem('calc_fx_v1')||'{}'); } catch(e) { return {}; } })();
+  for (const manPos of positions) {
+    const con3 = (typeof CALC_CONSTRUCTIONS !== 'undefined' ? CALC_CONSTRUCTIONS : [])
+      .find(c => c.tag === manPos.tag || c.tag.split('/')[0] === manPos.tag.split('/')[0]);
+    (manPos.legs||[]).forEach(l => {
+      const cLeg3 = con3?.legs?.find(cl => cl.name === l.instrument ||
+        cl.name?.replace(/[-.].*$/,'').toUpperCase() === l.instrument?.replace(/[-.].*$/,'').toUpperCase());
+      if (l.platform === 'FX') {
+        const mgPerLot = parseFloat(fxOv3[l.instrument] || cLeg3?.marginPerLot || 0);
+        l.goPerLot = mgPerLot;
+        l.goTotal = mgPerLot > 0 ? +(mgPerLot * (l.entryVol||0)).toFixed(2) : 0;
+      } else {
+        const gpl = (cLeg3?.goKey && goOv3[cLeg3.goKey]) ? goOv3[cLeg3.goKey] : (cLeg3?.go || 0);
+        l.goPerLot = gpl;
+        l.goTotal = gpl > 0 ? Math.round(gpl * (l.entryVol||0)) : 0;
+      }
+    });
+  }
+
   store.positions = [];
   for (const manPos of positions) {
     sendToDiary(manPos.id, true);
