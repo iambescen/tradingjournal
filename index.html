@@ -1065,8 +1065,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '28.06 12:31';
-const BUILD_DATE    = '28.06.2026 12:31 МСК';
+const BUILD_VERSION = '28.06 12:35';
+const BUILD_DATE    = '28.06.2026 12:35 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -12189,8 +12189,6 @@ function calcDiarySpread(pos) {
 }
 
 function renderShowcase() {
-  // Синхронизируем данные из Сделок перед показом
-  if (typeof recalcAll === 'function' && (store.manualPositions||[]).length) recalcAll();
   const root = document.getElementById('showcase-root');
   if (!root) return;
   positionsInit();
