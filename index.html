@@ -1065,8 +1065,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '28.06 13:03';
-const BUILD_DATE    = '28.06.2026 13:03 МСК';
+const BUILD_VERSION = '28.06 13:09';
+const BUILD_DATE    = '28.06.2026 13:09 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -13618,7 +13618,7 @@ function _renderCalcInner(root) {
           const sk = a.tag + '|' + (a.setN||1);
           if (!setMap[sk]) setMap[sk] = {tag:a.tag, setN:a.setN||1, legs:{}};
           const instr = t.instrument;
-          if (!setMap[sk].legs[instr]) setMap[sk].legs[instr] = {in:0,out:0,platform:t._platform};
+          if (!setMap[sk].legs[instr]) setMap[sk].legs[instr] = {in:0,out:0,platform:t._platform||'MX'};
           const vol = Math.abs(t._vol||0);
           if (t._dir==='Long'||t._dir?.toLowerCase()==='buy') setMap[sk].legs[instr].in+=vol;
           else setMap[sk].legs[instr].out+=vol;
@@ -13626,8 +13626,9 @@ function _renderCalcInner(root) {
       }
 
       for (const [sk, s] of Object.entries(setMap)) {
-        // Открытый если хотя бы одна нога не закрыта (net != 0)
-        const isOpen = Object.values(s.legs).some(l=>Math.abs(l.in-l.out)>0.0001);
+        // Открытый если хотя бы одна MX нога не закрыта (net != 0)
+        // FX не проверяем — она закрывается внутри дня отдельной строкой
+        const isOpen = Object.values(s.legs).some(l => l.platform !== 'FX' && Math.abs(l.in - l.out) > 0.0001);
         if (!isOpen) continue;
 
         // ГО из Калькулятора
