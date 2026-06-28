@@ -1065,8 +1065,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '28.06 12:25';
-const BUILD_DATE    = '28.06.2026 12:25 МСК';
+const BUILD_VERSION = '28.06 12:29';
+const BUILD_DATE    = '28.06.2026 12:29 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -12256,21 +12256,41 @@ function renderShowcase() {
     let mxIdx = 0;
     let legRows = '';
     if (isManual) {
-      // Для ручного разноса — показываем P&L по каждой ноге напрямую
-      const rate = getRateForDate(pos.closed_date) || 85;
       legRows = Object.keys(pos.legs||{}).map(function(b) {
         const leg = pos.legs[b];
         const isFX = leg.platform === 'FX';
-        const pnlV = isFX ? (leg.pnl_usd||0) : (leg.pnl||0);
-        const pnlR = isFX ? Math.round(pnlV*rate) : Math.round(pnlV);
-        const cls  = pnlV>=0 ? C.profit : C.loss;
+        const isShort = leg.entry_direction === 'Sell' || leg.entry_direction === 'Short';
         let label = b;
-        if (showMode!=='private') { if (isFX) label='Спот'; else { mxIdx++; label='Фьючерс '+mxIdx; } }
-        const dir = isFX ? '' : (leg.entry_direction==='Sell'?'Шорт':'Лонг');
-        return '<div style="display:flex;gap:12px;align-items:center;padding:6px 0;border-bottom:1px solid '+C.line+'">'+
-          '<span style="min-width:80px;font-size:13px;color:'+C.ink+'">'+label+'</span>'+
-          (dir?'<span style="font-size:13px;font-weight:600;color:'+(leg.entry_direction==='Sell'?C.loss:C.profit)+'">'+dir+'</span>':'')+
-          '</div>';
+        if (showMode!=='private') {
+          if (isFX) label = 'Спот';
+          else { mxIdx++; label = 'Фьючерс ' + mxIdx; }
+        }
+        const dirLabel = isShort ? 'Шорт' : 'Лонг';
+        const dirColor = isShort ? C.loss : C.profit;
+        const vol = leg.vol_in ? leg.vol_in + 'л' : '';
+        // Движение цены в %
+        let moveHtml = '';
+        if (showMode === 'private') {
+          const fmtP = v => isFX ? v.toFixed(5) : (Number.isInteger(v) ? v : v.toFixed(2));
+          if (leg.entry) {
+            moveHtml = '<span style="font-family:monospace;color:'+C.ink2+';font-size:12px">'
+              + fmtP(leg.entry) + (leg.exit ? ' → ' + fmtP(leg.exit) : '') + '</span>';
+          }
+        } else if (leg.entry && leg.exit) {
+          const movePct = (leg.exit - leg.entry) / leg.entry * 100;
+          const favorable = isShort ? movePct < 0 : movePct > 0;
+          const mc = favorable ? C.profit : C.loss;
+          moveHtml = '<span style="font-variant-numeric:tabular-nums;color:'+mc+';font-weight:600">'
+            + (movePct>=0?'+':'') + movePct.toFixed(2) + '%</span>';
+        } else if (leg.entry) {
+          moveHtml = '<span style="color:'+C.gold+';font-size:11px">в позиции</span>';
+        }
+        return '<div style="display:flex;align-items:center;gap:10px;padding:6px 0;font-size:12px">'
+          + '<span style="color:'+C.ink2+';min-width:80px">'+label+'</span>'
+          + '<span style="color:'+dirColor+';font-weight:600;font-size:11px;min-width:42px">'+dirLabel+'</span>'
+          + (vol ? '<span style="color:'+C.ink2+';font-size:11px">'+vol+'</span>' : '')
+          + moveHtml
+          + '</div>';
       }).join('');
     } else {
       // Обычные позиции — через calcLegPrices
@@ -12310,15 +12330,16 @@ function renderShowcase() {
     // Спред-блок
     let spreadHtml = '';
     if (isManual && pos.spreadEntry != null) {
-      const se = pos.spreadEntry.toFixed(3)+'%';
-      const hasExit = pos.spreadExit != null;
-      const delta = hasExit ? Math.abs(pos.spreadEntry)-Math.abs(pos.spreadExit) : null;
-      const dc = delta!=null ? (delta>=0?C.profit:C.loss) : C.ink2;
-      spreadHtml = '<div style="display:flex;align-items:baseline;gap:16px;margin-top:14px;padding-top:14px;border-top:1px dashed '+C.line+';font-size:12px;color:'+C.ink2+';flex-wrap:wrap">'
-        + '<span style="text-transform:uppercase;letter-spacing:.8px;font-size:10px">Спред</span>'
-        + '<span>вход <b style="color:'+C.ink+';font-variant-numeric:tabular-nums">'+se+'</b></span>'
-        + (hasExit ? '<span>закрытие <b style="color:'+C.ink+';font-variant-numeric:tabular-nums">'+pos.spreadExit.toFixed(3)+'%</b></span>' : '')
-        + (delta!=null ? '<span style="margin-left:auto">сжатие <b style="color:'+dc+';font-variant-numeric:tabular-nums;font-size:13px">'+(delta>=0?'+':'')+delta.toFixed(3)+'%</b></span>' : '')
+      const fmt3 = v => v!=null?(Math.abs(v)<10?v.toFixed(4):v.toFixed(3))+'%':'—';
+      const se = fmt3(pos.spreadEntry);
+      const sx = fmt3(pos.spreadExit);
+      const delta = pos.spreadExit!=null ? pos.spreadEntry - pos.spreadExit : null;
+      const dc = delta!=null ? (delta>0?C.profit:C.loss) : C.ink2;
+      spreadHtml = '<div style="display:flex;align-items:baseline;gap:20px;margin-top:14px;padding-top:14px;border-top:1px dashed '+C.line+';flex-wrap:wrap">'
+        + '<span style="text-transform:uppercase;letter-spacing:.8px;font-size:10px;color:'+C.ink2+'">Спред</span>'
+        + '<span style="color:'+C.ink2+'">вход <b style="color:'+C.ink+';font-variant-numeric:tabular-nums;font-size:14px">'+se+'</b></span>'
+        + (pos.spreadExit!=null ? '<span style="color:'+C.ink2+'">закрытие <b style="color:'+C.ink+';font-variant-numeric:tabular-nums;font-size:14px">'+sx+'</b></span>' : '')
+        + (delta!=null ? '<span style="margin-left:auto;color:'+C.ink2+'">сжатие <b style="color:'+dc+';font-variant-numeric:tabular-nums;font-size:15px">'+(delta>0?'+':'')+fmt3(delta)+'</b></span>' : '')
         + '</div>';
     } else if (!isManual) {
     if (sp.entry != null) {
@@ -14894,10 +14915,16 @@ function sendToDiary(id, silent) {
     legs[key] = {
       platform: l.platform,
       instrument: l.instrument,
-      entry_direction: l.platform==='FX' ? 'Buy' : 'Long',
-      vol_in: 0,
+      entry_direction: l.entryDir==='Short' ? 'Sell' : 'Long',
+      vol_in: l.entryVol || 0,
+      vol_out: l.exitVol || 0,
+      entry: l.avgEntry || 0,
+      exit: l.avgExit || 0,
       pnl: l.pnl || 0,
       pnl_usd: l.pnlUsd || 0,
+      rate: l.rate || 0,
+      goPerLot: l.goPerLot || 0,
+      goTotal: l.goTotal || 0,
     };
   });
   const entry = {
@@ -14912,6 +14939,11 @@ function sendToDiary(id, silent) {
     fx_usd: pos.fxUsd,
     days: pos.days || [pos.openDate, pos.closeDate],
     note: 'ручной разнос',
+    spreadEntry: pos.spreadEntry,
+    spreadExit: pos.spreadExit,
+    rocPct: pos.rocPct,
+    rocAnnual: pos.rocAnnual,
+    goRub: pos.goRub,
     legs,
   };
   if (existIdx >= 0) store.positions[existIdx] = entry;
