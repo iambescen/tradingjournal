@@ -250,6 +250,14 @@
   .rz-row.rz-fx td:first-child{border-left-color:var(--purple)}
   .rz-sel{width:100%;padding:3px 5px;border:1px solid var(--border);border-radius:5px;background:var(--bg2);color:var(--text2);font-size:10px;cursor:pointer;outline:none}
   .rz-sel.rz-tagged{color:var(--text1);font-weight:600;background:var(--blue-dim);border-color:var(--blue)}
+
+  .rz-check { width:14px;height:14px;cursor:pointer;accent-color:var(--blue); }
+  .rz-bulk-bar { display:none;position:sticky;top:0;z-index:10;background:var(--blue);color:#fff;padding:8px 16px;border-radius:8px;margin-bottom:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap; }
+  .rz-bulk-bar.visible { display:flex; }
+  .rz-bulk-sel { padding:4px 8px;border:1px solid rgba(255,255,255,.4);border-radius:5px;background:rgba(255,255,255,.15);color:#fff;font-size:11px;cursor:pointer;min-width:140px; }
+  .rz-bulk-num { padding:3px 8px;border:1px solid rgba(255,255,255,.4);border-radius:5px;background:rgba(255,255,255,.15);color:#fff;font-size:11px;width:44px;text-align:center; }
+  .rz-bulk-btn { padding:5px 14px;border:none;border-radius:5px;background:#fff;color:var(--blue);font-size:12px;font-weight:700;cursor:pointer; }
+  .rz-bulk-clear { padding:5px 10px;border:1px solid rgba(255,255,255,.4);border-radius:5px;background:none;color:#fff;font-size:12px;cursor:pointer; }
   .rz-num{width:40px;padding:3px;border:1px solid var(--border);border-radius:5px;background:var(--bg2);color:var(--text1);font-size:10px;text-align:center;outline:none}
 
   /* Misc */
@@ -1057,8 +1065,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '28.06 10:51';
-const BUILD_DATE    = '28.06.2026 10:51 МСК';
+const BUILD_VERSION = '28.06 10:54';
+const BUILD_DATE    = '28.06.2026 10:54 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -11349,6 +11357,84 @@ function buildRowPnl() {
   return rowPnl;
 }
 
+// ── Групповой разнос ──
+function updateBulkBar() {
+  const checks = [...document.querySelectorAll('.rz-check[data-key]')].filter(c=>c.checked);
+  const bar = document.getElementById('rz-bulk-bar');
+  const cnt = document.getElementById('rz-bulk-count');
+  if (!bar) return;
+  bar.style.display = checks.length ? 'flex' : 'none';
+  if (cnt) cnt.textContent = checks.length + ' выбрано';
+}
+
+function toggleAllCheckboxes(master) {
+  document.querySelectorAll('.rz-check[data-key]').forEach(c=>{ c.checked=master.checked; });
+  updateBulkBar();
+}
+
+function clearBulkSelection() {
+  document.querySelectorAll('.rz-check').forEach(c=>{ c.checked=false; });
+  const bar = document.getElementById('rz-bulk-bar');
+  if (bar) bar.style.display='none';
+}
+
+function applyBulkAssign() {
+  const tag = document.getElementById('rz-bulk-tag')?.value;
+  const setN = parseInt(document.getElementById('rz-bulk-set')?.value||'1');
+  if (!tag) return alert('Выберите конструкцию');
+  const checks = [...document.querySelectorAll('.rz-check[data-key]')].filter(c=>c.checked);
+  if (!checks.length) return alert('Ничего не выбрано');
+  checks.forEach(c=>{ setManualAssign(c.dataset.key, tag, setN); });
+  saveStore();
+  clearBulkSelection();
+  renderManualRaznos();
+}
+
+// ── Авторазнос 2.0 — паттерны из предыдущих дней ──
+function autoRaznos2() {
+  const date = store._manualDate;
+  if (!date) return;
+
+  // Собираем паттерны: {instrument|direction} → {tag, setN, count}
+  const patterns = {}; // ключ → {tag, setN, count}
+  const allDates = [...new Set((store.mx||[]).map(r=>normDate(r.date)).filter(d=>d&&d.length===10))].sort();
+  const prevDates = allDates.filter(d=>d<date);
+
+  for (const d of prevDates) {
+    for (const t of getCombinedTradesForManual(d)) {
+      const a = getManualAssign(manualKey(t));
+      if (!a || !a.tag) continue;
+      const key = t.instrument + '|' + t._dir;
+      if (!patterns[key]) patterns[key] = {};
+      const pk = a.tag + '|' + (a.setN||1);
+      if (!patterns[key][pk]) patterns[key][pk] = 0;
+      patterns[key][pk]++;
+    }
+  }
+
+  // Для каждой неразмеченной строки текущего дня — предлагаем конструкцию
+  let assigned = 0, skipped = 0;
+  for (const t of getCombinedTradesForManual(date)) {
+    const k = manualKey(t);
+    const existing = getManualAssign(k);
+    if (existing && existing.tag) { skipped++; continue; } // уже размечена
+    const key = t.instrument + '|' + t._dir;
+    if (!patterns[key]) continue;
+    // Берём наиболее частый паттерн
+    const best = Object.entries(patterns[key]).sort((a,b)=>b[1]-a[1])[0];
+    if (!best) continue;
+    const [tagSetN] = best;
+    const [tag, setNStr] = tagSetN.split('|');
+    setManualAssign(k, tag, parseInt(setNStr)||1);
+    assigned++;
+  }
+
+  saveStore();
+  renderManualRaznos();
+  alert(`🤖 Авторазнос 2.0 завершён\nПроставлено: ${assigned} строк\nПропущено (уже размечены): ${skipped}`);
+}
+
+
 // Очистить разметку текущего дня в Разносе
 function clearDayRaznos() {
   const date = store._manualDate;
@@ -11524,7 +11610,8 @@ function renderManualRaznos() {
         }
       }
       const roleClass = role ? (role.role==='entry'?'rz-entry':role.role==='exit'?'rz-exit':'rz-fx') : (t._platform==='FX'?'rz-fx':'');
-      rows2 += `<tr class="rz-row ${roleClass}">
+      rows2 += `<tr class="rz-row ${roleClass}" data-key="${k}">
+        <td style="padding:2px 6px;text-align:center"><input type="checkbox" class="rz-check" data-key="${k}" onchange="updateBulkBar()"></td>
         <td>${t.instrument}${t._comment?` <span style="font-size:9px;background:var(--bg3);color:var(--blue);padding:1px 4px;border-radius:3px;font-weight:600">${t._comment}</span>`:''}</td>
         <td class="mono ${dCls}" style="text-align:right">${t._dir==='Long'?'+':'−'}${t._vol} <span style="color:var(--text2);font-size:10px">@ ${t._price}${t._fxClosed&&t._closePrice!=null?` → ${t._closePrice}`:''}</span></td>
         <td class="mono" style="text-align:right;color:var(--text2)">${t.time}${t._fxClosed&&t._closeTime?`<span style="opacity:.5"> →${t._closeTime}</span>`:''}</td>
@@ -11549,10 +11636,22 @@ function renderManualRaznos() {
       </div>
     </div>
     ${balWidget}
+    <div id="rz-bulk-bar" class="rz-bulk-bar" style="display:none">
+      <span id="rz-bulk-count" style="font-size:12px;font-weight:600">0 выбрано</span>
+      <select id="rz-bulk-tag" class="rz-bulk-sel">
+        <option value="">— выбрать конструкцию —</option>
+        ${(store._manualTags||[]).map(t=>`<option value="${t}">${t}</option>`).join('')}
+      </select>
+      <input type="number" id="rz-bulk-set" class="rz-bulk-num" value="1" min="1">
+      <button class="rz-bulk-btn" onclick="applyBulkAssign()">✓ Проставить</button>
+      <button class="rz-bulk-clear" onclick="clearBulkSelection()">✕ Снять выбор</button>
+      <button class="rz-bulk-btn" style="background:var(--amber);color:#fff;margin-left:auto" onclick="autoRaznos2()">🤖 Авторазнос 2.0</button>
+    </div>
     <div id="manual-results" style="margin-bottom:20px"></div>
     <table class="rz-table">
       <thead>
         <tr>
+          <th class="rz-th" style="width:28px;text-align:center"><input type="checkbox" class="rz-check" onchange="toggleAllCheckboxes(this)"></th>
           <th class="rz-th" style="text-align:left;padding-left:14px">Инструмент</th>
           <th class="rz-th" style="text-align:right">Объём / цена</th>
           <th class="rz-th" style="text-align:right">Время</th>
