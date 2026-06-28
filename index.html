@@ -1065,8 +1065,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '28.06 14:50';
-const BUILD_DATE    = '28.06.2026 14:50 МСК';
+const BUILD_VERSION = '28.06 14:52';
+const BUILD_DATE    = '28.06.2026 14:52 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -11858,7 +11858,13 @@ renderPositionsTab();
 setTimeout(() => { renderLiveJournal(); renderCapitalLoad(); }, 50);
 // Render overview after dashboard has had time to populate (1 second)
 setTimeout(() => updateDashboard(), 500); // re-run after rate loads
-setTimeout(() => { renderCalc(); renderOverviewTab(true); }, 1000); // render calc (default tab) and overview on startup
+setTimeout(() => {
+  renderCalc();
+  renderOverviewTab(true);
+  // Скрываем дашборд т.к. по умолчанию открыт Калькулятор
+  const dash = document.getElementById('main-dashboard');
+  if (dash) { dash.style.display = 'none'; dash.style.marginBottom = '0'; }
+}, 1000); // render calc (default tab) and overview on startup
 </script>
 
 
