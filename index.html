@@ -1065,8 +1065,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '28.06 12:23';
-const BUILD_DATE    = '28.06.2026 12:23 МСК';
+const BUILD_VERSION = '28.06 12:25';
+const BUILD_DATE    = '28.06.2026 12:25 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -11513,8 +11513,8 @@ function renderManualRaznos() {
     const allClosed = Object.values(mergedLegs).every(l=>l.net===0);
     const statColor = allClosed ? 'var(--green)' : (fromPrev ? '#f59e0b' : '#f59e0b');
     const prevBadge = fromPrev ? `<span style="font-size:9px;background:hsla(39,100%,55%,0.15);color:#f59e0b;padding:1px 6px;border-radius:3px;margin-left:6px">перенос</span>` : '';
-    return `<div style="border:1px solid var(--border);border-left:4px solid ${statColor};border-radius:8px;padding:10px 14px;min-width:250px;background:var(--bg2);box-shadow:var(--shadow)">
-      <div style="font-weight:700;color:var(--text1);font-size:12px;margin-bottom:7px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+    return `<div style="border:1px solid var(--border);border-left:3px solid ${statColor};border-radius:10px;padding:12px 16px;min-width:220px;background:var(--bg2);box-shadow:var(--shadow)">
+      <div style="font-weight:700;color:var(--text1);font-size:12px;margin-bottom:8px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
         <span style="color:${statColor};font-size:9px">●</span>${s.tag} <span style="color:var(--text2);font-weight:500">· набор ${s.setN}</span>${prevBadge}</div>
       ${legsHtml}
     </div>`;
@@ -11525,10 +11525,10 @@ function renderManualRaznos() {
   const setKeys = Object.keys(bal.sets).sort();
   const hasCurrentDay = setKeys.length > 0;
   if (hasPrevOpen || hasCurrentDay) {
-    balWidget = '<div style="position:sticky;top:0;z-index:20;background:var(--bg);padding:12px 0;margin-bottom:10px;border-bottom:2px solid var(--border);box-shadow:0 6px 16px rgba(0,0,0,0.18)">';
+    balWidget = '<div style="position:sticky;top:0;z-index:20;background:var(--bg);padding:14px 0 12px;margin-bottom:16px;border-bottom:1px solid var(--border)">';
     // Переносы с предыдущих дней
     if (hasPrevOpen) {
-      balWidget += `<div style="font-size:10px;color:#f59e0b;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">⇢ Переносы из предыдущих дней</div>`;
+      balWidget += `<div style="font-size:10px;color:var(--amber);font-weight:700;text-transform:uppercase;letter-spacing:.7px;margin-bottom:8px">⇢ Переносы из предыдущих дней</div>`;
       balWidget += '<div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:10px">';
       Object.entries(prevOpenSets).sort(([a],[b])=>a<b?-1:1).forEach(([sk,s])=>{
         // Берём кросс-вид (включая сегодняшнее закрытие)
@@ -11539,7 +11539,7 @@ function renderManualRaznos() {
     // Наборы, размеченные сегодня (не из переносов)
     const todayOnlyKeys = setKeys.filter(sk=>!prevOpenSets[sk]);
     if (todayOnlyKeys.length) {
-      if (hasPrevOpen) balWidget += `<div style="font-size:10px;color:var(--text2);font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Сегодня</div>`;
+      if (hasPrevOpen) balWidget += `<div style="font-size:10px;color:var(--text2);font-weight:700;text-transform:uppercase;letter-spacing:.7px;margin-bottom:8px;margin-top:4px">Сегодня</div>`;
       balWidget += '<div style="display:flex;flex-wrap:wrap;gap:10px">';
       todayOnlyKeys.forEach(sk=>{
         const s = bal.sets[sk];
