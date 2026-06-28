@@ -1065,8 +1065,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '28.06 14:27';
-const BUILD_DATE    = '28.06.2026 14:27 МСК';
+const BUILD_VERSION = '28.06 14:31';
+const BUILD_DATE    = '28.06.2026 14:31 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -13384,7 +13384,9 @@ function _renderCalcInner(root) {
     const goPerUnit1 = mxOnly
       ? con.legs.reduce((s,l) => s + ((l.goKey && _goCache[goKeyToSecid(l.goKey)]) ? _goCache[goKeyToSecid(l.goKey)].go : l.go) * l.ratio, 0)
       : goPerFxMin;
-    const maxMxUnits = availableMx > 0 && goPerUnit1 > 0 ? Math.floor(availableMx / goPerUnit1) : 0;
+    const budgetOverride = parseFloat(state[safeTag+'_budget'] || '0') || 0;
+    const budgetMx = budgetOverride > 0 ? budgetOverride : availableMx;
+    const maxMxUnits = budgetMx > 0 && goPerUnit1 > 0 ? Math.floor(budgetMx / goPerUnit1) : 0;
     // Binding constraint + risk coefficient
     const maxUnitsRaw = mxOnly ? maxMxUnits
                       : (maxFxUnits > 0 && maxMxUnits > 0) ? Math.min(maxFxUnits, maxMxUnits)
@@ -14922,19 +14924,13 @@ function recalcSpreads() {
 // Применить сумму планировщика во все карточки конструкций
 function applyPlannerToCalc() {
   const _pl = (()=>{ try{return JSON.parse(localStorage.getItem('pos_planner_v1')||'{}');}catch(e){return{};} })();
-  const count   = parseInt(_pl.count||'1')||1;
+  const count = parseInt(_pl.count||'1')||1;
   const reserve = parseInt(_pl.reserve||'20')||20;
-
-  // Баланс МХ — тот же алгоритм что в _renderCalcInner
-  const state = (()=>{ try{return JSON.parse(localStorage.getItem('calc_state_v1')||'{}');}catch(e){return{};} })();
   const mxBalPdf = (store.mx||[]).length
     ? (store.mx||[]).slice().sort((a,b)=>normDate(b.date).localeCompare(normDate(a.date)))[0]?.balance_end||0 : 0;
-  const mxBalManual = parseFloat(state['_mxBal']||'0')||0;
+  const mxBalManual = parseFloat((()=>{ try{return JSON.parse(localStorage.getItem('calc_state_v1')||'{}');}catch(e){return{};} })()['_mxBal']||'0')||0;
   const mxBal = mxBalManual > 0 ? mxBalManual : mxBalPdf;
-  const leverage = 7;
-  const availableMx = mxBal * leverage;
-
-  // Занятое ГО из разноса
+  const availableMx = mxBal * 7;
   let usedMx = 0;
   try {
     const allDates = [...new Set((store.mx||[]).map(r=>normDate(r.date)).filter(d=>d&&d.length===10))].sort();
@@ -14953,43 +14949,29 @@ function applyPlannerToCalc() {
       }
     }
     for (const [,s] of Object.entries(sMap)) {
-      const isOpen = Object.values(s.legs).some(l=>l.platform!=='FX'&&Math.abs(l.in-l.out)>0.0001);
-      if (!isOpen) continue;
+      if (!Object.values(s.legs).some(l=>l.platform!=='FX'&&Math.abs(l.in-l.out)>0.0001)) continue;
       const con = (typeof CALC_CONSTRUCTIONS!=='undefined'?CALC_CONSTRUCTIONS:[])
         .find(c=>c.tag===s.tag||c.tag.split('/')[0]===s.tag.split('/')[0]);
       if (!con) continue;
-      for (const cL of con.legs||[]) {
+      for (const cL of (con.legs||[])) {
         if (!cL.isMx) continue;
         const lD = Object.entries(s.legs).find(([i])=>i===cL.name||i.replace(/[-.].*$/,'').toUpperCase()===cL.name?.replace(/[-.].*$/,'').toUpperCase());
-        if (!lD) continue;
-        const openV = Math.abs(lD[1].in-lD[1].out);
-        const g = (cL.goKey&&goOv[cL.goKey])?goOv[cL.goKey]:(cL.go||0);
-        usedMx += g * openV;
+        if (lD) usedMx += ((cL.goKey&&goOv[cL.goKey])?goOv[cL.goKey]:(cL.go||0)) * Math.abs(lD[1].in-lD[1].out);
       }
     }
   } catch(e) {}
-
   const freeMx = Math.max(0, availableMx - usedMx);
   const perSlot = Math.round(freeMx * (1 - reserve/100) / count);
-
   if (!perSlot || perSlot <= 0) {
-    alert(`Нет данных о балансе МХ.\nБаланс МХ: ${Math.round(mxBal).toLocaleString('ru')} ₽\nДоступно: ${Math.round(availableMx).toLocaleString('ru')} ₽\nЗанято: ${Math.round(usedMx).toLocaleString('ru')} ₽`);
+    alert('МХ: '+Math.round(mxBal).toLocaleString('ru')+' ₽  Доступно: '+Math.round(availableMx).toLocaleString('ru')+' ₽  Занято: '+Math.round(usedMx).toLocaleString('ru')+' ₽');
     return;
   }
-
-  // Подставляем в поля депозита в карточках Сделок
-  let applied = 0;
-  document.querySelectorAll('[id$="_dep"]').forEach(el => {
-    if (!el.id.startsWith('dpc_')) { // не трогаем поле P&L калькулятора
-      el.value = perSlot;
-      el.dispatchEvent(new Event('input'));
-      applied++;
-    }
-  });
-
-  if (applied === 0) {
-    alert(`На 1 позицию: ${perSlot.toLocaleString('ru')} ₽\n\nОткрой вкладку Сделки → раскрой карточку конструкции → нажми «Рассчитать» — значение подставится автоматически.`);
+  const cs = (()=>{ try{return JSON.parse(localStorage.getItem('calc_state_v1')||'{}');}catch(e){return{};} })();
+  if (typeof CALC_CONSTRUCTIONS !== 'undefined') {
+    for (const con of CALC_CONSTRUCTIONS) cs[con.tag.replace(/[/]/g,'_')+'_budget'] = perSlot;
   }
+  localStorage.setItem('calc_state_v1', JSON.stringify(cs));
+  renderCalc();
 }
 
 
