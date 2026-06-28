@@ -1057,8 +1057,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '28.06 10:22';
-const BUILD_DATE    = '28.06.2026 10:22 МСК';
+const BUILD_VERSION = '28.06 10:24';
+const BUILD_DATE    = '28.06.2026 10:24 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -13957,30 +13957,29 @@ function calcManualSpread(pos, datesUpTo) {
   const tag = pos.tag;
   let sEntry=null, sExit=null;
 
-  // DEBUG
-  if (tag.includes('URF')) {
-    console.log('[spread debug] tag:', tag, 'fxEntry:', fxEntry, 'fxExit:', fxExit);
-    for (const b in prices) console.log('[spread debug]', b, 'entryVol:', prices[b].entryVol, 'exitVol:', prices[b].exitVol, 'ep:', prices[b].entryVol>0?(prices[b].entrySum/prices[b].entryVol).toFixed(4):0, 'xp:', prices[b].exitVol>0?(prices[b].exitSum/prices[b].exitVol).toFixed(4):0);
-  }
-
   if (tag.includes('SI') && tag.includes('CR') && fxEntry) {
-    const si_e=ep('SI-9.26')||ep('Si-9.26')||ep('SI'), cr_e=ep('CNY-9.26')||ep('Cny-9.26')||ep('CR');
-    const si_x=xp('SI-9.26')||xp('Si-9.26')||xp('SI'), cr_x=xp('CNY-9.26')||xp('Cny-9.26')||xp('CR');
+    const si_e=ep('SI-9.26')||ep('Si-9.26')||ep('SI-12.26')||ep('Si-12.26');
+    const cr_e=ep('CNY-9.26')||ep('CNY-12.26')||ep('Cny-9.26');
+    const si_x=xp('SI-9.26')||xp('Si-9.26')||xp('SI-12.26')||xp('Si-12.26');
+    const cr_x=xp('CNY-9.26')||xp('CNY-12.26')||xp('Cny-9.26');
     if(si_e&&cr_e) sEntry=((si_e/1000/cr_e)/fxEntry-1)*100;
     if(si_x&&cr_x&&fxExit) sExit=((si_x/1000/cr_x)/fxExit-1)*100;
   } else if ((tag.includes('EU1')||tag.includes('EU2')) && tag.includes('CR') && fxEntry) {
-    const eu_e=ep('Eu-9.26')||ep('EU-9.26')||ep('EU'), cr_e=ep('CNY-9.26')||ep('CR');
-    const eu_x=xp('Eu-9.26')||xp('EU-9.26')||xp('EU'), cr_x=xp('CNY-9.26')||xp('CR');
+    const eu_e=ep('Eu-9.26')||ep('EU-9.26')||ep('Eu-12.26');
+    const cr_e=ep('CNY-9.26')||ep('CNY-12.26')||ep('Cny-9.26');
+    const eu_x=xp('Eu-9.26')||xp('EU-9.26')||xp('Eu-12.26');
+    const cr_x=xp('CNY-9.26')||xp('CNY-12.26')||xp('Cny-9.26');
     if(eu_e&&cr_e) sEntry=((eu_e/1000/cr_e)/fxEntry-1)*100;
     if(eu_x&&cr_x&&fxExit) sExit=((eu_x/1000/cr_x)/fxExit-1)*100;
   } else if (tag.includes('ERF') && fxEntry) {
-    const erf_e=ep('EURRUBF'), crf_e=ep('CNYRUBF');
-    const erf_x=xp('EURRUBF'), crf_x=xp('CNYRUBF');
+    const erf_e=ep('EURRUBF'), crf_e=ep('CNYRUBF')||ep('CNY-9.26')||ep('CNY-12.26');
+    const erf_x=xp('EURRUBF'), crf_x=xp('CNYRUBF')||xp('CNY-9.26')||xp('CNY-12.26');
     if(erf_e&&crf_e) sEntry=((erf_e/crf_e)/fxEntry-1)*100;
     if(erf_x&&crf_x&&fxExit) sExit=((erf_x/crf_x)/fxExit-1)*100;
   } else if (tag.includes('URF') && fxEntry) {
-    const urf_e=ep('USDRUBF'), crf_e=ep('CNYRUBF');
-    const urf_x=xp('USDRUBF'), crf_x=xp('CNYRUBF');
+    // URF/CR1: USDRUBF / CNY-9.26 (не CNYRUBF!) / USDCNH
+    const urf_e=ep('USDRUBF'), crf_e=ep('CNYRUBF')||ep('CNY-9.26')||ep('CNY');
+    const urf_x=xp('USDRUBF'), crf_x=xp('CNYRUBF')||xp('CNY-9.26')||xp('CNY');
     if(urf_e&&crf_e) sEntry=((urf_e/crf_e)/fxEntry-1)*100;
     if(urf_x&&crf_x&&fxExit) sExit=((urf_x/crf_x)/fxExit-1)*100;
   } else if (tag.includes('UC') && fxEntry) {
