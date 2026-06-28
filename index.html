@@ -579,6 +579,8 @@
     padding: 10px !important;
   }
 
+} /* конец @media (max-width: 768px) */
+
 /* На десктопе нижний nav скрыт */
 @media (min-width: 769px) {
   #mobile-nav { display: none !important; }
@@ -1288,8 +1290,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '28.06 18:43';
-const BUILD_DATE    = '28.06.2026 18:43 МСК';
+const BUILD_VERSION = '28.06 18:44';
+const BUILD_DATE    = '28.06.2026 18:44 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
