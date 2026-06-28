@@ -225,19 +225,19 @@
   .rz-result-card:hover{box-shadow:0 2px 12px rgba(0,0,0,.12)}
   .rz-result-card.pos-card{border-left-color:var(--green)}
   .rz-result-card.neg-card{border-left-color:var(--red)}
-  .rz-card-header{display:flex;justify-content:space-between;align-items:center;padding:13px 16px;cursor:pointer;user-select:none}
+  .rz-card-header{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;cursor:pointer;user-select:none}
   .rz-card-title{display:flex;flex-direction:column;gap:2px}
-  .rz-card-name{font-weight:700;font-size:13px;color:var(--text1)}
+  .rz-card-name{font-weight:700;font-size:14px;color:var(--text1)}
   .rz-card-sub{font-size:11px;color:var(--text2)}
-  .rz-card-total{font-family:'SF Mono',Consolas,monospace;font-weight:700;font-size:16px}
-  .rz-card-body{display:none;border-top:1px solid var(--border);padding:12px 16px 14px}
-  .rz-leg{display:flex;justify-content:space-between;align-items:center;padding:4px 0;font-size:12px}
+  .rz-card-total{font-family:'SF Mono',Consolas,monospace;font-weight:700;font-size:17px}
+  .rz-card-body{display:none;border-top:1px solid var(--border);padding:14px 18px 16px}
+  .rz-leg{display:flex;justify-content:space-between;align-items:center;padding:5px 0;font-size:12px}
   .rz-leg-name{color:var(--text2)}
   .rz-leg-val{font-family:'SF Mono',Consolas,monospace;font-size:12px;font-weight:600}
-  .rz-card-footer{text-align:right;font-size:10px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);opacity:.7}
-  .rz-day-total{display:flex;justify-content:flex-end;align-items:baseline;gap:10px;padding:14px 4px 4px;border-top:2px solid var(--border);margin-top:8px}
-  .rz-day-total-label{font-size:12px;color:var(--text2);font-weight:500}
-  .rz-day-total-val{font-family:'SF Mono',Consolas,monospace;font-weight:700;font-size:18px}
+  .rz-card-footer{text-align:right;font-size:10px;color:var(--text2);margin-top:10px;padding-top:10px;border-top:1px solid var(--border);opacity:.7}
+  .rz-day-total{display:flex;justify-content:flex-end;align-items:baseline;gap:10px;padding:16px 4px 4px;border-top:2px solid var(--border);margin-top:8px}
+  .rz-day-total-label{font-size:13px;color:var(--text2);font-weight:500}
+  .rz-day-total-val{font-family:'SF Mono',Consolas,monospace;font-weight:700;font-size:20px}
   .rz-table{width:100%;border-collapse:collapse;margin-top:4px}
   .rz-th{padding:8px 10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:var(--text2);background:var(--bg3);border-bottom:1px solid var(--border);white-space:nowrap}
   .rz-group td{padding:7px 10px;background:var(--bg3);border-top:2px solid var(--border);font-weight:700;font-size:12px}
@@ -1065,8 +1065,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '28.06 12:22';
-const BUILD_DATE    = '28.06.2026 12:22 МСК';
+const BUILD_VERSION = '28.06 12:23';
+const BUILD_DATE    = '28.06.2026 12:23 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -11733,7 +11733,7 @@ function calcManualResults() {
     _mxAttrib[pk+'|'+t.instrument].comm += r.comm;
   }
   const rate = getRateForDate(date) || 0;
-  let html = '<div style="margin-bottom:16px">';
+  let html = '<div style="margin-bottom:16px;max-width:900px">';
 
   const keys = Object.keys(byPos).sort();
   if (!keys.length) html += '<div style="padding:12px;color:var(--text2)">Нет размеченных сделок. Проставь конструкции в таблице ниже.</div>';
