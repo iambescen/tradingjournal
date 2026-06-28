@@ -1065,8 +1065,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '28.06 13:42';
-const BUILD_DATE    = '28.06.2026 13:42 МСК';
+const BUILD_VERSION = '28.06 13:52';
+const BUILD_DATE    = '28.06.2026 13:52 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -13733,6 +13733,92 @@ function _renderCalcInner(root) {
     </div>
     <div id="dpc_result" style="font-size:12px;color:var(--text2)">Введите данные по сделке</div>
   </div>`;
+
+  // ── Планировщик позиций ──
+  const _pl = (()=>{ try{return JSON.parse(localStorage.getItem('pos_planner_v1')||'{}');}catch(e){return{};} })();
+  const _planCount = parseInt(_pl.count||'1')||1;
+  const _planReserve = parseInt(_pl.reserve||'20')||20;
+  // Свободная маржа МХ из блока загрузки
+  let _planFreeMx = availableMx;
+  try {
+    const _allD2 = [...new Set((store.mx||[]).map(r=>normDate(r.date)).filter(d=>d&&d.length===10))].sort();
+    const _goOv3 = (()=>{ try{return JSON.parse(localStorage.getItem('calc_go_v1')||'{}')}catch(e){return{}} })();
+    let _usedMx = 0;
+    if (_allD2.length) {
+      const _sMap = {};
+      for (const _d of _allD2) { for (const _t of getCombinedTradesForManual(_d)) {
+        const _a = getManualAssign(manualKey(_t)); if (!_a||!_a.tag) continue;
+        const _sk = _a.tag+'|'+(_a.setN||1);
+        if (!_sMap[_sk]) _sMap[_sk]={tag:_a.tag,legs:{}};
+        if (!_sMap[_sk].legs[_t.instrument]) _sMap[_sk].legs[_t.instrument]={in:0,out:0,platform:_t._platform||'MX'};
+        const _v=Math.abs(_t._vol||0);
+        if (_t._dir==='Long'||_t._dir?.toLowerCase()==='buy') _sMap[_sk].legs[_t.instrument].in+=_v;
+        else _sMap[_sk].legs[_t.instrument].out+=_v;
+      }}
+      for (const [,_s] of Object.entries(_sMap)) {
+        const _isOpen = Object.values(_s.legs).some(l=>l.platform!=='FX'&&Math.abs(l.in-l.out)>0.0001);
+        if (!_isOpen) continue;
+        const _con3 = (typeof CALC_CONSTRUCTIONS!=='undefined'?CALC_CONSTRUCTIONS:[]).find(c=>c.tag===_s.tag||c.tag.split('/')[0]===_s.tag.split('/')[0]);
+        if (!_con3) continue;
+        for (const _cL of _con3.legs||[]) {
+          if (!_cL.isMx) continue;
+          const _lD = Object.entries(_s.legs).find(([i])=>i===_cL.name||i.replace(/[-.].*$/,'').toUpperCase()===_cL.name?.replace(/[-.].*$/,'').toUpperCase());
+          if (!_lD) continue;
+          const _openV = Math.abs(_lD[1].in-_lD[1].out);
+          const _g = (_cL.goKey&&_goOv3[_cL.goKey])?_goOv3[_cL.goKey]:(_cL.go||0);
+          _usedMx += _g * _openV;
+        }
+      }
+    }
+    _planFreeMx = Math.max(0, availableMx - _usedMx);
+  } catch(e) {}
+  const _planWithReserve = _planFreeMx * (1 - _planReserve/100);
+  const _planPerSlot = _planCount > 0 ? _planWithReserve / _planCount : 0;
+  // Лоты на слот по каждой конструкции из CALC_CONSTRUCTIONS
+  const _planRows = (typeof CALC_CONSTRUCTIONS!=='undefined'?CALC_CONSTRUCTIONS:[]).filter(c=>c.legs).map(c=>{
+    const _goOvR = (()=>{ try{return JSON.parse(localStorage.getItem('calc_go_v1')||'{}')}catch(e){return{}} })();
+    let goPerUnit=0;
+    for (const l of c.legs) {
+      if (!l.isMx) continue;
+      const g=(l.goKey&&_goOvR[l.goKey])?_goOvR[l.goKey]:(l.go||0);
+      goPerUnit+=g*(l.ratio||1);
+    }
+    if (!goPerUnit) return '';
+    const units = Math.floor(_planPerSlot/goPerUnit);
+    const goTotal = Math.round(goPerUnit*units);
+    const pct = _planFreeMx>0?Math.round(goTotal/_planFreeMx*100):0;
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 8px;background:var(--bg3);border-radius:6px;font-size:12px">
+      <span style="font-weight:600;color:var(--text)">${c.label||c.tag}</span>
+      <div style="display:flex;gap:14px;font-family:monospace;font-size:11px">
+        <span style="color:var(--text2)">~<b style="color:var(--blue);font-size:13px">${units}</b> ед.</span>
+        <span style="color:var(--text2)">ГО: <b style="color:var(--text)">${goTotal.toLocaleString('ru')} ₽</b></span>
+        <span style="color:var(--text2)">${pct}% от своб.</span>
+      </div></div>`;
+  }).filter(Boolean).join('');
+  const plannerHtml = `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:16px;box-shadow:var(--shadow)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+      <div style="font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.7px">Планировщик позиций</div>
+      <div style="display:flex;align-items:center;gap:10px;font-size:12px;flex-wrap:wrap">
+        <span style="color:var(--text2)">Свободно МХ: <b style="color:var(--text)">${Math.round(_planFreeMx).toLocaleString('ru')} ₽</b></span>
+        <label style="color:var(--text2);display:flex;align-items:center;gap:4px">Открываю
+          <input type="number" min="1" max="20" value="${_planCount}"
+            style="width:44px;padding:3px 6px;border:1px solid var(--border);border-radius:5px;background:var(--bg3);color:var(--text);font-size:12px;font-family:monospace;text-align:center"
+            onchange="const s=JSON.parse(localStorage.getItem('pos_planner_v1')||'{}');s.count=this.value;localStorage.setItem('pos_planner_v1',JSON.stringify(s));renderCalc()">
+          позиций</label>
+        <label style="color:var(--text2);display:flex;align-items:center;gap:4px">Резерв
+          <input type="number" min="0" max="50" value="${_planReserve}"
+            style="width:44px;padding:3px 6px;border:1px solid var(--border);border-radius:5px;background:var(--bg3);color:var(--text);font-size:12px;font-family:monospace;text-align:center"
+            onchange="const s=JSON.parse(localStorage.getItem('pos_planner_v1')||'{}');s.reserve=this.value;localStorage.setItem('pos_planner_v1',JSON.stringify(s));renderCalc()">
+          %</label>
+      </div>
+    </div>
+    <div style="font-size:11px;color:var(--text2);margin-bottom:8px">
+      На 1 позицию: <b style="color:var(--blue)">${Math.round(_planPerSlot).toLocaleString('ru')} ₽</b>
+      <span style="opacity:.6"> = (${Math.round(_planFreeMx).toLocaleString('ru')} − ${_planReserve}% резерв) ÷ ${_planCount}</span>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:4px">${_planRows || '<span style="color:var(--text2);font-size:11px">Нет данных ГО в Калькуляторе</span>'}</div>
+  </div>`;
+
   root.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
       <div style="font-size:11px;color:var(--text2)">
@@ -13749,12 +13835,11 @@ function _renderCalcInner(root) {
       </div>
     </div>
 
+    ${dealCalcHtml}
     ${openPosDashHtml}
-        ${dealCalcHtml}
-    ${instrumentsHtml}
-    ${openPosDashHtml}
-    ${capitalHtml}
-    ${cardsHtml}`;
+    ${plannerHtml}
+    ${cardsHtml}
+    ${capitalHtml}`;
 }
 
 function _renderCalcInner_UNUSED() { /* 1781869415 */ return 1781868151; }
