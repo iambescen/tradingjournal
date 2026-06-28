@@ -1057,8 +1057,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '27.06 16:33';
-const BUILD_DATE    = '27.06.2026 16:33 МСК';
+const BUILD_VERSION = '28.06 10:08';
+const BUILD_DATE    = '28.06.2026 10:08 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -14238,40 +14238,32 @@ function recalcSpreads() {
   const allDates = [...new Set((store.mx||[]).map(r=>normDate(r.date)).filter(d=>d&&d.length===10))].sort();
 
   for (const manPos of positions) {
-    // Собираем legs из данных разметки (те же что при фиксации)
     const datesUpTo = allDates.filter(d=>d<=manPos.closeDate);
-    const byPosKey = manPos.tag + ' · набор ' + manPos.setN;
-    const legMap = {}; // instrument → {trades, platform}
-
+    const legMap = {};
     for (const d of datesUpTo) {
       for (const t of getCombinedTradesForManual(d)) {
         const a = getManualAssign(manualKey(t));
         if (!a || a.tag !== manPos.tag || (a.setN||1) !== manPos.setN) continue;
-        const key = t.instrument;
-        if (!legMap[key]) legMap[key] = { platform: t._platform, instrument: t.instrument, trades: [] };
-        legMap[key].trades.push(t);
+        if (!legMap[t.instrument]) legMap[t.instrument] = { platform: t._platform, instrument: t.instrument, trades: [] };
+        legMap[t.instrument].trades.push(t);
       }
     }
-
-    // Строим pos-объект с legs для calcManualSpread
+    if (!Object.keys(legMap).length) continue;
     const posObj = { tag: manPos.tag, setN: manPos.setN, legs: legMap };
     const sp = calcManualSpread(posObj, datesUpTo);
-
-    if (sp.entry !== null && sp.entry !== undefined) {
-      manPos.spreadEntry = sp.entry;
-      manPos.spreadExit  = sp.exit !== undefined ? sp.exit : null;
-      updated++;
-    }
+    // Записываем всегда — даже если exit=null
+    manPos.spreadEntry = sp.entry;
+    manPos.spreadExit  = sp.exit;
+    if (sp.entry !== null && sp.entry !== undefined) updated++;
   }
 
-  saveStore();
-  // Обновляем и Дневник если позиции там есть
+  // Обновляем Дневник
   (store.positions||[]).forEach(dp => {
     const mp = positions.find(p=>p.id===dp.id);
     if (mp) { dp.spreadEntry = mp.spreadEntry; dp.spreadExit = mp.spreadExit; }
   });
-  saveStore();
 
+  saveStore();
   renderAutoLj();
   alert(`✓ Спреды пересчитаны для ${updated} из ${positions.length} сделок`);
 }
