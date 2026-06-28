@@ -1065,8 +1065,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '28.06 14:52';
-const BUILD_DATE    = '28.06.2026 14:52 МСК';
+const BUILD_VERSION = '28.06 15:25';
+const BUILD_DATE    = '28.06.2026 15:25 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -11436,6 +11436,174 @@ function autoRaznos2() {
   alert(`🤖 Авторазнос 2.0 завершён\nПроставлено: ${assigned} строк\nПропущено (уже размечены): ${skipped}`);
 }
 
+// ── AI-авторазнос — Claude API анализирует сделки и предлагает разметку ──
+async function aiRaznos() {
+  const date = store._manualDate;
+  if (!date) return alert('Выберите дату');
+
+  // Показываем модальное окно
+  let modal = document.getElementById('ai-raznos-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'ai-raznos-modal';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;display:flex;align-items:center;justify-content:center';
+    modal.innerHTML = `<div style="background:var(--bg2);border-radius:14px;padding:24px;width:90%;max-width:700px;max-height:80vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div style="font-size:16px;font-weight:700">🧠 AI-авторазнос</div>
+        <button onclick="document.getElementById('ai-raznos-modal').remove()" style="border:none;background:none;font-size:18px;cursor:pointer;color:var(--text2)">✕</button>
+      </div>
+      <div id="ai-raznos-content" style="font-size:13px;color:var(--text2)">Анализирую сделки...</div>
+    </div>`;
+    document.body.appendChild(modal);
+  } else {
+    modal.style.display = 'flex';
+    document.getElementById('ai-raznos-content').innerHTML = 'Анализирую сделки...';
+  }
+
+  try {
+    // Собираем сделки текущего дня
+    const trades = getCombinedTradesForManual(date);
+    if (!trades.length) {
+      document.getElementById('ai-raznos-content').innerHTML = '<span style="color:var(--red)">Нет сделок за выбранную дату</span>';
+      return;
+    }
+
+    // Собираем историю разметки из прошлых дней (последние 14 дней)
+    const allDates = [...new Set((store.mx||[]).map(r=>normDate(r.date)).filter(d=>d&&d.length===10))].sort();
+    const prevDates = allDates.filter(d=>d<date).slice(-14);
+    const historyMap = {}; // instrument|dir → [{tag, setN, count}]
+    for (const d of prevDates) {
+      for (const t of getCombinedTradesForManual(d)) {
+        const a = getManualAssign(manualKey(t));
+        if (!a||!a.tag) continue;
+        const k = t.instrument+'|'+(t._dir||'');
+        if (!historyMap[k]) historyMap[k] = {};
+        const pk = a.tag+'|'+(a.setN||1);
+        historyMap[k][pk] = (historyMap[k][pk]||0)+1;
+      }
+    }
+
+    // Форматируем для промпта
+    const tradesText = trades.map((t,i)=>
+      `${i+1}. ${t.instrument} ${t._dir||''} ${t._vol||''}л @ ${t._price||''} ${t.time||''}`
+    ).join('\n');
+
+    const histText = Object.entries(historyMap).slice(0,20).map(([k,v])=>{
+      const top = Object.entries(v).sort((a,b)=>b[1]-a[1]).slice(0,2).map(([pk,cnt])=>`${pk}(×${cnt})`).join(', ');
+      return `${k} → ${top}`;
+    }).join('\n');
+
+    const knownTags = [...new Set([
+      ...Object.values(historyMap).flatMap(v=>Object.keys(v).map(k=>k.split('|')[0]))
+    ])].join(', ');
+
+    const prompt = `Ты помощник трейдера. Проанализируй сделки и предложи разметку по арбитражным конструкциям.
+
+СДЕЛКИ за ${date}:
+${tradesText}
+
+ИСТОРИЯ разметки (инструмент|направление → конструкция|набор × количество раз):
+${histText||'нет истории'}
+
+ИЗВЕСТНЫЕ конструкции: ${knownTags||'SI1/CR1/USDCNH, EU1/CR1/EURCNH, ED1/EURUSD, UC1/USDCNH, CRF/CR1, URF/CRF/USDCNH'}
+
+Задача: для каждой сделки предложи tag (конструкция) и setN (номер набора, обычно 1).
+Сделки одной конструкции обычно идут парами: MX-фьючерс + CNY/FX.
+Если сделка не относится ни к одной конструкции — оставь tag пустым.
+
+Ответь ТОЛЬКО в формате JSON (без markdown, без пояснений вне JSON):
+{
+  "assignments": [
+    {"index": 1, "tag": "SI1/CR1/USDCNH", "setN": 1, "reason": "Si-9.26 шорт — это продажа в SI/CR конструкции"},
+    ...
+  ],
+  "summary": "Краткое объяснение логики разметки"
+}`;
+
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 1000,
+        messages: [{role: 'user', content: prompt}]
+      })
+    });
+
+    const data = await res.json();
+    const text = data.content?.[0]?.text || '';
+
+    // Парсим JSON
+    let parsed;
+    try {
+      const jsonStr = text.replace(/```json\n?|\n?```/g,'').trim();
+      parsed = JSON.parse(jsonStr);
+    } catch(e) {
+      document.getElementById('ai-raznos-content').innerHTML =
+        `<div style="color:var(--red);margin-bottom:8px">Не удалось распознать ответ AI</div><pre style="font-size:10px;overflow:auto">${text}</pre>`;
+      return;
+    }
+
+    // Показываем предложения с возможностью принять/отклонить
+    const assignments = parsed.assignments || [];
+    const summary = parsed.summary || '';
+
+    let html = '';
+    if (summary) html += `<div style="background:var(--bg3);border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:12px;color:var(--text2);line-height:1.5">${summary}</div>`;
+
+    html += `<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:16px">`;
+    assignments.forEach((a,i) => {
+      const t = trades[a.index-1];
+      if (!t) return;
+      const existing = getManualAssign(manualKey(t));
+      const hasExisting = existing && existing.tag;
+      html += `<div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:start;padding:8px 10px;background:var(--bg3);border-radius:7px;border-left:3px solid ${a.tag?'#6366f1':'var(--border)'}">
+        <div>
+          <div style="font-size:12px;font-weight:600;color:var(--text1)">${a.index}. ${t.instrument} ${t._dir||''} ${t._vol||''}л</div>
+          ${a.tag
+            ? `<div style="font-size:11px;color:#6366f1;margin-top:2px">→ <b>${a.tag}</b> набор ${a.setN||1}</div>`
+            : `<div style="font-size:11px;color:var(--text2);margin-top:2px">→ не определено</div>`}
+          <div style="font-size:10px;color:var(--text2);margin-top:2px">${a.reason||''}</div>
+          ${hasExisting?`<div style="font-size:10px;color:var(--amber);margin-top:2px">⚠️ уже размечено: ${existing.tag} набор ${existing.setN||1}</div>`:''}
+        </div>
+        ${a.tag?`<input type="checkbox" data-idx="${a.index-1}" data-tag="${a.tag}" data-set="${a.setN||1}" checked style="width:16px;height:16px;cursor:pointer;accent-color:#6366f1;margin-top:4px">`:''}
+      </div>`;
+    });
+    html += `</div>`;
+    html += `<div style="display:flex;gap:8px;justify-content:flex-end">
+      <button onclick="document.getElementById('ai-raznos-modal').remove()" style="padding:7px 16px;border:1px solid var(--border);border-radius:7px;background:none;color:var(--text2);font-size:12px;cursor:pointer">Отмена</button>
+      <button onclick="applyAiRaznos()" style="padding:7px 16px;border:none;border-radius:7px;background:#6366f1;color:#fff;font-size:12px;font-weight:600;cursor:pointer">✓ Применить выбранные</button>
+    </div>`;
+
+    document.getElementById('ai-raznos-content').innerHTML = html;
+
+  } catch(e) {
+    document.getElementById('ai-raznos-content').innerHTML =
+      `<span style="color:var(--red)">Ошибка: ${e.message}</span>`;
+  }
+}
+
+function applyAiRaznos() {
+  const date = store._manualDate;
+  const trades = getCombinedTradesForManual(date);
+  const checks = [...document.querySelectorAll('#ai-raznos-modal input[type=checkbox][data-tag]')].filter(c=>c.checked);
+  let applied = 0;
+  for (const cb of checks) {
+    const t = trades[parseInt(cb.dataset.idx)];
+    if (!t) continue;
+    setManualAssign(manualKey(t), cb.dataset.tag, parseInt(cb.dataset.set)||1);
+    applied++;
+  }
+  saveStore();
+  document.getElementById('ai-raznos-modal').remove();
+  renderManualRaznos();
+  if (applied > 0) {
+    clearBulkSelection();
+    alert(`✓ AI-разнос применён: ${applied} строк размечено`);
+  }
+}
+
+
 
 // Очистить разметку текущего дня в Разносе
 function clearDayRaznos() {
@@ -11648,6 +11816,7 @@ function renderManualRaznos() {
       <button class="rz-bulk-btn" onclick="applyBulkAssign()">✓ Проставить</button>
       <button class="rz-bulk-clear" onclick="clearBulkSelection()">✕ Снять выбор</button>
       <button class="rz-bulk-btn" style="background:var(--amber);color:#fff;margin-left:auto" onclick="autoRaznos2()">🤖 Авторазнос 2.0</button>
+      <button class="rz-bulk-btn" style="background:#6366f1;color:#fff" onclick="aiRaznos()">🧠 AI-разнос</button>
     </div>
     <div id="manual-results" style="margin-bottom:20px"></div>
     <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;box-shadow:var(--shadow)">
