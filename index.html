@@ -377,17 +377,7 @@
   /* ── Верхний nav → скрыть, заменить нижним ── */
   .nav { display: none; }
 
-  /* ── Нижний mobile nav ── */
-  #mobile-nav {
-    display: flex !important;
-    position: fixed;
-    bottom: 0; left: 0; right: 0;
-    background: var(--bg2);
-    border-top: 1px solid var(--border);
-    z-index: 9999;
-    padding: 0;
-    padding-bottom: env(safe-area-inset-bottom);
-  }
+  /* ── Нижний mobile nav — display управляется inline style и JS ── */
   #mobile-nav button {
     flex: 1;
     background: none;
@@ -581,10 +571,7 @@
 
 } /* конец @media (max-width: 768px) */
 
-/* На десктопе нижний nav скрыт — управляется JS */
-@media (min-width: 769px) {
-  #mobile-nav { display: none !important; }
-}
+/* На десктопе нижний nav скрыт через JS guard */
 </style>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 </head>
@@ -1290,8 +1277,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '28.06 18:51';
-const BUILD_DATE    = '28.06.2026 18:51 МСК';
+const BUILD_VERSION = '28.06 18:53';
+const BUILD_DATE    = '28.06.2026 18:53 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -12135,7 +12122,7 @@ setTimeout(() => {
 </div><!-- /main-app -->
 
 <!-- ── Мобильный нижний nav ── -->
-<nav id="mobile-nav">
+<nav id="mobile-nav" style="display:flex;position:fixed;bottom:0;left:0;right:0;background:var(--bg2);border-top:1px solid var(--border);z-index:99999;padding-bottom:env(safe-area-inset-bottom)">
   <button onclick="mobileNav('calc')" id="mn-calc" class="active">
     <span class="mn-icon">🧮</span>Калькулятор
   </button>
