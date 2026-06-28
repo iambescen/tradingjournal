@@ -367,7 +367,7 @@
 @media (max-width: 768px) {
 
   /* ── Layout ── */
-  .app { padding: 12px 12px 130px; } /* bottom = nav(56) + браузерная панель(~56) + запас */
+  .app { padding: 12px 12px 80px; } /* bottom = высота нижнего nav */
   .header { margin-bottom: 14px; }
   .header h1 { font-size: 15px; letter-spacing: -.3px; }
   .header-right { gap: 8px; }
@@ -377,7 +377,17 @@
   /* ── Верхний nav → скрыть, заменить нижним ── */
   .nav { display: none; }
 
-  /* ── Нижний mobile nav — display управляется inline style и JS ── */
+  /* ── Нижний mobile nav ── */
+  #mobile-nav {
+    display: flex !important;
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    background: var(--bg2);
+    border-top: 1px solid var(--border);
+    z-index: 9999;
+    padding: 0;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
   #mobile-nav button {
     flex: 1;
     background: none;
@@ -467,111 +477,92 @@
   /* ── Overview аналитика ── */
   #overview-root, #overview-container { padding: 0 !important; }
 
-  /* ── Лента дней (tab-funds) ── */
-  #unified-table-wrap [style*="display:flex"][style*="align-items:center"][style*="padding:10px"] {
-    flex-wrap: wrap !important;
-    gap: 5px !important;
+  /* ── Убить inline min-width которые ломают layout ── */
+  #calc-root * { min-width: 0 !important; box-sizing: border-box; }
+  #showcase-root * { min-width: 0 !important; box-sizing: border-box; }
+  #deals-root * { min-width: 0 !important; box-sizing: border-box; }
+
+  /* ── Calc: grid в одну колонку ── */
+  #calc-root [style*="grid-template-columns"] {
+    grid-template-columns: 1fr !important;
   }
+
+  /* ── Calc: инпуты на всю ширину ── */
+  #calc-root input, #calc-root select {
+    width: 100% !important;
+    font-size: 14px !important;
+  }
+
+  /* ── Calc: планировщик маржи таблица → скролл ── */
+  #calc-root table { font-size: 11px !important; }
+  #calc-root .table-wrap, #calc-root [style*="overflow"] {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* ── Showcase cards ── */
+  #showcase-root [style*="display:flex"] {
+    flex-wrap: wrap !important;
+  }
+
+  /* ── Deals cards ── */
+  #deals-root [style*="display:flex"] {
+    flex-wrap: wrap !important;
+  }
+  #deals-root [style*="min-width:270px"],
+  #deals-root [style*="min-width:110px"] {
+    min-width: 0 !important;
+    flex: 1 1 100% !important;
+  }
+
+  /* ══ ШРИФТЫ: все вкладки ══ */
+
+  /* Лента дней (Данные) */
+  #unified-table-wrap [style*="display:flex"][style*="padding:10px"] { flex-wrap: wrap !important; gap: 5px !important; }
   #unified-table-wrap [style*="min-width:90px"] { min-width: 0 !important; font-size: 12px !important; }
-  .day-mx-pnl, .day-fx-pnl { font-size: 10px !important; padding: 1px 4px !important; margin-right: 4px !important; }
+  .day-mx-pnl, .day-fx-pnl { font-size: 10px !important; padding: 1px 4px !important; }
   #unified-table-wrap [style*="padding:7px 14px"] { padding: 6px 8px !important; font-size: 11px !important; }
   #unified-table-wrap [style*="padding:5px 12px"] { padding: 4px 8px !important; font-size: 11px !important; }
   #unified-table-wrap [style*="padding-left:12px"] { padding-left: 4px !important; }
-  #unified-table-wrap [style*="padding-left:12px"]:last-child { padding-left: 4px !important; }
 
-  /* ── charts-grid в одну колонку ── */
+  /* Charts */
   .charts-grid { grid-template-columns: 1fr !important; }
   #ov-weekly { padding: 10px !important; overflow-x: auto; }
   #ov-weekly table { font-size: 11px !important; }
   #ov-weekly th, #ov-weekly td { padding: 4px 6px !important; }
 
-  /* ══ РАЗНОС — ключевые фиксы ══ */
-
-  /* 1. Виджет баланса — убрать sticky, не застревает */
-  #manual-container [style*="position:sticky"][style*="top:0"] {
-    position: relative !important;
-    top: auto !important;
-    z-index: auto !important;
-    padding: 10px 0 8px !important;
-  }
-  /* 2. Карточки наборов: min-width убрать, 100% ширина */
-  #manual-container [style*="min-width:220px"] {
-    min-width: 0 !important;
-    width: 100% !important;
-    box-sizing: border-box !important;
-  }
-  /* 3. Таблица разноса — горизонтальный скролл */
+  /* Разнос: убрать sticky у виджета баланса */
+  #manual-container [style*="position:sticky"][style*="top:0"] { position: relative !important; top: auto !important; }
+  #manual-container [style*="min-width:220px"] { min-width: 0 !important; width: 100% !important; box-sizing: border-box !important; }
   #manual-container table { font-size: 11px !important; }
   #manual-container .rz-th { font-size: 9px !important; padding: 5px 6px !important; }
   #manual-container .rz-row td { padding: 4px 6px !important; font-size: 10px !important; }
   #manual-container .rz-group td { padding: 6px 8px !important; font-size: 11px !important; }
-  /* Скрыть колонку "Время" на мобиле — экономим место */
-  #manual-container th:nth-child(4),
-  #manual-container td:nth-child(4) { display: none !important; }
-  /* 4. Селекты конструкций — компактнее */
+  #manual-container th:nth-child(4), #manual-container td:nth-child(4) { display: none !important; }
   #manual-container select.rz-sel { font-size: 10px !important; padding: 2px 4px !important; max-width: 110px; }
   #manual-container input.rz-num { width: 32px !important; font-size: 10px !important; }
-  /* 5. Шапка разноса — дата + кнопки */
-  #manual-container > div:first-child { gap: 6px !important; margin-bottom: 10px !important; }
-  #manual-container > div:first-child select { font-size: 13px !important; padding: 6px 10px !important; }
-  #manual-container > div:first-child button { font-size: 12px !important; padding: 6px 12px !important; }
-  /* 6. Фильтр-чипы — мельче */
-  #manual-container button[style*="border-radius:20px"] { font-size: 10px !important; padding: 2px 7px !important; }
 
-  /* ══ СДЕЛКИ (deals-root) ══ */
-  #deals-root { font-size: 12px !important; }
-  #deals-root [style*="font-size:17px"], #deals-root [style*="font-size:16px"],
-  #deals-root [style*="font-size:15px"], #deals-root [style*="font-size:14px"] {
-    font-size: 13px !important;
-  }
-  #deals-root [style*="min-width:270px"], #deals-root [style*="min-width:200px"],
-  #deals-root [style*="min-width:160px"], #deals-root [style*="min-width:110px"] {
-    min-width: 0 !important; width: 100% !important;
-  }
-  #deals-root [style*="display:grid"][style*="repeat"] {
-    grid-template-columns: 1fr !important;
-  }
+  /* Сделки */
+  #deals-root [style*="display:grid"][style*="repeat"] { grid-template-columns: 1fr !important; }
+  #deals-root [style*="min-width:200px"], #deals-root [style*="min-width:160px"] { min-width: 0 !important; width: 100% !important; }
 
-  /* ══ ДНЕВНИК (showcase) ══ */
-  #showcase-root { font-size: 12px !important; }
-  #showcase-root [style*="font-size:20px"], #showcase-root [style*="font-size:18px"],
-  #showcase-root [style*="font-size:16px"], #showcase-root [style*="font-size:15px"] {
-    font-size: 13px !important;
-  }
+  /* Дневник */
   #showcase-root [style*="display:grid"] { grid-template-columns: 1fr !important; }
-  #showcase-root [style*="padding:20px"], #showcase-root [style*="padding:24px"] {
-    padding: 12px !important;
-  }
 
-  /* ══ КАЛЬКУЛЯТОР ══ */
-  #calc-root { font-size: 12px !important; }
-  #calc-root [style*="font-size:20px"], #calc-root [style*="font-size:18px"],
-  #calc-root [style*="font-size:17px"], #calc-root [style*="font-size:16px"],
-  #calc-root [style*="font-size:15px"], #calc-root [style*="font-size:14px"] {
-    font-size: 13px !important;
-  }
+  /* Калькулятор */
   #calc-root [style*="display:grid"][style*="repeat(2"] { grid-template-columns: 1fr !important; }
-  #calc-root [style*="display:grid"][style*="repeat(3"] { grid-template-columns: 1fr 1fr !important; }
-  #calc-root [style*="padding:20px"], #calc-root [style*="padding:24px"] { padding: 12px !important; }
-  #calc-root input, #calc-root select { font-size: 14px !important; }
-  #calc-root table { font-size: 11px !important; overflow-x: auto; display: block; }
+  #calc-root table { font-size: 11px !important; display: block; overflow-x: auto; }
   #calc-root th, #calc-root td { padding: 5px 6px !important; white-space: nowrap; }
 
-  /* ══ ОБЗОР ══ */
-  #overview-container [style*="font-size:20px"], #overview-container [style*="font-size:18px"],
-  #overview-container [style*="font-size:16px"], #overview-container [style*="font-size:15px"] {
-    font-size: 13px !important;
-  }
-  #overview-container [style*="display:grid"][style*="repeat"] {
-    grid-template-columns: 1fr 1fr !important;
-  }
-  #overview-container [style*="padding:16px"], #overview-container [style*="padding:20px"] {
-    padding: 10px !important;
-  }
+  /* Обзор */
+  #overview-container [style*="display:grid"][style*="repeat"] { grid-template-columns: 1fr 1fr !important; }
+  #overview-container [style*="padding:16px"], #overview-container [style*="padding:20px"] { padding: 10px !important; }
+}
 
-} /* конец @media (max-width: 768px) */
-
-/* На десктопе нижний nav скрыт через JS guard */
+/* На десктопе нижний nav скрыт */
+@media (min-width: 769px) {
+  #mobile-nav { display: none !important; }
+}
 </style>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 </head>
@@ -1277,8 +1268,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '28.06 18:55';
-const BUILD_DATE    = '28.06.2026 18:55 МСК';
+const BUILD_VERSION = '28.06 18:58';
+const BUILD_DATE    = '28.06.2026 18:58 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -12026,10 +12017,8 @@ function switchTab(name, e) {
   if (name === 'feed')     renderFeedTab();
   if (name === 'constructions') renderPositionsTab();
   if (name === 'journal') renderLiveJournal();
-  if (name === 'autolj') renderAutoLj();
   if (name === 'showcase') renderShowcase();
   if (name === 'manual') renderManualRaznos();
-  if (name === 'cycles') renderCycles();
   if (name === 'calc') renderCalc();
   // Синхронизируем мобильный nav
   _syncMobileNav(name);
@@ -12122,7 +12111,7 @@ setTimeout(() => {
 </div><!-- /main-app -->
 
 <!-- ── Мобильный нижний nav ── -->
-<nav id="mobile-nav" style="display:flex;position:fixed;bottom:56px;left:0;right:0;background:var(--bg2);border-top:2px solid var(--blue);border-bottom:1px solid var(--border);z-index:99999;height:56px;align-items:stretch">
+<nav id="mobile-nav">
   <button onclick="mobileNav('calc')" id="mn-calc" class="active">
     <span class="mn-icon">🧮</span>Калькулятор
   </button>
@@ -12142,37 +12131,6 @@ setTimeout(() => {
     <span class="mn-icon">💸</span>Данные
   </button>
 </nav>
-
-<script>
-// ── Mobile nav guard ──
-// Принудительно показываем nav на мобиле независимо от других скриптов
-(function() {
-  function guardMobileNav() {
-    const nav = document.getElementById('mobile-nav');
-    if (!nav) return;
-    if (window.innerWidth <= 768) {
-      nav.style.display = 'flex';
-      nav.style.bottom = '56px'; // поверх панели Яндекс браузера
-    } else {
-      nav.style.display = 'none';
-    }
-  }
-  // Сразу
-  guardMobileNav();
-  // При resize
-  window.addEventListener('resize', guardMobileNav);
-  // Через 500ms, 1000ms, 2000ms — после всех setTimeout инициализации
-  setTimeout(guardMobileNav, 500);
-  setTimeout(guardMobileNav, 1100);
-  setTimeout(guardMobileNav, 2500);
-  // MutationObserver — если кто-то скрывает nav
-  const obs = new MutationObserver(function() { guardMobileNav(); });
-  document.addEventListener('DOMContentLoaded', function() {
-    const nav = document.getElementById('mobile-nav');
-    if (nav) obs.observe(nav, { attributes: true, attributeFilter: ['style', 'class'] });
-  });
-})();
-</script>
 
 <!-- renderOvConstructions injected -->
 <script>
@@ -14268,14 +14226,6 @@ function unlockApp() {
     updateDashboard();
     renderOverviewTab(true);
   } catch(e) { console.warn('[unlockApp render]', e); }
-  // Синхронизировать мобильное меню с активной вкладкой
-  try {
-    const activeTab = document.querySelector('.tab-content.active');
-    if (activeTab) {
-      const tabName = activeTab.id.replace('tab-', '');
-      _syncMobileNav(tabName);
-    }
-  } catch(e) {}
   // Повторно после подгрузки курсов/ГО
   setTimeout(function(){ try { updateDashboard(); renderOverviewTab(true); } catch(e){} }, 800);
 }
