@@ -1065,8 +1065,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '28.06 11:29';
-const BUILD_DATE    = '28.06.2026 11:29 МСК';
+const BUILD_VERSION = '28.06 11:32';
+const BUILD_DATE    = '28.06.2026 11:32 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -14393,18 +14393,23 @@ function renderAutoLj() {
       const lotsStr = l.entryVol!=null ? `${l.entryVol}л` : '';
       const priceStr = l.avgEntry ? `вх ${l.avgEntry}${l.avgExit?' → вых '+l.avgExit:''}` : '';
       const rateStr = (isFX && l.rate) ? `курс ${l.rate} ₽/$` : '';
-      return `<div style="display:grid;grid-template-columns:1fr auto;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);gap:8px">
+      const goLabel = isFX ? 'маржа' : 'ГО';
+      const goStr = l.goTotal ? `${goLabel}: ${Math.round(l.goTotal).toLocaleString('ru')} ₽${l.goPerLot?' ('+Math.round(l.goPerLot).toLocaleString('ru')+'×'+l.entryVol+'л)':''}` : '';
+      return `<div style="display:grid;grid-template-columns:1fr auto;align-items:start;padding:7px 0;border-bottom:1px solid var(--border);gap:8px">
         <div>
-          <span style="font-size:12px;color:var(--text1);font-weight:600">${l.instrument}</span>
-          ${isFX?'<span style="font-size:9px;color:var(--purple);font-weight:600;background:var(--purple-dim);padding:1px 5px;border-radius:3px;margin-left:4px">FX</span>':'<span style="font-size:9px;color:var(--text2);background:var(--bg3);padding:1px 5px;border-radius:3px;margin-left:4px">MX</span>'}
-          <span style="font-size:11px;font-weight:600;color:${dirColor};margin-left:6px">${dirLabel}</span>
-          <span style="font-size:11px;color:var(--text2);margin-left:6px">${lotsStr}</span>
-          <div style="font-size:10px;color:var(--text2);margin-top:2px;font-family:'SF Mono',monospace;display:flex;gap:10px">
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            <span style="font-size:12px;color:var(--text1);font-weight:600">${l.instrument}</span>
+            ${isFX?'<span style="font-size:9px;color:var(--purple);font-weight:600;background:var(--purple-dim);padding:1px 5px;border-radius:3px">FX</span>':'<span style="font-size:9px;color:var(--text2);background:var(--bg3);padding:1px 5px;border-radius:3px">MX</span>'}
+            <span style="font-size:11px;font-weight:600;color:${dirColor}">${dirLabel}</span>
+            <span style="font-size:11px;color:var(--text2)">${lotsStr}</span>
+          </div>
+          <div style="font-size:10px;color:var(--text2);margin-top:2px;font-family:'SF Mono',monospace;display:flex;gap:12px;flex-wrap:wrap">
             ${priceStr?`<span>${priceStr}</span>`:''}
             ${rateStr?`<span>${rateStr}</span>`:''}
           </div>
+          ${goStr?`<div style="font-size:10px;color:var(--amber);margin-top:2px;font-family:'SF Mono',monospace">${goStr}</div>`:''}
         </div>
-        <span class="${cls}" style="font-size:13px;font-weight:700;font-family:'SF Mono',monospace;white-space:nowrap">${pnlStr}</span>
+        <span class="${cls}" style="font-size:13px;font-weight:700;font-family:'SF Mono',monospace;white-space:nowrap;padding-top:2px">${pnlStr}</span>
       </div>`;
     }).join('');
 
@@ -14592,17 +14597,29 @@ function recalcLegs() {
       // Находим соответствующую ногу в manPos
       const existLeg = (manPos.legs||[]).find(l=>l.instrument===leg.instrument);
 
+      // ГО на лот для этой ноги
+      const goOv2 = (() => { try { return JSON.parse(localStorage.getItem('calc_go_v1')||'{}'); } catch(e) { return {}; } })();
+      const fxOv2 = (() => { try { return JSON.parse(localStorage.getItem('calc_fx_v1')||'{}'); } catch(e) { return {}; } })();
+      const con2 = (typeof CALC_CONSTRUCTIONS !== 'undefined' ? CALC_CONSTRUCTIONS : [])
+        .find(c => c.tag === manPos.tag || c.tag.split('/')[0] === manPos.tag.split('/')[0]);
+      const cLeg2 = con2?.legs?.find(cl => cl.name === leg.instrument ||
+        cl.name?.replace(/[-.].*$/,'').toUpperCase() === leg.instrument?.replace(/[-.].*$/,'').toUpperCase());
+      const goPerLot = cLeg2?.goKey && goOv2[cLeg2.goKey] ? goOv2[cLeg2.goKey] :
+        (cLeg2?.go || 0);
+      const fxMarginPerLot = leg.platform === 'FX' ? parseFloat(fxOv2[leg.instrument] || cLeg2?.marginPerLot || 0) : 0;
+
       if (leg.platform === 'FX') {
         const u = existLeg?.pnlUsd ?? +allTrades.reduce((s,t)=>s+(t._pnlUsd||0),0).toFixed(2);
         totalFxUsd += u;
-        // Цена закрытия FX из _closePrice
         const cpTrades = allTrades.filter(t=>t._closePrice);
         const cpVol = cpTrades.reduce((s,t)=>s+Math.abs(t._vol||0),0);
         const fxAvgClose = cpVol>0 ? +(cpTrades.reduce((s,t)=>s+t._closePrice*Math.abs(t._vol||0),0)/cpVol).toFixed(5) : avgExit;
+        const fxMarginTotal = fxMarginPerLot > 0 ? +(fxMarginPerLot * entryVol).toFixed(2) : 0;
         newLegs.push({ ...(existLeg||{}), instrument: leg.instrument, platform:'FX',
           pnlUsd: u, pnlRub: Math.round(u*rate),
           entryVol, exitVol, avgEntry, avgExit: fxAvgClose, entryDir,
-          rate: +rate.toFixed(2) });
+          rate: +rate.toFixed(2),
+          goPerLot: fxMarginPerLot, goTotal: fxMarginTotal });
       } else if (_isPerpetual(leg.instrument)) {
         let m = existLeg?.pnl ?? 0;
         if (!m) {
@@ -14614,16 +14631,20 @@ function recalcLegs() {
           }
         }
         totalMx += m;
+        const goTotal = goPerLot > 0 ? Math.round(goPerLot * entryVol) : 0;
         newLegs.push({ ...(existLeg||{}), instrument: leg.instrument, platform:'MX', pnl: m,
-          entryVol, exitVol, avgEntry, avgExit, entryDir });
+          entryVol, exitVol, avgEntry, avgExit, entryDir,
+          goPerLot, goTotal });
       } else {
         let pnl = existLeg?.pnl ?? 0;
         if (!pnl) {
           for (const t of allTrades) { const r = _rowPnl[manualKey(t)]; if (r) pnl += r.pnl; }
         }
         totalMx += pnl;
+        const goTotal = goPerLot > 0 ? Math.round(goPerLot * entryVol) : 0;
         newLegs.push({ ...(existLeg||{}), instrument: leg.instrument, platform:'MX', pnl,
-          entryVol, exitVol, avgEntry, avgExit, entryDir });
+          entryVol, exitVol, avgEntry, avgExit, entryDir,
+          goPerLot, goTotal });
       }
     }
 
