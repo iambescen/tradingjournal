@@ -1065,8 +1065,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '28.06 12:09';
-const BUILD_DATE    = '28.06.2026 12:09 МСК';
+const BUILD_VERSION = '28.06 12:15';
+const BUILD_DATE    = '28.06.2026 12:15 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -8223,6 +8223,8 @@ function setOvPeriod(p) {
   _ovPeriod = p;
   _overviewRendered = false;
   renderOverviewTab(true);
+  // Перерисовываем аналитику по конструкциям при смене периода
+  setTimeout(() => renderOvConstructions(), 100);
 }
 
 // Возвращает [fromMs, toMs] или [0, Infinity] для полного периода
@@ -11886,21 +11888,22 @@ setTimeout(() => renderOverviewTab(true), 1000); // render overview on startup
 <!-- renderOvConstructions injected -->
 <script>
 // ── Overview: Constructions Analytics ──
-async function renderOvConstructions() {
+function renderOvConstructions() {
   const el = document.getElementById('ov-construction-analytics') || document.getElementById('ov-constructions');
   if (!el) return;
 
   const positions = store.manualPositions || [];
   if (!positions.length) {
-    el.innerHTML = '<div style="padding:16px;color:var(--text2);font-size:13px">Нет зафиксированных сделок. Зафиксируй сделки во вкладке «Сделки».</div>';
+    el.innerHTML = '<div style="padding:16px;color:var(--text2);font-size:13px">Нет зафиксированных сделок — зафиксируй сделки во вкладке «Сделки».</div>';
     return;
   }
 
   // Фильтр по периоду обзора
-  const [periodFrom, periodTo] = typeof _ovPeriodRange==='function' ? _ovPeriodRange() : [0, Infinity];
+  const [periodFrom, periodTo] = typeof _ovPeriodRange === 'function' ? _ovPeriodRange() : [0, Infinity];
 
   const filtered = positions.filter(p => {
-    const ms = parseDate(p.closeDate || p.openDate || '');
+    const d = p.closeDate || p.openDate || '';
+    const ms = d ? new Date(d).getTime() : 0;
     return ms >= periodFrom && ms <= periodTo;
   });
 
@@ -11909,83 +11912,78 @@ async function renderOvConstructions() {
     return;
   }
 
-  // Группируем по тегу конструкции
+  // Группируем по тегу
   const byTag = {};
   for (const pos of filtered) {
     const tag = pos.tag;
-    if (!byTag[tag]) byTag[tag] = { count:0, pnlRub:0, frozen:0, spreads:[], days:[], rocs:[], rocsAnnual:[] };
-    byTag[tag].count++;
-    byTag[tag].pnlRub += pos.pnlRub || 0;
-    if (pos.spreadEntry != null) byTag[tag].spreads.push({ entry: pos.spreadEntry, exit: pos.spreadExit });
-    const d = (pos.days || [pos.openDate, pos.closeDate]).length;
-    byTag[tag].days.push(d);
-    if (pos.rocPct != null) byTag[tag].rocs.push(pos.rocPct);
-    if (pos.rocAnnual != null) byTag[tag].rocsAnnual.push(pos.rocAnnual);
-
-    // Капитал (ГО) — async
-    try {
-      // Строим минимальный pos-объект для calcPositionCapital
-      const fakePos = { tag, opened_date: pos.openDate, closed_date: pos.closeDate, days: pos.days || [], legs: {} };
-      (pos.legs||[]).forEach(l => { fakePos.legs[l.instrument] = { platform: l.platform, instrument: l.instrument, entry_direction: 'Long', vol_in: 0 }; });
-      const cap = await calcPositionCapital(fakePos);
-      if (cap && cap.totalFrozen > 0) byTag[tag].frozen += cap.totalFrozen;
-    } catch(e) {}
+    if (!byTag[tag]) byTag[tag] = { count:0, pnlRub:0, spreads:[], days:[], rocs:[], rocsAnnual:[], goTotal:0 };
+    const v = byTag[tag];
+    v.count++;
+    v.pnlRub += pos.pnlRub || 0;
+    if (pos.spreadEntry != null) v.spreads.push({ entry: pos.spreadEntry, exit: pos.spreadExit });
+    v.days.push(Math.max(1,(pos.days||[pos.openDate,pos.closeDate]).length));
+    if (pos.rocPct    != null) v.rocs.push(pos.rocPct);
+    if (pos.rocAnnual != null) v.rocsAnnual.push(pos.rocAnnual);
+    v.goTotal += pos.goRub || 0;
   }
 
-  const rate = currentRate?.value || 85;
-  const sortedTags = Object.entries(byTag).sort((a,b) => b[1].pnlRub - a[1].pnlRub);
-  const totalPnl = sortedTags.reduce((s,[,v])=>s+v.pnlRub, 0);
-  const totalFrozen = sortedTags.reduce((s,[,v])=>s+v.frozen, 0);
+  const totalPnl = filtered.reduce((s,p)=>s+(p.pnlRub||0),0);
+  const totalGo  = filtered.reduce((s,p)=>s+(p.goRub||0),0);
+  const totalRoc = totalGo > 0 ? totalPnl/totalGo*100 : null;
+
+  const sortedTags = Object.entries(byTag).sort((a,b)=>b[1].pnlRub-a[1].pnlRub);
 
   const rows = sortedTags.map(([tag, v]) => {
-    const roc = v.frozen > 0 ? (v.pnlRub / v.frozen * 100) : null;
-    const avgPnl = v.count > 0 ? Math.round(v.pnlRub / v.count) : 0;
-    const avgDays = v.days.length > 0 ? (v.days.reduce((s,d)=>s+d,0)/v.days.length).toFixed(1) : '—';
-    const avgRoc = v.rocs.length > 0 ? (v.rocs.reduce((s,r)=>s+r,0)/v.rocs.length) : null;
-    const avgRocAnnual = v.rocsAnnual.length > 0 ? (v.rocsAnnual.reduce((s,r)=>s+r,0)/v.rocsAnnual.length) : null;
     const pc = v.pnlRub>=0 ? 'var(--green)' : 'var(--red)';
-    const rc = roc!=null ? (roc>=0?'var(--green)':'var(--red)') : 'var(--text2)';
+    const avgPnl  = Math.round(v.pnlRub / v.count);
+    const avgDays = (v.days.reduce((s,d)=>s+d,0)/v.days.length).toFixed(1);
 
-    // Средний спред входа
-    const spreads = v.spreads.filter(s=>s.entry!=null);
-    const avgEntry = spreads.length ? (spreads.reduce((s,x)=>s+x.entry,0)/spreads.length).toFixed(3)+'%' : '—';
-    const exited = spreads.filter(s=>s.exit!=null);
-    const avgExit = exited.length ? (exited.reduce((s,x)=>s+x.exit,0)/exited.length).toFixed(3)+'%' : '—';
+    const spreads  = v.spreads.filter(s=>s.entry!=null);
+    const avgEntry = spreads.length ? (spreads.reduce((s,x)=>s+x.entry,0)/spreads.length) : null;
+    const exited   = spreads.filter(s=>s.exit!=null);
+    const avgExit  = exited.length  ? (exited.reduce((s,x)=>s+x.exit,0)/exited.length)   : null;
+    const fmt3 = v => v!=null?(Math.abs(v)<10?v.toFixed(4):v.toFixed(3))+'%':'—';
+
+    const avgRoc = v.rocs.length     ? v.rocs.reduce((s,r)=>s+r,0)/v.rocs.length         : null;
+    const avgAnn = v.rocsAnnual.length ? v.rocsAnnual.reduce((s,r)=>s+r,0)/v.rocsAnnual.length : null;
+    const rc = avgRoc!=null?(avgRoc>=0?'var(--green)':'var(--red)'):'var(--text2)';
+
+    const rocStr = avgRoc!=null?(avgRoc>=0?'+':'')+avgRoc.toFixed(2)+'%':'—';
+    const annStr = avgAnn!=null?(avgAnn>=0?'+':'')+Math.round(avgAnn)+'%':'—';
 
     return `<tr style="border-bottom:1px solid var(--border)">
-      <td style="padding:7px 10px;font-weight:700;color:var(--blue);font-size:12px">${esc(tag)}</td>
+      <td style="padding:7px 10px;font-weight:700;font-size:12px;color:var(--text1)">${tag}</td>
       <td style="padding:7px 10px;text-align:center;color:var(--text2);font-size:12px">${v.count}</td>
-      <td style="padding:7px 10px;text-align:right;font-family:monospace;font-weight:700;color:${pc};font-size:12px">${v.pnlRub>=0?'+':''}${Math.round(v.pnlRub).toLocaleString('ru')} ₽</td>
-      <td style="padding:7px 10px;text-align:right;font-family:monospace;color:var(--text2);font-size:12px">${avgPnl.toLocaleString('ru')} ₽</td>
-      <td style="padding:7px 10px;text-align:right;font-family:monospace;color:var(--text2);font-size:11px">${avgDays} дн</td>
-      <td style="padding:7px 10px;text-align:right;font-family:monospace;color:var(--text2);font-size:11px">${avgEntry}</td>
-      <td style="padding:7px 10px;text-align:right;font-family:monospace;color:var(--text2);font-size:11px">${avgExit}</td>
-      <td style="padding:7px 10px;text-align:right;font-family:monospace;font-weight:600;color:${rc};font-size:12px">${roc!=null?(roc>=0?'+':'')+roc.toFixed(2)+'%':'—'}</td>
-      <td style="padding:7px 10px;text-align:right;font-family:monospace;color:var(--text2);font-size:11px">${avgRoc!=null?(avgRoc>=0?'+':'')+avgRoc.toFixed(2)+'%':'—'}</td>
-      <td style="padding:7px 10px;text-align:right;font-family:monospace;font-weight:600;color:${avgRocAnnual!=null?(avgRocAnnual>=0?'var(--green)':'var(--red)'):'var(--text2)'};font-size:11px">${avgRocAnnual!=null?(avgRocAnnual>=0?'+':'')+avgRocAnnual.toFixed(0)+'% год.':'—'}</td>
+      <td style="padding:7px 10px;text-align:right;font-family:'SF Mono',monospace;font-weight:700;color:${pc};font-size:12px">${v.pnlRub>=0?'+':''}${Math.round(v.pnlRub).toLocaleString('ru')} ₽</td>
+      <td style="padding:7px 10px;text-align:right;font-family:'SF Mono',monospace;color:var(--text2);font-size:12px">${(avgPnl>=0?'+':'')+avgPnl.toLocaleString('ru')} ₽</td>
+      <td style="padding:7px 10px;text-align:right;font-family:'SF Mono',monospace;color:var(--text2);font-size:11px">${avgDays} дн</td>
+      <td style="padding:7px 10px;text-align:right;font-family:'SF Mono',monospace;color:var(--text2);font-size:11px">${fmt3(avgEntry)}</td>
+      <td style="padding:7px 10px;text-align:right;font-family:'SF Mono',monospace;color:var(--text2);font-size:11px">${fmt3(avgExit)}</td>
+      <td style="padding:7px 10px;text-align:right;font-family:'SF Mono',monospace;font-weight:600;color:${rc};font-size:12px">${rocStr}</td>
+      <td style="padding:7px 10px;text-align:right;font-family:'SF Mono',monospace;font-weight:600;color:${rc};font-size:11px">${annStr}</td>
     </tr>`;
   }).join('');
 
-  const totalRoc = totalFrozen > 0 ? totalPnl/totalFrozen*100 : null;
-  const tc = totalPnl>=0 ? 'var(--green)' : 'var(--red)';
+  const tc = totalPnl>=0?'var(--green)':'var(--red)';
+  const periodLabel = _ovPeriod==='all'?'Все сделки':_ovPeriod==='7d'?'7 дней':_ovPeriod==='30d'?'30 дней':_ovPeriod==='month'?'Месяц':'Период';
 
   el.innerHTML = `
   <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;box-shadow:var(--shadow)">
-    <div style="padding:12px 16px;border-bottom:1px solid var(--border);font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.7px">
-      📊 Аналитика по конструкциям
+    <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+      <span style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.7px">📊 Аналитика по конструкциям</span>
+      <span style="font-size:11px;color:var(--text2)">${periodLabel} · ${filtered.length} сделок</span>
     </div>
     <div style="overflow-x:auto">
-      <table style="width:100%;border-collapse:collapse;min-width:600px">
+      <table style="width:100%;border-collapse:collapse;min-width:700px">
         <thead>
           <tr style="background:var(--bg3);font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.7px;border-bottom:1px solid var(--border)">
             <th style="padding:6px 10px;text-align:left;font-weight:700">Конструкция</th>
             <th style="padding:6px 10px;text-align:center;font-weight:700">Сделок</th>
             <th style="padding:6px 10px;text-align:right;font-weight:700">P&L итого</th>
-            <th style="padding:6px 10px;text-align:right;font-weight:700">P&L ср./сд.</th>
+            <th style="padding:6px 10px;text-align:right;font-weight:700">P&L ср/сд</th>
             <th style="padding:6px 10px;text-align:right;font-weight:700">Ср. срок</th>
             <th style="padding:6px 10px;text-align:right;font-weight:700">Спред вход</th>
             <th style="padding:6px 10px;text-align:right;font-weight:700">Спред выход</th>
-            <th style="padding:6px 10px;text-align:right;font-weight:700">ROC</th>
             <th style="padding:6px 10px;text-align:right;font-weight:700">ROC ср.</th>
             <th style="padding:6px 10px;text-align:right;font-weight:700">ROC год.</th>
           </tr>
@@ -11995,9 +11993,9 @@ async function renderOvConstructions() {
           <tr style="font-size:12px;font-weight:700;border-top:2px solid var(--border);background:var(--bg3)">
             <td style="padding:7px 10px">Итого</td>
             <td style="padding:7px 10px;text-align:center;color:var(--text2)">${filtered.length}</td>
-            <td style="padding:7px 10px;text-align:right;font-family:monospace;color:${tc}">${totalPnl>=0?'+':''}${Math.round(totalPnl).toLocaleString('ru')} ₽</td>
-            <td colspan="4"></td>
-            <td style="padding:7px 10px;text-align:right;font-family:monospace;color:${totalRoc!=null?(totalRoc>=0?'var(--green)':'var(--red)'):'var(--text2)'}">${totalRoc!=null?(totalRoc>=0?'+':'')+totalRoc.toFixed(2)+'%':'—'}</td>
+            <td style="padding:7px 10px;text-align:right;font-family:'SF Mono',monospace;color:${tc}">${totalPnl>=0?'+':''}${Math.round(totalPnl).toLocaleString('ru')} ₽</td>
+            <td colspan="5"></td>
+            <td style="padding:7px 10px;text-align:right;font-family:'SF Mono',monospace;color:${totalRoc!=null?(totalRoc>=0?'var(--green)':'var(--red)'):'var(--text2)'}">${totalRoc!=null?(totalRoc>=0?'+':'')+totalRoc.toFixed(2)+'%':'—'}</td>
           </tr>
         </tfoot>
       </table>
@@ -12006,7 +12004,6 @@ async function renderOvConstructions() {
 }
 
 
-// ═══════════════════════════════════════════════════════════════
 // ── SHOWCASE TAB ──
 // ═══════════════════════════════════════════════════════════════
 
