@@ -517,7 +517,9 @@
 }
 
 /* На десктопе нижний nav скрыт */
-#mobile-nav { display: none; }
+@media (min-width: 769px) {
+  #mobile-nav { display: none; }
+}
 </style>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 </head>
@@ -1223,8 +1225,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '28.06 18:18';
-const BUILD_DATE    = '28.06.2026 18:18 МСК';
+const BUILD_VERSION = '28.06 18:31';
+const BUILD_DATE    = '28.06.2026 18:31 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
