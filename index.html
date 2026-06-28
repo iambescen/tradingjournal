@@ -1065,8 +1065,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '28.06 13:22';
-const BUILD_DATE    = '28.06.2026 13:22 МСК';
+const BUILD_VERSION = '28.06 13:23';
+const BUILD_DATE    = '28.06.2026 13:23 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -14886,10 +14886,10 @@ function calcDealPnl() {
     return;
   }
 
-  const fxRub     = fx * rate;                              // FX в рублях
-  const deal      = mx + fxRub;                             // Расчёт сделки
-  const payout    = (withPayout && mx > 0) ? mx * 0.05 : 0;  // 5% пейаут с МХ
-  const rebal     = (withRebal && fx !== 0) ? Math.abs(fxRub) * 0.06 : 0; // 6% ребаланс от объёма FX
+  const fxRub     = fx * rate;                                           // FX в рублях
+  const deal      = mx + fxRub;                                          // Расчёт сделки
+  const payout    = (withPayout && mx > 0) ? mx * 0.05 : 0;             // 5% пейаут с МХ
+  const rebal     = (withRebal && fx < 0) ? Math.abs(fxRub) * 0.06 : 0; // 6% ребаланс только если FX < 0 (утекло с форекса)
   const total     = deal - payout - rebal;
 
   const c = v => v >= 0 ? 'var(--green)' : 'var(--red)';
@@ -14911,7 +14911,7 @@ function calcDealPnl() {
       <div style="background:var(--bg3);border-radius:7px;padding:8px 10px">
         <div style="font-size:9px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Ребаланс 6%</div>
         <div style="font-size:14px;font-weight:700;font-family:'SF Mono',monospace;color:${rebal>0?'var(--red)':'var(--text2)'}">${rebal>0?'−'+Math.round(rebal).toLocaleString('ru')+' ₽':'—'}</div>
-        <div style="font-size:10px;color:var(--text2);margin-top:2px">${rebal>0?'|'+fd(fx)+'| × '+rate+' × 6%':withRebal?'FX = 0':'выключен'}</div>
+        <div style="font-size:10px;color:var(--text2);margin-top:2px">${rebal>0?'|'+fd(fx)+'| × '+rate+' × 6%':withRebal&&fx>=0?'FX ≥ 0, нет утечки':'выключен'}</div>
       </div>
       <div style="background:var(--bg3);border-radius:7px;padding:8px 10px;border:1px solid ${c(total)}33">
         <div style="font-size:9px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Итого</div>
