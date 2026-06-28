@@ -1065,8 +1065,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '28.06 13:52';
-const BUILD_DATE    = '28.06.2026 13:52 МСК';
+const BUILD_VERSION = '28.06 14:01';
+const BUILD_DATE    = '28.06.2026 14:01 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -13774,49 +13774,21 @@ function _renderCalcInner(root) {
   } catch(e) {}
   const _planWithReserve = _planFreeMx * (1 - _planReserve/100);
   const _planPerSlot = _planCount > 0 ? _planWithReserve / _planCount : 0;
-  // Лоты на слот по каждой конструкции из CALC_CONSTRUCTIONS
-  const _planRows = (typeof CALC_CONSTRUCTIONS!=='undefined'?CALC_CONSTRUCTIONS:[]).filter(c=>c.legs).map(c=>{
-    const _goOvR = (()=>{ try{return JSON.parse(localStorage.getItem('calc_go_v1')||'{}')}catch(e){return{}} })();
-    let goPerUnit=0;
-    for (const l of c.legs) {
-      if (!l.isMx) continue;
-      const g=(l.goKey&&_goOvR[l.goKey])?_goOvR[l.goKey]:(l.go||0);
-      goPerUnit+=g*(l.ratio||1);
-    }
-    if (!goPerUnit) return '';
-    const units = Math.floor(_planPerSlot/goPerUnit);
-    const goTotal = Math.round(goPerUnit*units);
-    const pct = _planFreeMx>0?Math.round(goTotal/_planFreeMx*100):0;
-    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 8px;background:var(--bg3);border-radius:6px;font-size:12px">
-      <span style="font-weight:600;color:var(--text)">${c.label||c.tag}</span>
-      <div style="display:flex;gap:14px;font-family:monospace;font-size:11px">
-        <span style="color:var(--text2)">~<b style="color:var(--blue);font-size:13px">${units}</b> ед.</span>
-        <span style="color:var(--text2)">ГО: <b style="color:var(--text)">${goTotal.toLocaleString('ru')} ₽</b></span>
-        <span style="color:var(--text2)">${pct}% от своб.</span>
-      </div></div>`;
-  }).filter(Boolean).join('');
-  const plannerHtml = `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:16px;box-shadow:var(--shadow)">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
-      <div style="font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.7px">Планировщик позиций</div>
-      <div style="display:flex;align-items:center;gap:10px;font-size:12px;flex-wrap:wrap">
-        <span style="color:var(--text2)">Свободно МХ: <b style="color:var(--text)">${Math.round(_planFreeMx).toLocaleString('ru')} ₽</b></span>
-        <label style="color:var(--text2);display:flex;align-items:center;gap:4px">Открываю
-          <input type="number" min="1" max="20" value="${_planCount}"
-            style="width:44px;padding:3px 6px;border:1px solid var(--border);border-radius:5px;background:var(--bg3);color:var(--text);font-size:12px;font-family:monospace;text-align:center"
-            onchange="const s=JSON.parse(localStorage.getItem('pos_planner_v1')||'{}');s.count=this.value;localStorage.setItem('pos_planner_v1',JSON.stringify(s));renderCalc()">
-          позиций</label>
-        <label style="color:var(--text2);display:flex;align-items:center;gap:4px">Резерв
-          <input type="number" min="0" max="50" value="${_planReserve}"
-            style="width:44px;padding:3px 6px;border:1px solid var(--border);border-radius:5px;background:var(--bg3);color:var(--text);font-size:12px;font-family:monospace;text-align:center"
-            onchange="const s=JSON.parse(localStorage.getItem('pos_planner_v1')||'{}');s.reserve=this.value;localStorage.setItem('pos_planner_v1',JSON.stringify(s));renderCalc()">
-          %</label>
+  const plannerHtml = `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:12px 16px;margin-bottom:16px;box-shadow:var(--shadow)">
+    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+      <div style="font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.7px;white-space:nowrap">Распределение маржи</div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--text2)">
+        <span>Свободно МХ: <b style="color:var(--text)">${Math.round(_planFreeMx).toLocaleString('ru')} ₽</b></span>
+        <label style="display:flex;align-items:center;gap:4px">Делю на<input type="number" min="1" max="20" value="${_planCount}"
+          style="width:40px;padding:3px 6px;border:1px solid var(--border);border-radius:5px;background:var(--bg3);color:var(--text);font-size:12px;font-family:monospace;text-align:center;margin:0 4px"
+          onchange="const s=JSON.parse(localStorage.getItem('pos_planner_v1')||'{}');s.count=this.value;localStorage.setItem('pos_planner_v1',JSON.stringify(s));renderCalc()">позиций</label>
+        <label style="display:flex;align-items:center;gap:4px">Резерв<input type="number" min="0" max="50" value="${_planReserve}"
+          style="width:40px;padding:3px 6px;border:1px solid var(--border);border-radius:5px;background:var(--bg3);color:var(--text);font-size:12px;font-family:monospace;text-align:center;margin:0 4px"
+          onchange="const s=JSON.parse(localStorage.getItem('pos_planner_v1')||'{}');s.reserve=this.value;localStorage.setItem('pos_planner_v1',JSON.stringify(s));renderCalc()">%</label>
+        <span>→ <b style="color:var(--blue);font-size:14px">${Math.round(_planPerSlot).toLocaleString('ru')} ₽</b> на позицию</span>
+        <button onclick="applyPlannerToCalc()" style="padding:4px 12px;border:none;border-radius:5px;background:var(--blue);color:#fff;font-size:11px;font-weight:600;cursor:pointer">Применить в карточках →</button>
       </div>
     </div>
-    <div style="font-size:11px;color:var(--text2);margin-bottom:8px">
-      На 1 позицию: <b style="color:var(--blue)">${Math.round(_planPerSlot).toLocaleString('ru')} ₽</b>
-      <span style="opacity:.6"> = (${Math.round(_planFreeMx).toLocaleString('ru')} − ${_planReserve}% резерв) ÷ ${_planCount}</span>
-    </div>
-    <div style="display:flex;flex-direction:column;gap:4px">${_planRows || '<span style="color:var(--text2);font-size:11px">Нет данных ГО в Калькуляторе</span>'}</div>
   </div>`;
 
   root.innerHTML = `
@@ -14947,7 +14919,59 @@ function recalcSpreads() {
 
 
 // Калькулятор потенциала сделки в карточке Сделок
-// Получить live курс USD/RUB через API ЦБ РФ
+// Применить сумму планировщика во все карточки конструкций
+function applyPlannerToCalc() {
+  const _pl = (()=>{ try{return JSON.parse(localStorage.getItem('pos_planner_v1')||'{}');}catch(e){return{};} })();
+  const count = parseInt(_pl.count||'1')||1;
+  const reserve = parseInt(_pl.reserve||'20')||20;
+
+  // Берём свободную маржу из текущего состояния
+  const state = (()=>{ try{return JSON.parse(localStorage.getItem('calc_state_v1')||'{}');}catch(e){return{};} })();
+  const mxBal = parseFloat(state['_mxBal']||'0') || (()=>{ try{const r=store.mx; const last=r&&r[r.length-1]; return last?.balance||0;}catch(e){return 0;} })();
+  const leverage = 1; // упрощённо
+  const availableMx = mxBal;
+
+  // Свободная маржа = доступно - занято открытыми позициями
+  // Берём из того же расчёта что и в планировщике — сохраним как data атрибут
+  const plannerEl = document.querySelector('[data-free-mx]');
+  const freeMx = plannerEl ? parseFloat(plannerEl.dataset.freeMx) : availableMx;
+  const perSlot = Math.round(freeMx * (1 - reserve/100) / count);
+
+  if (!perSlot || perSlot <= 0) return alert('Нет данных о свободной марже');
+
+  // Подставляем во все поля депозита в карточках
+  let applied = 0;
+  document.querySelectorAll('[id$="_dep"]').forEach(el => {
+    el.value = perSlot;
+    if (typeof calcDealPotential === 'function') {
+      const wrap = el.closest('[data-calcid]');
+      if (wrap) {
+        const calcId = wrap.dataset.calcid;
+        const tag = wrap.dataset.tag;
+        const go = parseFloat(wrap.dataset.go)||0;
+        const roc = wrap.dataset.roc !== '' ? parseFloat(wrap.dataset.roc) : null;
+        const se = wrap.dataset.se !== '' ? parseFloat(wrap.dataset.se) : null;
+        const sx = wrap.dataset.sx !== '' ? parseFloat(wrap.dataset.sx) : null;
+        calcDealPotential(calcId, tag, go, roc, se, sx);
+      }
+    }
+    applied++;
+  });
+
+  if (applied) {
+    // Сохраняем депозит в deal_calc_v1
+    try {
+      const saved = JSON.parse(localStorage.getItem('deal_calc_v1')||'{}');
+      // Обновляем все теги
+      document.querySelectorAll('[data-calcid]').forEach(wrap => {
+        if (wrap.dataset.tag) saved[wrap.dataset.tag+'_dep'] = perSlot;
+      });
+      localStorage.setItem('deal_calc_v1', JSON.stringify(saved));
+    } catch(e) {}
+  }
+}
+
+
 async function fetchLiveUsdRate() {
   const btn = document.querySelector('[onclick="fetchLiveUsdRate()"]');
   const srcEl = document.getElementById('dpc_rate_src');
