@@ -1065,8 +1065,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '28.06 13:34';
-const BUILD_DATE    = '28.06.2026 13:34 МСК';
+const BUILD_VERSION = '28.06 13:37';
+const BUILD_DATE    = '28.06.2026 13:37 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -13151,6 +13151,8 @@ function renderCalc() {
   const root = document.getElementById('calc-root');
   if (!root) return;
   try { _renderCalcInner(root); } catch(e) { root.innerHTML = '<div style="padding:20px;color:var(--red)">Ошибка калькулятора: ' + e.message + '<br><pre style="font-size:10px">' + e.stack + '</pre></div>'; console.error('renderCalc error:', e); }
+  // Автоматически пересчитать если есть сохранённые данные
+  setTimeout(() => { if (typeof calcDealPnl === 'function') calcDealPnl(); }, 0);
 }
 function _renderCalcInner(root) {
   // Auto-fetch GO if cache seems empty
