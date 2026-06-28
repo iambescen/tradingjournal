@@ -1065,8 +1065,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '28.06 10:54';
-const BUILD_DATE    = '28.06.2026 10:54 МСК';
+const BUILD_VERSION = '28.06 10:57';
+const BUILD_DATE    = '28.06.2026 10:57 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -11913,12 +11913,14 @@ async function renderOvConstructions() {
   const byTag = {};
   for (const pos of filtered) {
     const tag = pos.tag;
-    if (!byTag[tag]) byTag[tag] = { count:0, pnlRub:0, frozen:0, spreads:[], days:[] };
+    if (!byTag[tag]) byTag[tag] = { count:0, pnlRub:0, frozen:0, spreads:[], days:[], rocs:[], rocsAnnual:[] };
     byTag[tag].count++;
     byTag[tag].pnlRub += pos.pnlRub || 0;
     if (pos.spreadEntry != null) byTag[tag].spreads.push({ entry: pos.spreadEntry, exit: pos.spreadExit });
     const d = (pos.days || [pos.openDate, pos.closeDate]).length;
     byTag[tag].days.push(d);
+    if (pos.rocPct != null) byTag[tag].rocs.push(pos.rocPct);
+    if (pos.rocAnnual != null) byTag[tag].rocsAnnual.push(pos.rocAnnual);
 
     // Капитал (ГО) — async
     try {
@@ -11939,6 +11941,8 @@ async function renderOvConstructions() {
     const roc = v.frozen > 0 ? (v.pnlRub / v.frozen * 100) : null;
     const avgPnl = v.count > 0 ? Math.round(v.pnlRub / v.count) : 0;
     const avgDays = v.days.length > 0 ? (v.days.reduce((s,d)=>s+d,0)/v.days.length).toFixed(1) : '—';
+    const avgRoc = v.rocs.length > 0 ? (v.rocs.reduce((s,r)=>s+r,0)/v.rocs.length) : null;
+    const avgRocAnnual = v.rocsAnnual.length > 0 ? (v.rocsAnnual.reduce((s,r)=>s+r,0)/v.rocsAnnual.length) : null;
     const pc = v.pnlRub>=0 ? 'var(--green)' : 'var(--red)';
     const rc = roc!=null ? (roc>=0?'var(--green)':'var(--red)') : 'var(--text2)';
 
@@ -11957,6 +11961,8 @@ async function renderOvConstructions() {
       <td style="padding:7px 10px;text-align:right;font-family:monospace;color:var(--text2);font-size:11px">${avgEntry}</td>
       <td style="padding:7px 10px;text-align:right;font-family:monospace;color:var(--text2);font-size:11px">${avgExit}</td>
       <td style="padding:7px 10px;text-align:right;font-family:monospace;font-weight:600;color:${rc};font-size:12px">${roc!=null?(roc>=0?'+':'')+roc.toFixed(2)+'%':'—'}</td>
+      <td style="padding:7px 10px;text-align:right;font-family:monospace;color:var(--text2);font-size:11px">${avgRoc!=null?(avgRoc>=0?'+':'')+avgRoc.toFixed(2)+'%':'—'}</td>
+      <td style="padding:7px 10px;text-align:right;font-family:monospace;font-weight:600;color:${avgRocAnnual!=null?(avgRocAnnual>=0?'var(--green)':'var(--red)'):'var(--text2)'};font-size:11px">${avgRocAnnual!=null?(avgRocAnnual>=0?'+':'')+avgRocAnnual.toFixed(0)+'% год.':'—'}</td>
     </tr>`;
   }).join('');
 
@@ -11980,6 +11986,8 @@ async function renderOvConstructions() {
             <th style="padding:6px 10px;text-align:right;font-weight:700">Спред вход</th>
             <th style="padding:6px 10px;text-align:right;font-weight:700">Спред выход</th>
             <th style="padding:6px 10px;text-align:right;font-weight:700">ROC</th>
+            <th style="padding:6px 10px;text-align:right;font-weight:700">ROC ср.</th>
+            <th style="padding:6px 10px;text-align:right;font-weight:700">ROC год.</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
@@ -14327,7 +14335,7 @@ function renderAutoLj() {
     </select>
     <span style="font-size:12px;color:var(--text2)">${positions.length} из ${allPos.length}</span>
     <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap">
-      <button onclick="recalcSpreads()" style="padding:6px 12px;border:1px solid var(--border);border-radius:7px;background:var(--bg2);color:var(--text2);font-size:12px;cursor:pointer">↻ Спреды</button>
+      <button onclick="recalcSpreads()" style="padding:6px 12px;border:1px solid var(--border);border-radius:7px;background:var(--bg2);color:var(--text2);font-size:12px;cursor:pointer">↻ Спреды и ROC</button>
       <button onclick="exportDealsCSV()" style="padding:6px 12px;border:1px solid var(--border);border-radius:7px;background:var(--bg2);color:var(--text2);font-size:12px;cursor:pointer">↓ CSV</button>
       <button onclick="if(confirm('Очистить Дневник?')){store.positions=[];saveStore();renderAutoLj()}" style="padding:6px 12px;border:1px solid var(--border);border-radius:7px;background:var(--bg2);color:var(--text2);font-size:12px;cursor:pointer">🗑 Очистить Дневник</button>
       <button onclick="if(confirm('Отправить все в Дневник?')){store.positions=[];(store.manualPositions||[]).forEach(p=>sendToDiary(p.id,true));saveStore();if(typeof renderShowcase==='function')renderShowcase();renderAutoLj();alert('Готово!')}" style="padding:6px 16px;border:none;border-radius:7px;background:var(--blue);color:#fff;font-size:12px;font-weight:600;cursor:pointer">→ Все в Дневник</button>
@@ -14410,10 +14418,11 @@ function renderAutoLj() {
 function recalcSpreads() {
   const positions = store.manualPositions || [];
   if (!positions.length) return alert('Нет зафиксированных сделок');
-  let updated = 0;
+  let updated = 0, rocUpdated = 0;
   const allDates = [...new Set((store.mx||[]).map(r=>normDate(r.date)).filter(d=>d&&d.length===10))].sort();
 
   for (const manPos of positions) {
+    // Пересчёт спреда
     const datesUpTo = allDates.filter(d=>d<=manPos.closeDate);
     const legMap = {};
     for (const d of datesUpTo) {
@@ -14424,24 +14433,37 @@ function recalcSpreads() {
         legMap[t.instrument].trades.push(t);
       }
     }
-    if (!Object.keys(legMap).length) continue;
-    const posObj = { tag: manPos.tag, setN: manPos.setN, legs: legMap };
-    const sp = calcManualSpread(posObj, datesUpTo);
-    // Записываем всегда — даже если exit=null
-    manPos.spreadEntry = sp.entry;
-    manPos.spreadExit  = sp.exit;
-    if (sp.entry !== null && sp.entry !== undefined) updated++;
+    if (Object.keys(legMap).length) {
+      const posObj = { tag: manPos.tag, setN: manPos.setN, legs: legMap };
+      const sp = calcManualSpread(posObj, datesUpTo);
+      manPos.spreadEntry = sp.entry;
+      manPos.spreadExit  = sp.exit;
+      if (sp.entry !== null && sp.entry !== undefined) updated++;
+    }
+
+    // Пересчёт ROC из Калькулятора
+    const goRub = getGoForTag(manPos.tag) || 0;
+    if (goRub > 0) {
+      const daysCount = Math.max(1, (manPos.days||[manPos.openDate,manPos.closeDate]).length);
+      manPos.goRub = goRub;
+      manPos.rocPct = manPos.pnlRub / goRub * 100;
+      manPos.rocAnnual = manPos.rocPct * 365 / daysCount;
+      rocUpdated++;
+    }
   }
 
   // Обновляем Дневник
   (store.positions||[]).forEach(dp => {
     const mp = positions.find(p=>p.id===dp.id);
-    if (mp) { dp.spreadEntry = mp.spreadEntry; dp.spreadExit = mp.spreadExit; }
+    if (mp) {
+      dp.spreadEntry = mp.spreadEntry; dp.spreadExit = mp.spreadExit;
+      dp.rocPct = mp.rocPct; dp.rocAnnual = mp.rocAnnual;
+    }
   });
 
   saveStore();
   renderAutoLj();
-  alert(`✓ Спреды пересчитаны для ${updated} из ${positions.length} сделок`);
+  alert(`✓ Спреды: ${updated} из ${positions.length}\n✓ ROC: ${rocUpdated} из ${positions.length} (нужно ГО в Калькуляторе)`);
 }
 
 
