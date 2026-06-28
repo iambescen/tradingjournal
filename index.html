@@ -1065,8 +1065,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '28.06 11:27';
-const BUILD_DATE    = '28.06.2026 11:27 МСК';
+const BUILD_VERSION = '28.06 11:29';
+const BUILD_DATE    = '28.06.2026 11:29 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -14138,23 +14138,50 @@ function calcManualSpread(pos, datesUpTo) {
 
 
 // Получить суммарное ГО для конструкции из Калькулятора
-function getGoForTag(tag) {
+// Получить суммарное ГО для конструкции по фактическим лотам из ног
+// legs — массив ног позиции с entryVol (фактические лоты)
+function getGoForTag(tag, legs) {
   try {
     const goOv = JSON.parse(localStorage.getItem('calc_go_v1') || '{}');
+    const calcFxOv = JSON.parse(localStorage.getItem('calc_fx_v1') || '{}');
+
     // Ищем конструкцию в CALC_CONSTRUCTIONS по тегу
     const con = (typeof CALC_CONSTRUCTIONS !== 'undefined' ? CALC_CONSTRUCTIONS : [])
-      .find(c => c.tag === tag || tag.startsWith(c.tag.split('/')[0]+'/')||c.tag.startsWith(tag.split('/')[0]+'/'));
-    if (con && con.legs) {
-      let total = 0;
-      for (const leg of con.legs) {
-        if (!leg.isMx) continue; // FX маржа отдельно
-        const go = (leg.goKey && goOv[leg.goKey]) ? goOv[leg.goKey] : (leg.go || 0);
-        total += go * (leg.ratio || 1);
-      }
-      if (total > 0) return total;
+      .find(c => c.tag === tag || c.tag.split('/')[0] === tag.split('/')[0]);
+
+    if (!con) {
+      if (goOv[tag]) return goOv[tag];
+      return 0;
     }
-    // Fallback: точный поиск по тегу в goOv (если пользователь вручную сохранил)
-    if (goOv[tag]) return goOv[tag];
+
+    let total = 0;
+
+    for (const cLeg of con.legs) {
+      const go1 = (cLeg.goKey && goOv[cLeg.goKey]) ? goOv[cLeg.goKey] : (cLeg.go || 0);
+
+      if (cLeg.isMx) {
+        // Реальные лоты из ног позиции
+        let realVol = 0;
+        if (legs && legs.length) {
+          const found = legs.find(l => l.instrument === cLeg.name ||
+            l.instrument?.replace(/[-.].*$/,'').toUpperCase() === cLeg.name?.replace(/[-.].*$/,'').toUpperCase());
+          if (found) realVol = found.entryVol || 0;
+        }
+        // Если нет реальных данных — используем дефолтный ratio
+        const vol = realVol > 0 ? realVol : (cLeg.ratio || 1);
+        total += go1 * vol;
+      } else {
+        // FX маржа — из calc_fx_v1 или дефолтная × реальный объём FX
+        const fxMarginPerLot = parseFloat(calcFxOv[cLeg.name] || cLeg.marginPerLot || 0);
+        if (fxMarginPerLot > 0 && legs && legs.length) {
+          const fxLeg = legs.find(l => l.platform === 'FX');
+          const fxVol = fxLeg?.entryVol || cLeg.ratio || 0;
+          total += fxMarginPerLot * fxVol;
+        }
+      }
+    }
+
+    return total > 0 ? total : (goOv[tag] || 0);
   } catch(e) { console.warn('getGoForTag error:', e); }
   return 0;
 }
@@ -14242,8 +14269,8 @@ function fixManualPositions(date) {
     }
     const totalRub = Math.round(totalMx + totalFxUsd * rate);
 
-    // ГО из Калькулятора
-    const goRub = getGoForTag(pos.tag) || 0;
+    // ГО из Калькулятора — по фактическим лотам из ног
+    const goRub = getGoForTag(pos.tag, legs) || 0;
     const daysCount = Math.max(1, pos.dates.length);
     const rocPct = goRub > 0 ? (totalRub / goRub * 100) : null;
     const rocAnnual = rocPct != null ? rocPct * 365 / daysCount : null;
@@ -14500,8 +14527,8 @@ function recalcAll() {
     manPos.spreadEntry = sp.entry;
     manPos.spreadExit  = sp.exit;
 
-    // ROC
-    const goRub = getGoForTag(manPos.tag) || 0;
+    // ROC — по фактическим лотам из ног
+    const goRub = getGoForTag(manPos.tag, newLegs) || 0;
     if (goRub > 0) {
       const daysCount = Math.max(1, (manPos.days||[manPos.openDate,manPos.closeDate]).length);
       manPos.goRub = goRub;
