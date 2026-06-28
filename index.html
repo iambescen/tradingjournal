@@ -1065,8 +1065,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '28.06 11:23';
-const BUILD_DATE    = '28.06.2026 11:23 МСК';
+const BUILD_VERSION = '28.06 11:27';
+const BUILD_DATE    = '28.06.2026 11:27 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -14338,8 +14338,6 @@ function renderAutoLj() {
     <span style="font-size:12px;color:var(--text2)">${positions.length} из ${allPos.length}</span>
     <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap">
       <button onclick="exportDealsCSV()" style="padding:6px 12px;border:1px solid var(--border);border-radius:7px;background:var(--bg2);color:var(--text2);font-size:12px;cursor:pointer">↓ CSV</button>
-      <button onclick="if(confirm('Очистить Дневник?')){store.positions=[];saveStore();renderAutoLj()}" style="padding:6px 10px;border:1px solid var(--border);border-radius:7px;background:var(--bg2);color:var(--text2);font-size:14px;cursor:pointer" title="Очистить Дневник">🗑</button>
-      <button onclick="if(confirm('Отправить все в Дневник?')){store.positions=[];(store.manualPositions||[]).forEach(p=>sendToDiary(p.id,true));saveStore();if(typeof renderShowcase==='function')renderShowcase();renderAutoLj();alert('Готово!')}" style="padding:6px 16px;border:none;border-radius:7px;background:var(--blue);color:#fff;font-size:12px;font-weight:600;cursor:pointer">→ Все в Дневник</button>
     </div>
   </div>`;
 
@@ -14418,7 +14416,6 @@ function renderAutoLj() {
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
             <span style="font-weight:700;font-size:13px;color:var(--text1)">${pos.tag}</span>
             <span style="font-size:10px;color:var(--text2);background:var(--bg3);padding:2px 7px;border-radius:4px">набор ${pos.setN}</span>
-            ${inDiary?'<span style="font-size:10px;color:var(--green);background:var(--green-dim);padding:2px 6px;border-radius:4px;font-weight:600">✓ Дневник</span>':''}
           </div>
           <div style="font-size:11px;color:var(--text2)">${pos.openDate}${pos.closeDate!==pos.openDate?' → '+pos.closeDate:''} · ${daysCount} ${dayWord}</div>
           ${pos.rocPct!=null?`<div style="font-size:11px;font-weight:600;color:${isPos?'var(--green)':'var(--red)'}">${pos.rocPct>=0?'+':''}${pos.rocPct.toFixed(2)}%${pos.rocAnnual!=null?' · '+(pos.rocAnnual>=0?'+':'')+Math.round(pos.rocAnnual)+'% год.':''}</div>`:''}
@@ -14439,8 +14436,7 @@ function renderAutoLj() {
         </div>
         ${spreadHtml}
         ${rocHtml}
-        <div style="display:flex;justify-content:space-between;align-items:center;padding-top:10px;border-top:1px solid var(--border);margin-top:8px;flex-wrap:wrap;gap:6px">
-          <button onclick="sendToDiary('${safeId}');renderAutoLj()" style="padding:6px 16px;border:none;border-radius:7px;background:var(--blue);color:#fff;font-size:12px;font-weight:600;cursor:pointer">${inDiary?'↻ Обновить':'→ В Дневник'}</button>
+        <div style="display:flex;justify-content:flex-end;align-items:center;padding-top:10px;border-top:1px solid var(--border);margin-top:8px">
           <button onclick="if(confirm('Удалить ${pos.tag.replace(/'/g,"\\'")}?')){store.manualPositions=(store.manualPositions||[]).filter(p=>p.id!=='${safeId}');saveStore();renderAutoLj()}" style="padding:5px 12px;border:1px solid var(--border);border-radius:7px;background:none;color:var(--text2);font-size:12px;cursor:pointer">✕ Удалить</button>
         </div>
       </div>
@@ -14514,17 +14510,14 @@ function recalcAll() {
     }
   }
 
-  // Обновляем Дневник
-  (store.positions||[]).forEach(dp => {
-    const mp = positions.find(p=>p.id===dp.id);
-    if (mp) {
-      dp.spreadEntry = mp.spreadEntry; dp.spreadExit = mp.spreadExit;
-      dp.rocPct = mp.rocPct; dp.rocAnnual = mp.rocAnnual;
-      dp.legs = mp.legs;
-    }
-  });
+  // Автоматически синхронизируем ВСЕ позиции в Дневник
+  store.positions = [];
+  for (const manPos of positions) {
+    sendToDiary(manPos.id, true);
+  }
 
   saveStore();
+  if (typeof renderShowcase === 'function') renderShowcase();
 }
 
 
