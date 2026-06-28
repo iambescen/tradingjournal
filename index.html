@@ -393,15 +393,15 @@
 
   <!-- Nav -->
   <div class="nav">
-    <button class="nav-btn active" onclick="switchTab('overview', event)">Обзор</button>
+    <button class="nav-btn" onclick="switchTab('overview', event)">Обзор</button>
     <button class="nav-btn" onclick="switchTab('funds', event)">Движение средств</button>
-    <button class="nav-btn" onclick="switchTab('journal', event); renderLiveJournal()" style="display:none">Журнал</button>
-    <button class="nav-btn" onclick="switchTab('constructions', event)" style="display:none">Сделки (старые)</button>
+    <button class="nav-btn" style="display:none" onclick="switchTab('journal', event); renderLiveJournal()">Журнал</button>
+    <button class="nav-btn" style="display:none" onclick="switchTab('constructions', event)">Сделки (старые)</button>
     <button class="nav-btn" onclick="switchTab('autolj', event); renderAutoLj()">Сделки</button>
     <button class="nav-btn" onclick="switchTab('manual', event); renderManualRaznos()">Разнос</button>
     <button class="nav-btn" onclick="switchTab('cycles', event); renderCycles()">Циклы</button>
     <button class="nav-btn" onclick="switchTab('showcase', event); renderShowcase()">Дневник</button>
-    <button class="nav-btn" onclick="switchTab('calc', event); renderCalc()">Калькулятор</button>
+    <button class="nav-btn active" onclick="switchTab('calc', event); renderCalc()">Калькулятор</button>
   </div>
 
   <!-- Rate bar -->
@@ -471,7 +471,7 @@
   
 
   <!-- OVERVIEW -->
-  <div id="tab-overview" class="tab-content active">
+  <div id="tab-overview" class="tab-content">
     <div id="overview-container" style="padding:16px 20px;max-width:1400px"></div>
   </div>
 
@@ -1065,8 +1065,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '28.06 14:45';
-const BUILD_DATE    = '28.06.2026 14:45 МСК';
+const BUILD_VERSION = '28.06 14:50';
+const BUILD_DATE    = '28.06.2026 14:50 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -11858,7 +11858,7 @@ renderPositionsTab();
 setTimeout(() => { renderLiveJournal(); renderCapitalLoad(); }, 50);
 // Render overview after dashboard has had time to populate (1 second)
 setTimeout(() => updateDashboard(), 500); // re-run after rate loads
-setTimeout(() => renderOverviewTab(true), 1000); // render overview on startup
+setTimeout(() => { renderCalc(); renderOverviewTab(true); }, 1000); // render calc (default tab) and overview on startup
 </script>
 
 
@@ -11881,7 +11881,7 @@ setTimeout(() => renderOverviewTab(true), 1000); // render overview on startup
 
 
   <!-- CALCULATOR -->
-  <div id="tab-calc" class="tab-content">
+  <div id="tab-calc" class="tab-content active">
     <div id="calc-root" style="max-width:1400px"></div>
   </div>
 
@@ -12585,28 +12585,29 @@ function getCRRatio(fxPair, siLots) {
 
 // Groups: paired first/second contracts shown side by side
 const CALC_GROUPS = [
-  { label: 'Si / CR / USDCNH',   tags: ['SI1/CR1/USDCNH',  'SI2/CR2/USDCNH']  },
-  { label: 'EU / CR / EURCNH',   tags: ['EU1/CR1/EURCNH',  'EU2/CR2/EURCNH']  },
-  { label: 'UC / USDCNH',        tags: ['UC1/USDCNH',      'UC2/USDCNH']      },
-  { label: 'ED / EURUSD',        tags: ['ED1/EURUSD',      'ED2/EURUSD']      },
-  { label: 'GD / XAUUSD',        tags: ['GD1/XAUUSD',      'GD2/XAUUSD']      },
-  { label: 'SV / XAGUSD',        tags: ['SV1/XAGUSD',      'SV2/XAGUSD']      },
-  { label: 'USDRUBF / CNYRUBF',   tags: ['URF/CRF/USDCNH']                          },
-  { label: 'USDRUBF / Si',        tags: ['URF/SI1', 'URF/SI2']                      },
-  { label: 'CNYRUBF / CR',        tags: ['CRF/CR1', 'CRF/CR2']                      },
-  { label: 'EURRUBF / Eu',        tags: ['ERF/EU1', 'ERF/EU2']                      },
-  { label: 'GD / SV (2:1)',       tags: ['GD1/SV1/XAUUSD/XAGUSD', 'GD2/SV2/XAUUSD/XAGUSD'] },
-    { label: 'Платина / PT',        tags: ['PT1/XPTUSD', 'PT2/XPTUSD']               },
-  { label: 'Палладий / PD',        tags: ['PD1/XPDUSD', 'PD2/XPDUSD']               },
-  { label: 'GD : SV',              tags: ['GD1/SV1/XAUUSD/XAGUSD', 'GD2/SV2/XAUUSD/XAGUSD'] },
-  { label: 'GD : PT',              tags: ['GD1/PT1/XAUUSD/XPTUSD', 'GD2/PT2/XAUUSD/XPTUSD'] },
-  { label: 'GD : PD',              tags: ['GD1/PD1/XAUUSD/XPDUSD', 'GD2/PD2/XAUUSD/XPDUSD'] },
-  { label: 'SV : PT',              tags: ['SV1/PT1/XAGUSD/XPTUSD', 'SV2/PT2/XAGUSD/XPTUSD'] },
-  { label: 'SV : PD',              tags: ['SV1/PD1/XAGUSD/XPDUSD', 'SV2/PD2/XAGUSD/XPDUSD'] },
-  { label: 'PT : PD',              tags: ['PT1/PD1/XPTUSD/XPDUSD', 'PT2/PD2/XPTUSD/XPDUSD'] },
-  { label: 'EURRUBF / CR / EURCNH', tags: ['ERF/CR1/EURCNH', 'ERF/CR2/EURCNH']  },
-  { label: 'EURRUBF / CR / USDCNH', tags: ['ERF/CR1/USDCNH', 'ERF/CR2/USDCNH']  },
-  { label: 'USDRUBF / CR / USDCNH', tags: ['URF/CR1/USDCNH', 'URF/CR2/USDCNH']  },
+  // ── Валютные конструкции ──
+  { label: 'Si / CR / USDCNH',     tags: ['SI1/CR1/USDCNH',  'SI2/CR2/USDCNH'],  category: 'Валютные' },
+  { label: 'EU / CR / EURCNH',     tags: ['EU1/CR1/EURCNH',  'EU2/CR2/EURCNH'],  category: 'Валютные' },
+  { label: 'UC / USDCNH',          tags: ['UC1/USDCNH',      'UC2/USDCNH'],      category: 'Валютные' },
+  { label: 'ED / EURUSD',          tags: ['ED1/EURUSD',      'ED2/EURUSD'],      category: 'Валютные' },
+  { label: 'USDRUBF / CNYRUBF',    tags: ['URF/CRF/USDCNH'],                     category: 'Валютные' },
+  { label: 'USDRUBF / Si',         tags: ['URF/SI1', 'URF/SI2'],                 category: 'Валютные' },
+  { label: 'USDRUBF / CR',         tags: ['URF/CR1/USDCNH', 'URF/CR2/USDCNH'], category: 'Валютные' },
+  { label: 'CNYRUBF / CR',         tags: ['CRF/CR1', 'CRF/CR2'],                category: 'Валютные' },
+  { label: 'EURRUBF / Eu',         tags: ['ERF/EU1', 'ERF/EU2'],                category: 'Валютные' },
+  { label: 'EURRUBF / CR / EURCNH',tags: ['ERF/CR1/EURCNH', 'ERF/CR2/EURCNH'], category: 'Валютные' },
+  { label: 'EURRUBF / CR / USDCNH',tags: ['ERF/CR1/USDCNH', 'ERF/CR2/USDCNH'], category: 'Валютные' },
+  // ── Металлы ──
+  { label: 'GD / XAUUSD',          tags: ['GD1/XAUUSD',      'GD2/XAUUSD'],      category: 'Металлы' },
+  { label: 'SV / XAGUSD',          tags: ['SV1/XAGUSD',      'SV2/XAGUSD'],      category: 'Металлы' },
+  { label: 'Платина / PT',          tags: ['PT1/XPTUSD',      'PT2/XPTUSD'],      category: 'Металлы' },
+  { label: 'Палладий / PD',         tags: ['PD1/XPDUSD',      'PD2/XPDUSD'],      category: 'Металлы' },
+  { label: 'GD : SV',              tags: ['GD1/SV1/XAUUSD/XAGUSD', 'GD2/SV2/XAUUSD/XAGUSD'], category: 'Металлы' },
+  { label: 'GD : PT',              tags: ['GD1/PT1/XAUUSD/XPTUSD', 'GD2/PT2/XAUUSD/XPTUSD'], category: 'Металлы' },
+  { label: 'GD : PD',              tags: ['GD1/PD1/XAUUSD/XPDUSD', 'GD2/PD2/XAUUSD/XPDUSD'], category: 'Металлы' },
+  { label: 'SV : PT',              tags: ['SV1/PT1/XAGUSD/XPTUSD', 'SV2/PT2/XAGUSD/XPTUSD'], category: 'Металлы' },
+  { label: 'SV : PD',              tags: ['SV1/PD1/XAGUSD/XPDUSD', 'SV2/PD2/XAGUSD/XPDUSD'], category: 'Металлы' },
+  { label: 'PT : PD',              tags: ['PT1/PD1/XPTUSD/XPDUSD', 'PT2/PD2/XPTUSD/XPDUSD'], category: 'Металлы' },
 ];
 
 // Labels for each construction card header
@@ -13508,17 +13509,40 @@ function _renderCalcInner(root) {
       + '</div>';
   }
 
-  // Render groups: each group = label + 1 or 2 cards side by side
-  const cardsHtml = CALC_GROUPS.map(grp => {
-    const cons = grp.tags.map(t => CALC_CONSTRUCTIONS.find(c => c.tag === t)).filter(Boolean);
-    const cards = cons.map(buildCard).join('');
-    const grid = cons.length > 1
-      ? '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">' + cards + '</div>'
-      : cards;
-    return '<div style="margin-bottom:20px">'
-      + '<div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;padding-left:2px">'
-      + grp.label + '</div>'
-      + grid + '</div>';
+  // Render groups with collapsible categories
+  const _calcCatState = (()=>{ try{return JSON.parse(localStorage.getItem('calc_cat_v1')||'{}');}catch(e){return{};} })();
+
+  // Группируем по категориям
+  const categoryOrder = ['Валютные', 'Металлы'];
+  const byCategory = {};
+  for (const grp of CALC_GROUPS) {
+    const cat = grp.category || 'Прочее';
+    if (!byCategory[cat]) byCategory[cat] = [];
+    byCategory[cat].push(grp);
+  }
+  const cats = [...categoryOrder, ...Object.keys(byCategory).filter(c=>!categoryOrder.includes(c))];
+
+  const cardsHtml = cats.filter(cat=>byCategory[cat]).map(cat => {
+    const collapsed = _calcCatState[cat] === 'collapsed';
+    const grps = byCategory[cat];
+    const groupsHtml = grps.map(grp => {
+      const cons = grp.tags.map(t => CALC_CONSTRUCTIONS.find(c => c.tag === t)).filter(Boolean);
+      const cards = cons.map(buildCard).join('');
+      const grid = cons.length > 1
+        ? '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">' + cards + '</div>'
+        : cards;
+      return '<div style="margin-bottom:16px">'
+        + '<div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;padding-left:2px">'
+        + grp.label + '</div>' + grid + '</div>';
+    }).join('');
+    return '<div style="margin-bottom:8px">'
+      + '<div data-cat="' + cat + '" onclick="toggleCalcCategory(this.dataset.cat)"'
+      + ' style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--bg3);border-radius:8px;cursor:pointer;user-select:none;margin-bottom:10px">'
+      + '<span style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.7px">' + cat + '</span>'
+      + '<span style="font-size:10px;color:var(--text2);margin-left:auto">' + (collapsed?'▶ показать':'▼ скрыть') + '</span>'
+      + '</div>'
+      + (collapsed ? '' : groupsHtml)
+      + '</div>';
   }).join('');
 
 
@@ -14910,6 +14934,16 @@ function recalcSpreads() {
 
 // Калькулятор потенциала сделки в карточке Сделок
 // Применить сумму планировщика во все карточки конструкций
+function toggleCalcCategory(cat) {
+  try {
+    const s = JSON.parse(localStorage.getItem('calc_cat_v1')||'{}');
+    s[cat] = s[cat] === 'collapsed' ? 'open' : 'collapsed';
+    localStorage.setItem('calc_cat_v1', JSON.stringify(s));
+    renderCalc();
+  } catch(e) {}
+}
+
+
 function applyPlannerToCalc() {
   const _pl = (()=>{ try{return JSON.parse(localStorage.getItem('pos_planner_v1')||'{}');}catch(e){return{};} })();
   const count = parseInt(_pl.count||'1')||1;
