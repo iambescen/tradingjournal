@@ -477,6 +477,34 @@
   /* ── Overview аналитика ── */
   #overview-root, #overview-container { padding: 0 !important; }
 
+  /* ── Лента дней (Данные / tab-funds) ── */
+  /* Карточка дня: шапка переносится */
+  #unified-table-wrap [style*="display:flex"][style*="align-items:center"][style*="padding:10px"] {
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+  }
+  /* min-width:90px на дате — убрать */
+  #unified-table-wrap [style*="min-width:90px"] {
+    min-width: 0 !important;
+    font-size: 13px !important;
+  }
+  /* badge'и MX/FX/= на мобиле чуть меньше */
+  .day-mx-pnl, .day-fx-pnl { font-size: 11px !important; padding: 1px 5px !important; }
+  /* Месяц/неделя заголовки */
+  #unified-table-wrap [style*="font-size:13px;font-weight:600"] { font-size: 12px !important; }
+  #unified-table-wrap [style*="padding:7px 14px"] { padding: 7px 10px !important; }
+  #unified-table-wrap [style*="padding:5px 12px"] { padding: 5px 8px !important; }
+  /* Вложенные отступы поменьше */
+  #unified-table-wrap [style*="padding-left:12px"] { padding-left: 6px !important; }
+
+  /* ── charts-grid: 1 колонка на мобиле ── */
+  .charts-grid { grid-template-columns: 1fr !important; }
+
+  /* ── Обзор: weekly table ── */
+  #ov-weekly { padding: 10px !important; overflow-x: auto; }
+  #ov-weekly table { font-size: 11px !important; }
+  #ov-weekly th, #ov-weekly td { padding: 5px 8px !important; }
+
   /* ── Убить inline min-width которые ломают layout ── */
   #calc-root * { min-width: 0 !important; box-sizing: border-box; }
   #showcase-root * { min-width: 0 !important; box-sizing: border-box; }
@@ -1225,8 +1253,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '28.06 18:33';
-const BUILD_DATE    = '28.06.2026 18:33 МСК';
+const BUILD_VERSION = '28.06 18:39';
+const BUILD_DATE    = '28.06.2026 18:39 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -11974,8 +12002,10 @@ function switchTab(name, e) {
   if (name === 'feed')     renderFeedTab();
   if (name === 'constructions') renderPositionsTab();
   if (name === 'journal') renderLiveJournal();
+  if (name === 'autolj') renderAutoLj();
   if (name === 'showcase') renderShowcase();
   if (name === 'manual') renderManualRaznos();
+  if (name === 'cycles') renderCycles();
   if (name === 'calc') renderCalc();
   // Синхронизируем мобильный nav
   _syncMobileNav(name);
