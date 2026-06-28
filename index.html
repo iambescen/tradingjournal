@@ -477,72 +477,107 @@
   /* ── Overview аналитика ── */
   #overview-root, #overview-container { padding: 0 !important; }
 
-  /* ── Лента дней (Данные / tab-funds) ── */
-  /* Карточка дня: шапка переносится */
+  /* ── Лента дней (tab-funds) ── */
   #unified-table-wrap [style*="display:flex"][style*="align-items:center"][style*="padding:10px"] {
     flex-wrap: wrap !important;
-    gap: 6px !important;
+    gap: 5px !important;
   }
-  /* min-width:90px на дате — убрать */
-  #unified-table-wrap [style*="min-width:90px"] {
-    min-width: 0 !important;
-    font-size: 13px !important;
-  }
-  /* badge'и MX/FX/= на мобиле чуть меньше */
-  .day-mx-pnl, .day-fx-pnl { font-size: 11px !important; padding: 1px 5px !important; }
-  /* Месяц/неделя заголовки */
-  #unified-table-wrap [style*="font-size:13px;font-weight:600"] { font-size: 12px !important; }
-  #unified-table-wrap [style*="padding:7px 14px"] { padding: 7px 10px !important; }
-  #unified-table-wrap [style*="padding:5px 12px"] { padding: 5px 8px !important; }
-  /* Вложенные отступы поменьше */
-  #unified-table-wrap [style*="padding-left:12px"] { padding-left: 6px !important; }
+  #unified-table-wrap [style*="min-width:90px"] { min-width: 0 !important; font-size: 12px !important; }
+  .day-mx-pnl, .day-fx-pnl { font-size: 10px !important; padding: 1px 4px !important; margin-right: 4px !important; }
+  #unified-table-wrap [style*="padding:7px 14px"] { padding: 6px 8px !important; font-size: 11px !important; }
+  #unified-table-wrap [style*="padding:5px 12px"] { padding: 4px 8px !important; font-size: 11px !important; }
+  #unified-table-wrap [style*="padding-left:12px"] { padding-left: 4px !important; }
+  #unified-table-wrap [style*="padding-left:12px"]:last-child { padding-left: 4px !important; }
 
-  /* ── charts-grid: 1 колонка на мобиле ── */
+  /* ── charts-grid в одну колонку ── */
   .charts-grid { grid-template-columns: 1fr !important; }
-
-  /* ── Обзор: weekly table ── */
   #ov-weekly { padding: 10px !important; overflow-x: auto; }
   #ov-weekly table { font-size: 11px !important; }
-  #ov-weekly th, #ov-weekly td { padding: 5px 8px !important; }
+  #ov-weekly th, #ov-weekly td { padding: 4px 6px !important; }
 
-  /* ── Убить inline min-width которые ломают layout ── */
-  #calc-root * { min-width: 0 !important; box-sizing: border-box; }
-  #showcase-root * { min-width: 0 !important; box-sizing: border-box; }
-  #deals-root * { min-width: 0 !important; box-sizing: border-box; }
+  /* ══ РАЗНОС — ключевые фиксы ══ */
 
-  /* ── Calc: grid в одну колонку ── */
-  #calc-root [style*="grid-template-columns"] {
+  /* 1. Виджет баланса — убрать sticky, не застревает */
+  #manual-container [style*="position:sticky"][style*="top:0"] {
+    position: relative !important;
+    top: auto !important;
+    z-index: auto !important;
+    padding: 10px 0 8px !important;
+  }
+  /* 2. Карточки наборов: min-width убрать, 100% ширина */
+  #manual-container [style*="min-width:220px"] {
+    min-width: 0 !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+  }
+  /* 3. Таблица разноса — горизонтальный скролл */
+  #manual-container table { font-size: 11px !important; }
+  #manual-container .rz-th { font-size: 9px !important; padding: 5px 6px !important; }
+  #manual-container .rz-row td { padding: 4px 6px !important; font-size: 10px !important; }
+  #manual-container .rz-group td { padding: 6px 8px !important; font-size: 11px !important; }
+  /* Скрыть колонку "Время" на мобиле — экономим место */
+  #manual-container th:nth-child(4),
+  #manual-container td:nth-child(4) { display: none !important; }
+  /* 4. Селекты конструкций — компактнее */
+  #manual-container select.rz-sel { font-size: 10px !important; padding: 2px 4px !important; max-width: 110px; }
+  #manual-container input.rz-num { width: 32px !important; font-size: 10px !important; }
+  /* 5. Шапка разноса — дата + кнопки */
+  #manual-container > div:first-child { gap: 6px !important; margin-bottom: 10px !important; }
+  #manual-container > div:first-child select { font-size: 13px !important; padding: 6px 10px !important; }
+  #manual-container > div:first-child button { font-size: 12px !important; padding: 6px 12px !important; }
+  /* 6. Фильтр-чипы — мельче */
+  #manual-container button[style*="border-radius:20px"] { font-size: 10px !important; padding: 2px 7px !important; }
+
+  /* ══ СДЕЛКИ (deals-root) ══ */
+  #deals-root { font-size: 12px !important; }
+  #deals-root [style*="font-size:17px"], #deals-root [style*="font-size:16px"],
+  #deals-root [style*="font-size:15px"], #deals-root [style*="font-size:14px"] {
+    font-size: 13px !important;
+  }
+  #deals-root [style*="min-width:270px"], #deals-root [style*="min-width:200px"],
+  #deals-root [style*="min-width:160px"], #deals-root [style*="min-width:110px"] {
+    min-width: 0 !important; width: 100% !important;
+  }
+  #deals-root [style*="display:grid"][style*="repeat"] {
     grid-template-columns: 1fr !important;
   }
 
-  /* ── Calc: инпуты на всю ширину ── */
-  #calc-root input, #calc-root select {
-    width: 100% !important;
-    font-size: 14px !important;
+  /* ══ ДНЕВНИК (showcase) ══ */
+  #showcase-root { font-size: 12px !important; }
+  #showcase-root [style*="font-size:20px"], #showcase-root [style*="font-size:18px"],
+  #showcase-root [style*="font-size:16px"], #showcase-root [style*="font-size:15px"] {
+    font-size: 13px !important;
+  }
+  #showcase-root [style*="display:grid"] { grid-template-columns: 1fr !important; }
+  #showcase-root [style*="padding:20px"], #showcase-root [style*="padding:24px"] {
+    padding: 12px !important;
   }
 
-  /* ── Calc: планировщик маржи таблица → скролл ── */
-  #calc-root table { font-size: 11px !important; }
-  #calc-root .table-wrap, #calc-root [style*="overflow"] {
-    overflow-x: auto !important;
-    -webkit-overflow-scrolling: touch;
+  /* ══ КАЛЬКУЛЯТОР ══ */
+  #calc-root { font-size: 12px !important; }
+  #calc-root [style*="font-size:20px"], #calc-root [style*="font-size:18px"],
+  #calc-root [style*="font-size:17px"], #calc-root [style*="font-size:16px"],
+  #calc-root [style*="font-size:15px"], #calc-root [style*="font-size:14px"] {
+    font-size: 13px !important;
   }
+  #calc-root [style*="display:grid"][style*="repeat(2"] { grid-template-columns: 1fr !important; }
+  #calc-root [style*="display:grid"][style*="repeat(3"] { grid-template-columns: 1fr 1fr !important; }
+  #calc-root [style*="padding:20px"], #calc-root [style*="padding:24px"] { padding: 12px !important; }
+  #calc-root input, #calc-root select { font-size: 14px !important; }
+  #calc-root table { font-size: 11px !important; overflow-x: auto; display: block; }
+  #calc-root th, #calc-root td { padding: 5px 6px !important; white-space: nowrap; }
 
-  /* ── Showcase cards ── */
-  #showcase-root [style*="display:flex"] {
-    flex-wrap: wrap !important;
+  /* ══ ОБЗОР ══ */
+  #overview-container [style*="font-size:20px"], #overview-container [style*="font-size:18px"],
+  #overview-container [style*="font-size:16px"], #overview-container [style*="font-size:15px"] {
+    font-size: 13px !important;
   }
-
-  /* ── Deals cards ── */
-  #deals-root [style*="display:flex"] {
-    flex-wrap: wrap !important;
+  #overview-container [style*="display:grid"][style*="repeat"] {
+    grid-template-columns: 1fr 1fr !important;
   }
-  #deals-root [style*="min-width:270px"],
-  #deals-root [style*="min-width:110px"] {
-    min-width: 0 !important;
-    flex: 1 1 100% !important;
+  #overview-container [style*="padding:16px"], #overview-container [style*="padding:20px"] {
+    padding: 10px !important;
   }
-}
 
 /* На десктопе нижний nav скрыт */
 @media (min-width: 769px) {
@@ -1253,8 +1288,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '28.06 18:39';
-const BUILD_DATE    = '28.06.2026 18:39 МСК';
+const BUILD_VERSION = '28.06 18:43';
+const BUILD_DATE    = '28.06.2026 18:43 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
