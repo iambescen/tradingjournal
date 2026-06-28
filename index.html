@@ -1065,8 +1065,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '28.06 11:37';
-const BUILD_DATE    = '28.06.2026 11:37 МСК';
+const BUILD_VERSION = '28.06 11:45';
+const BUILD_DATE    = '28.06.2026 11:45 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -14442,6 +14442,28 @@ function renderAutoLj() {
     })();
 
     const safeId = pos.id.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+    const calcId = 'c_' + pos.id.replace(/[^a-z0-9]/gi,'').slice(0,16);
+    const goPerUnit = pos.goRub || 0;
+    const calcHtml = (()=>{
+      if (!goPerUnit || pos.spreadEntry==null) return '';
+      const saved = (()=>{ try{return JSON.parse(localStorage.getItem('deal_calc_v1')||'{}');}catch(e){return{};} })();
+      const depVal = saved[pos.tag+'_dep'] || '';
+      const tgtVal = saved[pos.tag+'_tgt'] || '';
+      return `<div style="padding:10px 0;border-top:1px dashed var(--border);margin-top:4px">
+        <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--text2);margin-bottom:8px">Калькулятор потенциала</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+          <div><div style="font-size:9px;color:var(--text2);margin-bottom:3px">Депозит МХ (₽)</div>
+          <input id="${calcId}_dep" type="number" placeholder="напр. 500000" value="${depVal}"
+            style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1);font-size:12px;box-sizing:border-box"
+            oninput="calcDealPotential('${calcId}','${pos.tag}',${goPerUnit},${pos.spreadEntry??null},${pos.spreadExit??null})"></div>
+          <div><div style="font-size:9px;color:var(--text2);margin-bottom:3px">Целевой спред (%)</div>
+          <input id="${calcId}_tgt" type="number" step="0.001" placeholder="напр. 0.100" value="${tgtVal}"
+            style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1);font-size:12px;box-sizing:border-box"
+            oninput="calcDealPotential('${calcId}','${pos.tag}',${goPerUnit},${pos.spreadEntry??null},${pos.spreadExit??null})"></div>
+        </div>
+        <div id="${calcId}_result" style="font-size:12px;color:var(--text2)">Введите депозит для расчёта</div>
+      </div>`;
+    })();
     cards += `<div style="background:var(--bg2);border:1px solid var(--border);border-left:3px solid ${isPos?'var(--green)':'var(--red)'};border-radius:10px;margin-bottom:10px;overflow:hidden;box-shadow:var(--shadow)">
       <div onclick="const b=this.nextElementSibling;b.style.display=b.style.display==='none'?'block':'none'" style="display:flex;justify-content:space-between;align-items:center;padding:14px 16px;cursor:pointer;user-select:none">
         <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px">
@@ -14468,6 +14490,7 @@ function renderAutoLj() {
         </div>
         ${spreadHtml}
         ${rocHtml}
+        ${calcHtml}
         <div style="display:flex;justify-content:flex-end;align-items:center;padding-top:10px;border-top:1px solid var(--border);margin-top:8px">
           <button onclick="if(confirm('Удалить ${pos.tag.replace(/'/g,"\\'")}?')){store.manualPositions=(store.manualPositions||[]).filter(p=>p.id!=='${safeId}');saveStore();renderAutoLj()}" style="padding:5px 12px;border:1px solid var(--border);border-radius:7px;background:none;color:var(--text2);font-size:12px;cursor:pointer">✕ Удалить</button>
         </div>
@@ -14747,6 +14770,68 @@ function recalcSpreads() {
   alert(`✓ Спреды: ${updated} из ${positions.length}\n✓ ROC: ${rocUpdated} из ${positions.length} (нужно ГО в Калькуляторе)`);
 }
 
+
+// Калькулятор потенциала сделки в карточке Сделок
+function calcDealPotential(calcId, tag, goPerUnit, spreadEntry, spreadExit) {
+  const depEl = document.getElementById(calcId+'_dep');
+  const tgtEl = document.getElementById(calcId+'_tgt');
+  const resEl = document.getElementById(calcId+'_result');
+  if (!resEl) return;
+
+  const deposit = parseFloat(depEl?.value);
+  const target  = parseFloat(tgtEl?.value);
+
+  // Сохраняем в localStorage
+  try {
+    const saved = JSON.parse(localStorage.getItem('deal_calc_v1')||'{}');
+    if (depEl?.value) saved[tag+'_dep'] = depEl.value;
+    if (tgtEl?.value) saved[tag+'_tgt'] = tgtEl.value;
+    localStorage.setItem('deal_calc_v1', JSON.stringify(saved));
+  } catch(e) {}
+
+  if (!deposit || !goPerUnit) {
+    resEl.innerHTML = '<span style="color:var(--text2)">Введите депозит для расчёта</span>';
+    return;
+  }
+
+  // Лоты = депозит / ГО на единицу
+  const lots = Math.floor(deposit / goPerUnit);
+  if (lots < 1) {
+    resEl.innerHTML = `<span style="color:var(--red)">Недостаточно депозита. Нужно минимум ${Math.ceil(goPerUnit).toLocaleString('ru')} ₽</span>`;
+    return;
+  }
+
+  // ROC на лоты
+  const rocSingle = spreadEntry != null ? spreadEntry : 0;
+  const targetSpread = !isNaN(target) ? target : (spreadExit ?? 0);
+
+  // P&L потенциал: спред входа - целевой спред выхода
+  // Для одной единицы конструкции P&L ≈ (spreadEntry - targetSpread) / 100 × goPerUnit
+  // Это приблизительно — точный расчёт зависит от инструментов
+  const spreadDiff = spreadEntry != null ? (Math.abs(spreadEntry) - Math.abs(targetSpread)) : null;
+  const estimatedPnl = spreadDiff != null ? Math.round(spreadDiff / 100 * goPerUnit * lots) : null;
+
+  const rc = lots > 0 ? 'var(--green)' : 'var(--text2)';
+  let html = `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+    <div>
+      <div style="font-size:9px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px">Единиц конструкции</div>
+      <div style="font-size:16px;font-weight:700;color:${rc};font-family:'SF Mono',monospace">${lots}</div>
+      <div style="font-size:10px;color:var(--text2)">ГО: ${Math.round(goPerUnit).toLocaleString('ru')} ₽/ед.</div>
+    </div>
+    <div>
+      <div style="font-size:9px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px">Спред вход → цель</div>
+      <div style="font-size:14px;font-weight:700;color:var(--text1);font-family:'SF Mono',monospace">${spreadEntry!=null?spreadEntry.toFixed(3)+'%':'—'} → ${!isNaN(target)?target.toFixed(3)+'%':'?'}</div>
+      <div style="font-size:10px;color:var(--text2)">сжатие: ${spreadDiff!=null?(spreadDiff>0?'+':'')+spreadDiff.toFixed(3)+'%':'введите цель'}</div>
+    </div>
+    <div>
+      <div style="font-size:9px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px">P&L потенциал</div>
+      <div style="font-size:16px;font-weight:700;font-family:'SF Mono',monospace;color:${estimatedPnl!=null?(estimatedPnl>0?'var(--green)':'var(--red)'):'var(--text2)'}">${estimatedPnl!=null?fmtRub(estimatedPnl):'введите цель'}</div>
+      <div style="font-size:10px;color:var(--text2)">≈ на ${lots} ед. × ${deposit.toLocaleString('ru')} ₽</div>
+    </div>
+  </div>`;
+
+  resEl.innerHTML = html;
+}
 
 function exportDealsCSV() {
   const pos = store.manualPositions || [];
