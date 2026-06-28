@@ -581,7 +581,7 @@
 
 } /* конец @media (max-width: 768px) */
 
-/* На десктопе нижний nav скрыт */
+/* На десктопе нижний nav скрыт — управляется JS */
 @media (min-width: 769px) {
   #mobile-nav { display: none !important; }
 }
@@ -1290,8 +1290,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '28.06 18:48';
-const BUILD_DATE    = '28.06.2026 18:48 МСК';
+const BUILD_VERSION = '28.06 18:51';
+const BUILD_DATE    = '28.06.2026 18:51 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -12155,6 +12155,36 @@ setTimeout(() => {
     <span class="mn-icon">💸</span>Данные
   </button>
 </nav>
+
+<script>
+// ── Mobile nav guard ──
+// Принудительно показываем nav на мобиле независимо от других скриптов
+(function() {
+  function guardMobileNav() {
+    const nav = document.getElementById('mobile-nav');
+    if (!nav) return;
+    if (window.innerWidth <= 768) {
+      nav.style.display = 'flex';
+    } else {
+      nav.style.display = 'none';
+    }
+  }
+  // Сразу
+  guardMobileNav();
+  // При resize
+  window.addEventListener('resize', guardMobileNav);
+  // Через 500ms, 1000ms, 2000ms — после всех setTimeout инициализации
+  setTimeout(guardMobileNav, 500);
+  setTimeout(guardMobileNav, 1100);
+  setTimeout(guardMobileNav, 2500);
+  // MutationObserver — если кто-то скрывает nav
+  const obs = new MutationObserver(function() { guardMobileNav(); });
+  document.addEventListener('DOMContentLoaded', function() {
+    const nav = document.getElementById('mobile-nav');
+    if (nav) obs.observe(nav, { attributes: true, attributeFilter: ['style', 'class'] });
+  });
+})();
+</script>
 
 <!-- renderOvConstructions injected -->
 <script>
