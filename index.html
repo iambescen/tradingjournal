@@ -1065,8 +1065,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '28.06 12:43';
-const BUILD_DATE    = '28.06.2026 12:43 МСК';
+const BUILD_VERSION = '28.06 12:48';
+const BUILD_DATE    = '28.06.2026 12:48 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -12294,7 +12294,7 @@ function renderShowcase() {
         return '<div style="display:flex;align-items:center;gap:10px;padding:6px 0;font-size:12px">'
           + '<span style="color:'+C.ink2+';min-width:80px">'+label+'</span>'
           + '<span style="color:'+dirColor+';font-weight:600;font-size:11px;min-width:42px">'+dirLabel+'</span>'
-          + (vol ? '<span style="color:'+C.ink2+';font-size:11px">'+vol+'</span>' : '')
+          + (dir ? '<span style="color:'+dirColor+';font-weight:600;font-size:11px;min-width:42px">'+dirLabel+'</span>' : '')
           + moveHtml
           + '</div>';
       }).join('');
