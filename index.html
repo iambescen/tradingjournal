@@ -12189,6 +12189,12 @@ function calcDiarySpread(pos) {
 }
 
 function renderShowcase() {
+  // Синхронизируем store.positions из manualPositions (без вызова renderShowcase)
+  if ((store.manualPositions||[]).length) {
+    const positions = store.manualPositions;
+    store.positions = [];
+    positions.forEach(p => sendToDiary(p.id, true));
+  }
   const root = document.getElementById('showcase-root');
   if (!root) return;
   positionsInit();
