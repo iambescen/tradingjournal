@@ -1065,8 +1065,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '28.06 12:04';
-const BUILD_DATE    = '28.06.2026 12:04 МСК';
+const BUILD_VERSION = '28.06 12:06';
+const BUILD_DATE    = '28.06.2026 12:06 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -14794,6 +14794,7 @@ function calcDealPotential(calcId, tag, goPerUnit, rocPct, spreadEntry, spreadEx
   const deposit = parseFloat(depEl?.value);
   const altSpread = parseFloat(altEl?.value);
 
+  // Сохраняем введённые значения
   try {
     const saved = JSON.parse(localStorage.getItem('deal_calc_v1')||'{}');
     if (depEl?.value) saved[tag+'_dep'] = depEl.value;
@@ -14806,19 +14807,31 @@ function calcDealPotential(calcId, tag, goPerUnit, rocPct, spreadEntry, spreadEx
     return;
   }
 
-  const units = Math.floor(deposit / goPerUnit);
-  if (units < 1) {
-    resEl.innerHTML = `<span style="color:var(--red)">Недостаточно. Нужно минимум ${Math.ceil(goPerUnit).toLocaleString('ru')} ₽ на 1 ед.</span>`;
-    return;
-  }
+  // Коэффициент масштабирования = новый депозит / реальное ГО
+  const scale = deposit / goPerUnit;
+
+  // Реальные лоты из позиции
+  const pos = (store.manualPositions||[]).find(p=>p.tag===tag);
+  const realLegs = pos?.legs || [];
+
+  // Лоты при новом депозите = realEntryVol × scale
+  const lotsHtml = realLegs.map(l => {
+    const isFX = l.platform === 'FX';
+    const realVol = l.entryVol || 0;
+    const newVol = +(realVol * scale).toFixed(isFX?4:1);
+    const badge = isFX
+      ? `<span style="font-size:9px;color:var(--purple);background:var(--purple-dim);padding:1px 4px;border-radius:3px">FX</span>`
+      : `<span style="font-size:9px;color:var(--text2);background:var(--bg3);padding:1px 4px;border-radius:3px">MX</span>`;
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:2px 0;font-size:11px">
+      <span style="color:var(--text2)">${l.instrument} ${badge}</span>
+      <span style="font-family:'SF Mono',monospace;font-weight:600;color:var(--text1)">${realVol}л → <b style="color:var(--blue)">${newVol}л</b></span>
+    </div>`;
+  }).join('');
 
   // Сценарий 1: тот же ROC%, новый депозит
   const pnl1 = rocPct != null ? Math.round(deposit * rocPct / 100) : null;
 
-  // Сценарий 2: другой спред входа
-  // реальное сжатие = |spreadEntry| - |spreadExit|
-  // новое сжатие   = |altSpread| - |spreadExit|
-  // P&L2 = P&L1 × (новое сжатие / реальное сжатие)
+  // Сценарий 2: другой спред входа → пересчёт через масштаб сжатия
   let pnl2 = null;
   if (!isNaN(altSpread) && spreadEntry != null && spreadExit != null && pnl1 != null) {
     const realComp = Math.abs(spreadEntry) - Math.abs(spreadExit);
@@ -14830,23 +14843,23 @@ function calcDealPotential(calcId, tag, goPerUnit, rocPct, spreadEntry, spreadEx
   const rc1 = pnl1!=null?(pnl1>=0?'var(--green)':'var(--red)'):'var(--text2)';
   const rc2 = pnl2!=null?(pnl2>=0?'var(--green)':'var(--red)'):'var(--text2)';
 
-  resEl.innerHTML = `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
-    <div>
-      <div style="font-size:9px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Единиц конструкции</div>
-      <div style="font-size:16px;font-weight:700;color:var(--blue);font-family:'SF Mono',monospace">${units}</div>
-      <div style="font-size:10px;color:var(--text2)">ГО ${Math.round(goPerUnit).toLocaleString('ru')} ₽/ед.</div>
+  resEl.innerHTML = `
+    <div style="margin-bottom:8px">
+      <div style="font-size:9px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Лоты при депозите ${deposit.toLocaleString('ru')} ₽</div>
+      ${lotsHtml || '<span style="color:var(--text2);font-size:11px">нет данных о лотах</span>'}
     </div>
-    <div>
-      <div style="font-size:9px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">P&L при том же результате</div>
-      <div style="font-size:16px;font-weight:700;font-family:'SF Mono',monospace;color:${rc1}">${pnl1!=null?fmt(pnl1):'нет ROC'}</div>
-      <div style="font-size:10px;color:var(--text2)">${rocPct!=null?(rocPct>=0?'+':'')+rocPct.toFixed(2)+'% × '+units+' ед.':''}</div>
-    </div>
-    <div>
-      <div style="font-size:9px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">P&L при входе ${!isNaN(altSpread)?altSpread.toFixed(3)+'%':'?%'}</div>
-      <div style="font-size:16px;font-weight:700;font-family:'SF Mono',monospace;color:${rc2}">${pnl2!=null?fmt(pnl2):'введите спред'}</div>
-      <div style="font-size:10px;color:var(--text2)">${pnl2!=null&&pnl1!=null?'разница: '+fmt(pnl2-pnl1):spreadEntry!=null?'вход был '+spreadEntry.toFixed(3)+'% → вых '+( spreadExit!=null?spreadExit.toFixed(3)+'%':'?'):''}</div>
-    </div>
-  </div>`;
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;padding-top:8px;border-top:1px solid var(--border)">
+      <div>
+        <div style="font-size:9px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">P&L при том же результате</div>
+        <div style="font-size:15px;font-weight:700;font-family:'SF Mono',monospace;color:${rc1}">${pnl1!=null?fmt(pnl1):'нет ROC'}</div>
+        <div style="font-size:10px;color:var(--text2)">${rocPct!=null?(rocPct>=0?'+':'')+rocPct.toFixed(2)+'%':''}</div>
+      </div>
+      <div>
+        <div style="font-size:9px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">P&L при входе ${!isNaN(altSpread)?altSpread.toFixed(3)+'%':'?%'}</div>
+        <div style="font-size:15px;font-weight:700;font-family:'SF Mono',monospace;color:${rc2}">${pnl2!=null?fmt(pnl2):'введите спред'}</div>
+        <div style="font-size:10px;color:var(--text2)">${pnl2!=null&&pnl1!=null?'разница: '+fmt(pnl2-pnl1):(spreadEntry!=null?'вход '+spreadEntry.toFixed(3)+'% → вых '+(spreadExit!=null?spreadExit.toFixed(3)+'%':'?'):'')}</div>
+      </div>
+    </div>`;
 }
 
 function exportDealsCSV() {
