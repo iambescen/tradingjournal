@@ -235,7 +235,7 @@
   .rz-leg-name{color:var(--text2)}
   .rz-leg-val{font-family:'SF Mono',Consolas,monospace;font-size:12px;font-weight:600}
   .rz-card-footer{text-align:right;font-size:10px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);opacity:.7}
-  .rz-day-total{display:flex;justify-content:flex-end;align-items:baseline;gap:10px;padding:12px 2px 4px;border-top:2px solid var(--border);margin-top:6px}
+  .rz-day-total{display:flex;justify-content:flex-end;align-items:baseline;gap:10px;padding:14px 4px 4px;border-top:2px solid var(--border);margin-top:8px}
   .rz-day-total-label{font-size:12px;color:var(--text2);font-weight:500}
   .rz-day-total-val{font-family:'SF Mono',Consolas,monospace;font-weight:700;font-size:18px}
   .rz-table{width:100%;border-collapse:collapse;margin-top:4px}
@@ -1065,8 +1065,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '28.06 12:15';
-const BUILD_DATE    = '28.06.2026 12:15 МСК';
+const BUILD_VERSION = '28.06 12:19';
+const BUILD_DATE    = '28.06.2026 12:19 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -11650,6 +11650,7 @@ function renderManualRaznos() {
       <button class="rz-bulk-btn" style="background:var(--amber);color:#fff;margin-left:auto" onclick="autoRaznos2()">🤖 Авторазнос 2.0</button>
     </div>
     <div id="manual-results" style="margin-bottom:20px"></div>
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;box-shadow:var(--shadow)">
     <table class="rz-table">
       <thead>
         <tr>
@@ -11664,7 +11665,8 @@ function renderManualRaznos() {
         </tr>
       </thead>
       <tbody>${rows2}</tbody>
-    </table>`;
+    </table>
+    </div>`;
 }
 
 // Расчёт конструкций из ручной разметки за выбранный день
@@ -11867,7 +11869,7 @@ setTimeout(() => renderOverviewTab(true), 1000); // render overview on startup
     </div>
   </div>
   <div id="tab-manual" class="tab-content">
-    <div id="manual-container" style="padding:16px"></div>
+    <div id="manual-container" style="padding:20px 24px;max-width:1400px"></div>
   </div>
   <div id="tab-cycles" class="tab-content">
     <div id="cycles-container" style="padding:16px"></div>
