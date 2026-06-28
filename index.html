@@ -1065,8 +1065,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '28.06 10:57';
-const BUILD_DATE    = '28.06.2026 10:57 МСК';
+const BUILD_VERSION = '28.06 11:00';
+const BUILD_DATE    = '28.06.2026 11:00 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -14137,17 +14137,25 @@ function calcManualSpread(pos, datesUpTo) {
 }
 
 
-// Получить ГО для конструкции из Калькулятора
+// Получить суммарное ГО для конструкции из Калькулятора
 function getGoForTag(tag) {
   try {
     const goOv = JSON.parse(localStorage.getItem('calc_go_v1') || '{}');
-    // Ищем по точному совпадению или по частичному
-    if (goOv[tag]) return goOv[tag];
-    // Пробуем базовый ключ (без набора)
-    for (const k of Object.keys(goOv)) {
-      if (tag.includes(k) || k.includes(tag.split('/')[0])) return goOv[k];
+    // Ищем конструкцию в CALC_CONSTRUCTIONS по тегу
+    const con = (typeof CALC_CONSTRUCTIONS !== 'undefined' ? CALC_CONSTRUCTIONS : [])
+      .find(c => c.tag === tag || tag.startsWith(c.tag.split('/')[0]+'/')||c.tag.startsWith(tag.split('/')[0]+'/'));
+    if (con && con.legs) {
+      let total = 0;
+      for (const leg of con.legs) {
+        if (!leg.isMx) continue; // FX маржа отдельно
+        const go = (leg.goKey && goOv[leg.goKey]) ? goOv[leg.goKey] : (leg.go || 0);
+        total += go * (leg.ratio || 1);
+      }
+      if (total > 0) return total;
     }
-  } catch(e) {}
+    // Fallback: точный поиск по тегу в goOv (если пользователь вручную сохранил)
+    if (goOv[tag]) return goOv[tag];
+  } catch(e) { console.warn('getGoForTag error:', e); }
   return 0;
 }
 
