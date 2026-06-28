@@ -1268,8 +1268,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '28.06 18:58';
-const BUILD_DATE    = '28.06.2026 18:58 МСК';
+const BUILD_VERSION = '28.06 18:59';
+const BUILD_DATE    = '28.06.2026 18:59 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -12017,8 +12017,10 @@ function switchTab(name, e) {
   if (name === 'feed')     renderFeedTab();
   if (name === 'constructions') renderPositionsTab();
   if (name === 'journal') renderLiveJournal();
+  if (name === 'autolj') renderAutoLj();
   if (name === 'showcase') renderShowcase();
   if (name === 'manual') renderManualRaznos();
+  if (name === 'cycles') renderCycles();
   if (name === 'calc') renderCalc();
   // Синхронизируем мобильный nav
   _syncMobileNav(name);
