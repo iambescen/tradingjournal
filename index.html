@@ -1065,8 +1065,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '28.06 13:09';
-const BUILD_DATE    = '28.06.2026 13:09 МСК';
+const BUILD_VERSION = '28.06 13:22';
+const BUILD_DATE    = '28.06.2026 13:22 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -13702,6 +13702,38 @@ function _renderCalcInner(root) {
   const mxSource = mxBalManual > 0 ? 'вручную' : (mxBalPdf > 0 ? 'из PDF' : (mxDepositBal > 0 ? 'из пополнений' : 'не задан'));
   const fxSource = fxBalManual > 0 ? 'вручную' : (fxBalPdf > 0 ? 'из выгрузки' : (fxDepositBal > 0 ? 'из пополнений' : 'не задан'));
 
+  // ── Калькулятор реального P&L по сделке ──
+  const _dc = (()=>{ try{return JSON.parse(localStorage.getItem('deal_pnl_calc')||'{}');}catch(e){return{};} })();
+  const dealCalcHtml = `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:16px;box-shadow:var(--shadow)">
+    <div style="font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.7px;margin-bottom:12px">P&L по сделке в моменте</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px">
+      <div><div style="font-size:9px;color:var(--text2);margin-bottom:3px">МХ, ₽</div>
+        <input id="dpc_mx" type="number" step="1" placeholder="напр. 1588" value="${_dc.mx||''}"
+          style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg3);color:var(--text1);font-size:13px;box-sizing:border-box;font-family:'SF Mono',monospace"
+          oninput="calcDealPnl()"></div>
+      <div><div style="font-size:9px;color:var(--text2);margin-bottom:3px">FX, $</div>
+        <input id="dpc_fx" type="number" step="0.01" placeholder="напр. -19" value="${_dc.fx||''}"
+          style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg3);color:var(--text1);font-size:13px;box-sizing:border-box;font-family:'SF Mono',monospace"
+          oninput="calcDealPnl()"></div>
+      <div><div style="font-size:9px;color:var(--text2);margin-bottom:3px">Курс $/₽</div>
+        <input id="dpc_rate" type="number" step="0.01" placeholder="напр. 78.91" value="${_dc.rate||rate.toFixed(2)}"
+          style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg3);color:var(--text1);font-size:13px;box-sizing:border-box;font-family:'SF Mono',monospace"
+          oninput="calcDealPnl()"></div>
+    </div>
+    <div style="display:flex;align-items:center;gap:16px;margin-bottom:10px;flex-wrap:wrap">
+      <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--text2);cursor:pointer">
+        <input type="checkbox" id="dpc_payout" ${_dc.payout?'checked':''} onchange="calcDealPnl()" style="cursor:pointer">
+        Пейаут 5% с МХ (если МХ &gt; 0)
+      </label>
+      <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--text2);cursor:pointer">
+        <input type="checkbox" id="dpc_rebal" ${_dc.rebal?'checked':''} onchange="calcDealPnl()" style="cursor:pointer">
+        Ребаланс 6% от объёма FX
+      </label>
+      <button onclick="document.getElementById('dpc_mx').value='';document.getElementById('dpc_fx').value='';localStorage.removeItem('deal_pnl_calc');calcDealPnl()"
+        style="font-size:11px;color:var(--text2);background:none;border:none;cursor:pointer;padding:0">✕ сбросить</button>
+    </div>
+    <div id="dpc_result" style="font-size:12px;color:var(--text2)">Введите данные по сделке</div>
+  </div>`;
   root.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
       <div style="font-size:11px;color:var(--text2)">
@@ -13719,7 +13751,8 @@ function _renderCalcInner(root) {
     </div>
 
     ${openPosDashHtml}
-        ${instrumentsHtml}
+        ${dealCalcHtml}
+    ${instrumentsHtml}
     ${openPosDashHtml}
     ${capitalHtml}
     ${cardsHtml}`;
@@ -14830,6 +14863,65 @@ function recalcSpreads() {
 
 
 // Калькулятор потенциала сделки в карточке Сделок
+// Калькулятор реального P&L по сделке (МХ + FX + пейаут + ребаланс)
+function calcDealPnl() {
+  const mx   = parseFloat(document.getElementById('dpc_mx')?.value) || 0;
+  const fx   = parseFloat(document.getElementById('dpc_fx')?.value) || 0;
+  const rate = parseFloat(document.getElementById('dpc_rate')?.value) || 0;
+  const withPayout = document.getElementById('dpc_payout')?.checked;
+  const withRebal  = document.getElementById('dpc_rebal')?.checked;
+  const resEl = document.getElementById('dpc_result');
+  if (!resEl) return;
+
+  // Сохраняем
+  try {
+    localStorage.setItem('deal_pnl_calc', JSON.stringify({
+      mx: mx||'', fx: fx||'', rate: rate||'',
+      payout: withPayout, rebal: withRebal
+    }));
+  } catch(e) {}
+
+  if (!rate) {
+    resEl.innerHTML = '<span style="color:var(--text2)">Введите курс доллара</span>';
+    return;
+  }
+
+  const fxRub     = fx * rate;                              // FX в рублях
+  const deal      = mx + fxRub;                             // Расчёт сделки
+  const payout    = (withPayout && mx > 0) ? mx * 0.05 : 0;  // 5% пейаут с МХ
+  const rebal     = (withRebal && fx !== 0) ? Math.abs(fxRub) * 0.06 : 0; // 6% ребаланс от объёма FX
+  const total     = deal - payout - rebal;
+
+  const c = v => v >= 0 ? 'var(--green)' : 'var(--red)';
+  const f = v => (v>=0?'+':'') + Math.round(v).toLocaleString('ru') + ' ₽';
+  const fd = v => (v>=0?'+':'') + v.toFixed(2) + ' $';
+
+  resEl.innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:10px">
+      <div style="background:var(--bg3);border-radius:7px;padding:8px 10px">
+        <div style="font-size:9px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Расчёт сделки</div>
+        <div style="font-size:14px;font-weight:700;font-family:'SF Mono',monospace;color:${c(deal)}">${f(deal)}</div>
+        <div style="font-size:10px;color:var(--text2);margin-top:2px">МХ ${f(mx)} + FX ${fd(fx)} × ${rate}</div>
+      </div>
+      <div style="background:var(--bg3);border-radius:7px;padding:8px 10px">
+        <div style="font-size:9px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Пейаут 5%</div>
+        <div style="font-size:14px;font-weight:700;font-family:'SF Mono',monospace;color:${payout>0?'var(--red)':'var(--text2)'}">${payout>0?'−'+Math.round(payout).toLocaleString('ru')+' ₽':'—'}</div>
+        <div style="font-size:10px;color:var(--text2);margin-top:2px">${payout>0?'МХ '+f(mx)+' × 5%':withPayout?'МХ ≤ 0, не применяется':'выключен'}</div>
+      </div>
+      <div style="background:var(--bg3);border-radius:7px;padding:8px 10px">
+        <div style="font-size:9px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Ребаланс 6%</div>
+        <div style="font-size:14px;font-weight:700;font-family:'SF Mono',monospace;color:${rebal>0?'var(--red)':'var(--text2)'}">${rebal>0?'−'+Math.round(rebal).toLocaleString('ru')+' ₽':'—'}</div>
+        <div style="font-size:10px;color:var(--text2);margin-top:2px">${rebal>0?'|'+fd(fx)+'| × '+rate+' × 6%':withRebal?'FX = 0':'выключен'}</div>
+      </div>
+      <div style="background:var(--bg3);border-radius:7px;padding:8px 10px;border:1px solid ${c(total)}33">
+        <div style="font-size:9px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Итого</div>
+        <div style="font-size:18px;font-weight:800;font-family:'SF Mono',monospace;color:${c(total)}">${f(total)}</div>
+        <div style="font-size:10px;color:var(--text2);margin-top:2px">${f(deal)}${payout>0?' − '+Math.round(payout).toLocaleString('ru'):'' }${rebal>0?' − '+Math.round(rebal).toLocaleString('ru'):''}</div>
+      </div>
+    </div>`;
+}
+
+
 function _calcFromEl(el) {
   // Находим родительский div с data-атрибутами
   const wrap = el.closest('[data-calcid]');
