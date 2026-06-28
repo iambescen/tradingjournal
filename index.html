@@ -1065,8 +1065,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '28.06 14:39';
-const BUILD_DATE    = '28.06.2026 14:39 МСК';
+const BUILD_VERSION = '28.06 14:45';
+const BUILD_DATE    = '28.06.2026 14:45 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -13494,17 +13494,6 @@ function _renderCalcInner(root) {
       + (maxUnits > 0 ? ' · Макс ед: <strong style="color:var(--text)">' + maxUnits + '</strong>'
         + (bindingLeg ? ' <span style="color:var(--amber)">(' + bindingLeg + ')</span>' : '') : '')
       + '</div>'
-      // Break-even строка
-      + (function(){
-          if (!pricePerPctFull) return '<div style="font-size:11px;color:var(--text2);margin-bottom:8px;padding:6px 10px;background:var(--bg3);border-radius:6px">📊 Цена спреда: <span style="color:var(--amber)">нет истории сделок по этой связке</span> — потенциал не рассчитан</div>';
-          const tradeCostFull = payoutFixed + carryPerDay * tradeDays;
-          const breakEven = tradeCostFull > 0 ? tradeCostFull / pricePerPctFull : 0;
-          return '<div style="font-size:11px;color:var(--text2);margin-bottom:8px;padding:6px 10px;background:var(--bg3);border-radius:6px">'
-            + '📊 Цена 1% спреда: <b style="color:var(--text);font-family:monospace">' + Math.round(pricePerPctFull).toLocaleString('ru') + ' ₽</b> '
-            + '<span style="color:var(--text2)">(из ' + histSp.samples + ' сделок)</span>'
-            + (breakEven > 0 ? ' · Безубыток: <b style="color:var(--amber);font-family:monospace">' + breakEven.toFixed(3) + '%</b> <span style="color:var(--text2)">сжатия за ' + tradeDays + ' дн.</span>' : '')
-            + '</div>';
-        })()
       // Steps table
       + '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:500px">'
       + '<thead><tr style="font-size:10px;color:var(--text2);text-transform:uppercase;border-bottom:2px solid var(--border)">'
@@ -13816,7 +13805,6 @@ function _renderCalcInner(root) {
     ${capitalHtml}`;
 }
 
-function _renderCalcInner_UNUSED() { /* 1781869415 */ return 1781868151; }
 
 function calcUpdateState(safeTag, field, val) {
   const state = (() => { try { return JSON.parse(localStorage.getItem('calc_state_v1') || '{}'); } catch { return {}; } })();
