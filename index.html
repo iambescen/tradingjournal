@@ -1057,8 +1057,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '28.06 10:13';
-const BUILD_DATE    = '28.06.2026 10:13 МСК';
+const BUILD_VERSION = '28.06 10:22';
+const BUILD_DATE    = '28.06.2026 10:22 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -13953,9 +13953,15 @@ function calcManualSpread(pos, datesUpTo) {
   let fxEntry=0, fxExit=0;
   for (const b in prices) if (prices[b].isFX) { fxEntry=ep(b); fxExit=xp(b); }
 
-  // Расчёт спреда по типу конструкции (та же логика что в calcDiarySpread)
+  // Расчёт спреда по типу конструкции
   const tag = pos.tag;
   let sEntry=null, sExit=null;
+
+  // DEBUG
+  if (tag.includes('URF')) {
+    console.log('[spread debug] tag:', tag, 'fxEntry:', fxEntry, 'fxExit:', fxExit);
+    for (const b in prices) console.log('[spread debug]', b, 'entryVol:', prices[b].entryVol, 'exitVol:', prices[b].exitVol, 'ep:', prices[b].entryVol>0?(prices[b].entrySum/prices[b].entryVol).toFixed(4):0, 'xp:', prices[b].exitVol>0?(prices[b].exitSum/prices[b].exitVol).toFixed(4):0);
+  }
 
   if (tag.includes('SI') && tag.includes('CR') && fxEntry) {
     const si_e=ep('SI-9.26')||ep('Si-9.26')||ep('SI'), cr_e=ep('CNY-9.26')||ep('Cny-9.26')||ep('CR');
