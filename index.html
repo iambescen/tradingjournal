@@ -1057,8 +1057,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '28.06 10:44';
-const BUILD_DATE    = '28.06.2026 10:44 МСК';
+const BUILD_VERSION = '28.06 10:51';
+const BUILD_DATE    = '28.06.2026 10:51 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -11349,6 +11349,26 @@ function buildRowPnl() {
   return rowPnl;
 }
 
+// Очистить разметку текущего дня в Разносе
+function clearDayRaznos() {
+  const date = store._manualDate;
+  if (!date) return;
+  if (!confirm(`Очистить разметку за ${date}? Это удалит все проставленные конструкции этого дня.`)) return;
+  const trades = getCombinedTradesForManual(date);
+  let cleared = 0;
+  for (const t of trades) {
+    const k = manualKey(t);
+    if (store.manualRaznos && store.manualRaznos[k]) {
+      delete store.manualRaznos[k];
+      cleared++;
+    }
+  }
+  saveStore();
+  renderManualRaznos();
+  console.log(`[clearDayRaznos] Очищено ${cleared} строк за ${date}`);
+}
+
+
 function renderManualRaznos() {
   const wrap = document.getElementById('manual-container');
   if (!wrap) return;
@@ -11520,6 +11540,7 @@ function renderManualRaznos() {
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap">
       <select onchange="store._manualDate=this.value;store._manualFilter={};renderManualRaznos()" style="padding:8px 14px;border:1.5px solid var(--border);border-radius:8px;background:var(--bg2);color:var(--text1);font-size:14px;font-weight:600;cursor:pointer;outline:none">${dsel}</select>
       <button onclick="calcManualResults()" style="padding:8px 22px;border:none;border-radius:8px;background:var(--blue);color:#fff;cursor:pointer;font-weight:700;font-size:13px;letter-spacing:.2px;transition:opacity .15s" onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">📊 Рассчитать</button>
+      <button onclick="clearDayRaznos()" style="padding:8px 14px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);color:var(--text2);cursor:pointer;font-size:13px;transition:all .15s" title="Очистить разметку текущего дня">🗑 Очистить день</button>
       <div style="flex:1"></div>
       <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
         <span style="font-size:11px;color:var(--text2);font-weight:500">Фильтр:</span>
@@ -14009,6 +14030,21 @@ function calcManualSpread(pos, datesUpTo) {
 }
 
 
+// Получить ГО для конструкции из Калькулятора
+function getGoForTag(tag) {
+  try {
+    const goOv = JSON.parse(localStorage.getItem('calc_go_v1') || '{}');
+    // Ищем по точному совпадению или по частичному
+    if (goOv[tag]) return goOv[tag];
+    // Пробуем базовый ключ (без набора)
+    for (const k of Object.keys(goOv)) {
+      if (tag.includes(k) || k.includes(tag.split('/')[0])) return goOv[k];
+    }
+  } catch(e) {}
+  return 0;
+}
+
+
 function fixManualPositions(date) {
   if (!store.manualPositions) store.manualPositions = [];
   const rate = getRateForDate(date) || 0;
@@ -14055,10 +14091,14 @@ function fixManualPositions(date) {
         totalFxUsd += u;
         legs.push({ instrument: leg.instrument, platform:'FX', pnlUsd: u, pnlRub: Math.round(u*rate) });
       } else if (_isPerpetual(leg.instrument)) {
-        // Перпетуал: из PDF итога последнего дня
-        const rep = getMxReportForDate(date);
-        const instrRow = (rep?.instruments||[]).find(i=>i.name===leg.instrument);
-        const m = instrRow ? (instrRow.pnl||0) : 0;
+        // Перпетуал: суммируем i.pnl по ВСЕМ дням набора (включая перенос)
+        let m = 0;
+        const posDays = pos.dates.slice().sort();
+        for (const d of posDays) {
+          const rep = getMxReportForDate(d);
+          const instrRow = (rep?.instruments||[]).find(i=>i.name===leg.instrument);
+          if (instrRow) m += instrRow.pnl||0;
+        }
         totalMx += m;
         legs.push({ instrument: leg.instrument, platform:'MX', pnl: m });
       } else {
@@ -14074,6 +14114,12 @@ function fixManualPositions(date) {
     }
     const totalRub = Math.round(totalMx + totalFxUsd * rate);
 
+    // ГО из Калькулятора
+    const goRub = getGoForTag(pos.tag) || 0;
+    const daysCount = Math.max(1, pos.dates.length);
+    const rocPct = goRub > 0 ? (totalRub / goRub * 100) : null;
+    const rocAnnual = rocPct != null ? rocPct * 365 / daysCount : null;
+
     // Считаем спред входа/выхода из разметки — средние цены по сделкам
     // Для каждой ноги берём средневзвешенную цену входа и выхода
     const spreadData = calcManualSpread(pos, datesUpTo);
@@ -14087,6 +14133,9 @@ function fixManualPositions(date) {
       legs, status: 'closed',
       spreadEntry: spreadData.entry,
       spreadExit: spreadData.exit,
+      goRub: goRub || null,
+      rocPct: rocPct,
+      rocAnnual: rocAnnual,
     });
     fixed++;
   }
@@ -14228,6 +14277,7 @@ function renderAutoLj() {
         <div style="text-align:right;flex-shrink:0;margin-left:12px">
           <div class="${isPos?'pos':'neg'}" style="font-weight:700;font-size:16px;font-family:'SF Mono',Consolas,monospace">${fmtRub(pos.pnlRub)}</div>
           <div style="font-size:10px;color:var(--text2);margin-top:2px">MX ${fmtRub(pos.mxRub||0)} · FX ${fmtRub(fxRub)}</div>
+          ${pos.rocPct!=null?`<div style="font-size:11px;font-weight:600;color:${isPos?'var(--green)':'var(--red)'};margin-top:2px">${pos.rocPct>=0?'+':''}${pos.rocPct.toFixed(2)}% · ${pos.rocAnnual!=null?(pos.rocAnnual>=0?'+':'')+pos.rocAnnual.toFixed(0)+'% год.':''}</div>`:''}
         </div>
       </div>
       <div style="display:none;border-top:1px solid var(--border);padding:12px 16px">
