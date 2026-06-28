@@ -367,7 +367,7 @@
 @media (max-width: 768px) {
 
   /* ── Layout ── */
-  .app { padding: 12px 12px 80px; } /* bottom = высота нижнего nav */
+  .app { padding: 12px 12px 130px; } /* bottom = nav(56) + браузерная панель(~56) + запас */
   .header { margin-bottom: 14px; }
   .header h1 { font-size: 15px; letter-spacing: -.3px; }
   .header-right { gap: 8px; }
@@ -1277,8 +1277,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '28.06 18:53';
-const BUILD_DATE    = '28.06.2026 18:53 МСК';
+const BUILD_VERSION = '28.06 18:55';
+const BUILD_DATE    = '28.06.2026 18:55 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -12122,7 +12122,7 @@ setTimeout(() => {
 </div><!-- /main-app -->
 
 <!-- ── Мобильный нижний nav ── -->
-<nav id="mobile-nav" style="display:flex;position:fixed;bottom:0;left:0;right:0;background:var(--bg2);border-top:1px solid var(--border);z-index:99999;padding-bottom:env(safe-area-inset-bottom)">
+<nav id="mobile-nav" style="display:flex;position:fixed;bottom:56px;left:0;right:0;background:var(--bg2);border-top:2px solid var(--blue);border-bottom:1px solid var(--border);z-index:99999;height:56px;align-items:stretch">
   <button onclick="mobileNav('calc')" id="mn-calc" class="active">
     <span class="mn-icon">🧮</span>Калькулятор
   </button>
@@ -12152,6 +12152,7 @@ setTimeout(() => {
     if (!nav) return;
     if (window.innerWidth <= 768) {
       nav.style.display = 'flex';
+      nav.style.bottom = '56px'; // поверх панели Яндекс браузера
     } else {
       nav.style.display = 'none';
     }
