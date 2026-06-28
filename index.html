@@ -1065,8 +1065,8 @@ function toggleTheme() {
 const STORE_KEY = 'trading_journal_v1';
 
 // ── Версия сборки (обновляется при каждом деплое) ──
-const BUILD_VERSION = '28.06 12:00';
-const BUILD_DATE    = '28.06.2026 12:00 МСК';
+const BUILD_VERSION = '28.06 12:04';
+const BUILD_DATE    = '28.06.2026 12:04 МСК';
 function showBuildVersion() {
   const el = document.getElementById('app-build');
   if (!el) return;
@@ -14449,21 +14449,19 @@ function renderAutoLj() {
       const saved = (()=>{ try{return JSON.parse(localStorage.getItem('deal_calc_v1')||'{}');}catch(e){return{};} })();
       const depVal = saved[pos.tag+'_dep'] || '';
       const altVal = saved[pos.tag+'_alt'] || '';
-      return `<div style="padding:10px 0;border-top:1px dashed var(--border);margin-top:4px"
-        data-calcid="${calcId}" data-tag="${pos.tag}" data-go="${goPerUnit}"
-        data-roc="${pos.rocPct??''}" data-se="${pos.spreadEntry??''}" data-sx="${pos.spreadExit??''}">
+      return `<div style="padding:10px 0;border-top:1px dashed var(--border);margin-top:4px">
         <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--text2);margin-bottom:8px">Калькулятор</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
           <div><div style="font-size:9px;color:var(--text2);margin-bottom:3px">Новый депозит МХ (₽)</div>
           <input id="${calcId}_dep" type="number" placeholder="напр. 1500000" value="${depVal}"
-            style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1);font-size:12px;box-sizing:border-box"
-            oninput="_calcFromEl(this)"></div>
+            style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1);font-size:12px;box-sizing:border-box"></div>
           <div><div style="font-size:9px;color:var(--text2);margin-bottom:3px">Альт. спред входа (%)</div>
           <input id="${calcId}_alt" type="number" step="0.001" placeholder="напр. 0.500" value="${altVal}"
-            style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1);font-size:12px;box-sizing:border-box"
-            oninput="_calcFromEl(this)"></div>
+            style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1);font-size:12px;box-sizing:border-box"></div>
         </div>
-        <div id="${calcId}_result" style="font-size:12px;color:var(--text2)">Введите депозит для расчёта</div>
+        <button onclick="calcDealPotential('${calcId}','${pos.tag}',${goPerUnit},${pos.rocPct??null},${pos.spreadEntry??null},${pos.spreadExit??null})"
+          style="padding:5px 14px;border:none;border-radius:6px;background:var(--blue);color:#fff;font-size:11px;font-weight:600;cursor:pointer;margin-bottom:8px">Рассчитать</button>
+        <div id="${calcId}_result" style="font-size:12px;color:var(--text2)"></div>
       </div>`;
     })();
     cards += `<div style="background:var(--bg2);border:1px solid var(--border);border-left:3px solid ${isPos?'var(--green)':'var(--red)'};border-radius:10px;margin-bottom:10px;overflow:hidden;box-shadow:var(--shadow)">
